@@ -1,0 +1,20 @@
+diff --git a/node_modules/prismarine-chunk/src/pc/1.18/ChunkColumn.js b/node_modules/prismarine-chunk/src/pc/1.18/ChunkColumn.js
+index 5f50220..d67c405 100644
+--- a/node_modules/prismarine-chunk/src/pc/1.18/ChunkColumn.js
++++ b/node_modules/prismarine-chunk/src/pc/1.18/ChunkColumn.js
+@@ -12,7 +12,14 @@ const CAVES_UPDATE_WORLD_HEIGHT = 384
+ module.exports = (Block, mcData) => {
+   // 1.21.5+ writes no size prefix before chunk containers, it's computed dynamically to save 1 byte
+   const noSizePrefix = mcData.version['>=']('1.21.5')
+-  const hasFluidCount = mcData.version['>=']('26.1')
++  // [ai-player] minecraft-data 3.98.0 has no '26.1'; version['>=']('26.1') throws.
++  // Safe fallback: treat as pre-26.1 (hasFluidCount false) when the version key is missing.
++  let hasFluidCount = false
++  try {
++    hasFluidCount = mcData.version['>=']('26.1')
++  } catch (e) {
++    hasFluidCount = false
++  }
+   const ChunkSection = require('../common/PaletteChunkSection')(Block)
+   return class ChunkColumn extends CommonChunkColumn {
+     static get section () { return ChunkSection }

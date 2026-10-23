@@ -27,6 +27,7 @@ import { installPhysicsGuard, memStatus, heapGuard } from './library/stability.j
 import { escapeUp, gotoChecked } from './library/escape.js';
 import { HomeRoutes } from './library/home_route.js';
 import { Failures } from './library/failures.js';
+import { attachBobBrain } from './library/bob_brain.js';
 
 // [ai-player] read-only: doors, gates and pressure plates around the front door (-820 124 566), for the log
 function frontDoorState(bot) {
@@ -95,6 +96,7 @@ export class Agent {
 
         console.log(this.name, 'logging into minecraft...');
         this.bot = initBot(this.name);
+        try { attachBobBrain(this); } catch (err) { console.warn(`[bob-brain] disabled: ${err?.message || err}`); }
         installPhysicsGuard(this.bot); // [ai-player] stability.js: clamp runaway velocity (hang/OOM fix)
         this.escape = { up: escapeUp, gotoChecked }; // [ai-player] item 3: staircase escape + checked routes
         try { this.home = new HomeRoutes(this); } catch (e) { console.warn('[ai-player] home-route disabled:', e.message); this.home = null; } // item 4
@@ -116,7 +118,7 @@ export class Agent {
                 if (this._spawned && (beats++ % 6) === 0) {
                     try {
                         const p = this.bot.entity?.position;
-                        console.log(`[ai-player] status pos=${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'} health=${Math.round(this.bot.health ?? -1)} food=${Math.round(this.bot.food ?? -1)} action=${this.actions?.currentActionLabel || '-'} time=${this.bot.time?.timeOfDay ?? '?'} ${memStatus(this)}`);
+                        console.log(`[ai-player] status pos=${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'} health=${Math.round(this.bot.health ?? -1)} food=${Math.round(this.bot.food ?? -1)} action=${this.actions?.currentActionLabel || '-'} time=${this.bot.time?.timeOfDay ?? '?'} ${memStatus(this)}${this.bobBrain?.statusSuffix?.() || ''}`);
                     } catch (_) {}
                 }
                 try { heapGuard(this); } catch (_) {}

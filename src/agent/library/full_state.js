@@ -57,6 +57,11 @@ export function getFullState(agent) {
             current: agent.isIdle() ? 'Idle' : agent.actions.currentActionLabel,
             isIdle: agent.isIdle()
         },
+        goal: {
+            state: agent.self_prompter?.isPaused() ? 'paused'
+                : agent.self_prompter?.isActive() ? 'active' : 'stopped',
+            prompt: String(agent.self_prompter?.prompt || '').slice(0, 250),
+        },
         surroundings: {
             below,
             legs,

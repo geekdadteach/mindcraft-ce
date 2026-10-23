@@ -1,0 +1,25 @@
+name: Bob Brain Client Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-bob-brain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax validation
+        run: |
+          node --check src/agent/library/bob_brain.js
+          node --check src/agent/agent.js
+          node --check src/models/prompter.js
+          node --check test/bob_brain.test.js
+      - name: Test Bob Brain client
+        run: node --test test/bob_brain.test.js

@@ -166,8 +166,14 @@ export class Prompter {
         }
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
+        // [bob-brain] unverified advisory note only. It is prompt text, never a command to run.
+        let brainNote = '';
+        try { brainNote = this.agent.bobBrain?.adviceBlock?.() || ''; }
+        catch { brainNote = ''; }
         if (prompt.includes('$LONG_MEMORY'))
-            prompt = prompt.replaceAll('$LONG_MEMORY', [this.agent.longMemory ? await this.agent.longMemory.promptBlock(messages) : '', this.agent.failures?.promptBlock() || ''].filter(Boolean).join('\n')); // [ai-player] item 5: + recent failures
+            prompt = prompt.replaceAll('$LONG_MEMORY', [this.agent.longMemory ? await this.agent.longMemory.promptBlock(messages) : '', this.agent.failures?.promptBlock() || '', brainNote].filter(Boolean).join('\n')); // [ai-player] item 5: + recent failures
+        else if (brainNote)
+            prompt += '\n' + brainNote;
         if (prompt.includes('$MEMORY'))
             prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
         if (prompt.includes('$TO_SUMMARIZE'))

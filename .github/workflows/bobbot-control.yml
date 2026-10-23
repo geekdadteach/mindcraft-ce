@@ -1,0 +1,25 @@
+name: BobBot MindServer Control Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-bobbot-control:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax validation
+        run: |
+          node --check src/mindcraft/bobbot_control.js
+          node --check src/mindcraft/mindserver.js
+          node --check src/agent/bobbot_control.js
+          node --check src/agent/mindserver_proxy.js
+      - name: Test isolated control relay
+        run: node --test test/bobbot_control.test.js

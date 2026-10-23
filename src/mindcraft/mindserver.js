@@ -4,6 +4,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as mindcraft from './mindcraft.js';
+import { createControlRelay, loadControlSecret } from './bobbot_control.js';
 import { readFileSync, watchFile, unwatchFile, openSync, readSync, closeSync, fstatSync } from 'fs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -123,6 +124,11 @@ export function createMindServer(host_public = false, port = 8080) {
     const app = express();
     server = http.createServer(app);
     io = new Server(server);
+    // No BobBot control is possible without a configured private secret.
+    // Existing web/agent Socket.IO events are unchanged for compatibility.
+    const bobbotControl = createControlRelay(agent_connections, {
+        secret: loadControlSecret(),
+    });
 
     // Serve static files
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -131,6 +137,8 @@ export function createMindServer(host_public = false, port = 8080) {
     // Socket.io connection handling
     io.on('connection', (socket) => {
         let curAgentName = null;
+        bobbotControl.attachClient(socket);
+        bobbotControl.attachAgent(socket);
         console.log('Client connected');
 
         agentsStatusUpdate(socket);

@@ -2,6 +2,13 @@
 
 **Snapshot:** 2026-10-24. Verify repository and live state before changing anything.
 
+## 2026-10-23 — Proposed opt-in Mindcraft receipt log rotation (ChatGPT)
+- **Source-only branch:** `feature/v2-receipt-rotation-review-20261023` based on open `cursor/bob-v2-receipts-14bd` (Mindcraft PR #6), **not deployed or merged**. No model, MindServer, Minecraft, Discord, OS service or secret modified.
+- **Reason:** Original version-1 event writer stopped permanently at 1 MiB, preventing long-term V2 receipt collection. BobBot V2 now has a separate multi-source reader and archive-aware cursor tracking.
+- **Change:** `src/agent/library/bob_brain_v2.js` adds `BOB_BRAIN_V2_ROTATE_LOG=1` explicit opt-in, with a max four numbered archive files `.1`–`.4`, symlink/mode checks, safe close/rename/reopen, and fail-closed filesystem errors. When unset it preserves the original 1 MiB cap. `test/bob_brain_v2.test.js` adds rotation and unsafe-archive regression tests. See `docs/BOB_V2_RECEIPT_ROTATION.md`.
+- **Limitations:** Bounded retention can still lose older receipts under sustained high volume; V2's separate review PR records gaps. It does not give proof of learning. No live test or Mindcraft restart occurred. Privately installed configuration and real-world file permission tests require owner authorization. Restore the base branch, or unset rotation flag, to roll back.
+- **Next:** Review/test this branch; keep PR draft; reconcile with V2 ingestion PR, check CI, then obtain specific owner approval for any future deployed producer changes.
+
 ## Role of this repo
 - Home of Bob's **game code** (Mindcraft CE + NewEarth changes). Public.
 - The private repo `geekdadteach/minebob` holds ops (scripts, Discord control bot, reset-watcher, systemd units, polkit, Bob Brain queue source), config/profiles, docs, AI handoff rules, and the record of **which commit of this fork is live**.

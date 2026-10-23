@@ -1,25 +1,26 @@
 diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflayer-pathfinder/index.js
+index b38bd30..eea1ec1 100644
 --- a/node_modules/mineflayer-pathfinder/index.js
 +++ b/node_modules/mineflayer-pathfinder/index.js
-@@ -61,6 +61,7 @@
+@@ -61,6 +61,7 @@ function inject (bot) {
    }
-
+ 
    bot.pathfinder.getPathTo = (movements, goal, timeout) => {
 +    movements.updateLavaAvoidance()
      const generator = bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal, { timeout })
      const { value: { result, astarContext: context } } = generator.next()
      astarContext = context
-@@ -160,6 +161,9 @@
+@@ -160,6 +161,9 @@ function inject (bot) {
    }
-
+ 
    bot.pathfinder.stop = () => {
 +    // Nothing is running, so there is nothing to stop; the flag would otherwise survive until the
 +    // next goal and stop that one instead.
 +    if (!stateGoal && path.length === 0) return
      stopPathing = true
    }
-
-@@ -168,9 +172,16 @@
+ 
+@@ -168,9 +172,16 @@ function inject (bot) {
    function postProcessPath (path) {
      for (let i = 0; i < path.length; i++) {
        const curPoint = path[i]
@@ -38,15 +39,42 @@ diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflay
          curPoint.x = Math.floor(curPoint.x) + 0.5
          curPoint.y = Math.floor(curPoint.y)
          curPoint.z = Math.floor(curPoint.z) + 0.5
-@@ -524,6 +535,7 @@
-         bot.activateBlock(bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z))).then(() => {
+@@ -397,7 +408,11 @@ function inject (bot) {
+ 
+   bot.on('blockUpdate', (oldBlock, newBlock) => {
+     if (!oldBlock || !newBlock) return
+-    if (isPositionNearPath(oldBlock.position, path) && oldBlock.type !== newBlock.type) {
++    // [ai-player] also replan when a door/gate on the path opens or closes (pressure plate, another player): same type,
++    // different state, so the type check alone missed it
++    const openChanged = stateMovements && stateMovements.openable && stateMovements.openable.has(newBlock.type) &&
++      oldBlock.type === newBlock.type && oldBlock.getProperties().open !== newBlock.getProperties().open
++    if (isPositionNearPath(oldBlock.position, path) && (oldBlock.type !== newBlock.type || openChanged)) {
+       resetPath('block_updated', false)
+     }
+   })
+@@ -520,10 +535,20 @@ function inject (bot) {
+ 
+       // Open gates or doors
+       if (placingBlock?.useOne) {
++        // [ai-player] backport of upstream PR #395 (open): re-read the block before the click. If it is already open
++        // (pressure plate, another player), clicking would shut it in the bot's face, so treat the node as done.
++        const useBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z))
++        if (useBlock && stateMovements.openable.has(useBlock.type) && useBlock.getProperties().open) {
++          placingBlock = nextPoint.toPlace.shift()
++          if (!placingBlock) placing = false
++          lastNodeTime = performance.now()
++          return
++        }
+         if (!lockUseBlock.tryAcquire()) return
+-        bot.activateBlock(bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z))).then(() => {
++        bot.activateBlock(useBlock).then(() => {
            lockUseBlock.release()
            placingBlock = nextPoint.toPlace.shift()
 +          if (!placingBlock) placing = false
          }, err => {
            console.error(err)
            lockUseBlock.release()
-@@ -557,6 +569,7 @@
+@@ -557,6 +582,7 @@ function inject (bot) {
                .then(function () {
                  // Dont release Sneak if the block placement was not successful
                  bot.setControlState('sneak', false)
@@ -54,112 +82,38 @@ diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflay
                  if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
                })
                .catch(_ignoreError => {
-@@ -609,6 +622,9 @@
-     bot.setControlState('jump', false)
-
+@@ -611,6 +637,9 @@ function inject (bot) {
      if (bot.entity.isInWater) {
-+      bot.setControlState('jump', true)
-+      bot.setControlState('sprint', false)
-+    } else if (bot.entity.isInLava) {
        bot.setControlState('jump', true)
        bot.setControlState('sprint', false)
++    } else if (bot.entity.isInLava) {
++      bot.setControlState('jump', true)
++      bot.setControlState('sprint', false)
      } else if (stateMovements.allowSprinting && physics.canStraightLine(path, true)) {
-diff --git a/node_modules/mineflayer-pathfinder/lib/movements.js b/node_modules/mineflayer-pathfinder/lib/movements.js
---- a/node_modules/mineflayer-pathfinder/lib/movements.js
-+++ b/node_modules/mineflayer-pathfinder/lib/movements.js
-@@ -50,7 +50,7 @@
-     this.blocksToAvoid.add(registry.blocksByName.fire.id)
-     if (registry.blocksByName.cobweb) this.blocksToAvoid.add(registry.blocksByName.cobweb.id)
-     if (registry.blocksByName.web) this.blocksToAvoid.add(registry.blocksByName.web.id)
--    this.blocksToAvoid.add(registry.blocksByName.lava.id)
-+    this.updateLavaAvoidance()
-
-     this.liquids = new Set()
-     this.liquids.add(registry.blocksByName.water.id)
-@@ -62,7 +62,7 @@
-
-     this.climbables = new Set()
-     this.climbables.add(registry.blocksByName.ladder.id)
--    // this.climbables.add(registry.blocksByName.vine.id)
-+    this.climbables.add(registry.blocksByName.vine.id)
-     this.emptyBlocks = new Set()
-
-     this.replaceables = new Set()
-@@ -92,13 +92,13 @@
-       }
-     })
-     registry.blocksArray.forEach(block => {
--      if (this.interactableBlocks.has(block.name) && block.name.toLowerCase().includes('gate') && !block.name.toLowerCase().includes('iron')) {
-+      if (this.interactableBlocks.has(block.name) && (block.name.endsWith('_fence_gate') || block.name.endsWith('_door')) && !block.name.toLowerCase().includes('iron')) {
-         // console.info(block)
-         this.openable.add(block.id)
-       }
-     })
-
--    this.canOpenDoors = false // Causes issues. Probably due to none paper servers.
-+    this.canOpenDoors = true
-
-     this.exclusionAreasStep = []
-     this.exclusionAreasBreak = []
-@@ -284,6 +284,7 @@
-     cost += this.exclusionStep(block) // Is excluded so can't move or break
-     cost += this.getNumEntitiesAt(block.position, 0, 0, 0) * this.entityCost
-     if (block.safe) return cost
-+    if (this.canOpenDoors && block.openable) return cost
-     if (!this.safeToBreak(block)) return 100 // Can't break, so can't move
-     toBreak.push(block.position)
-
-@@ -379,7 +380,7 @@
-         cost += this.exclusionBreak(blockD)
-         toBreak.push(blockD.position)
-       }
--      cost += this.exclusionPlace(blockC)
-+      cost += this.exclusionPlace(blockD)
-       toPlace.push({ x: node.x, y: node.y - 1, z: node.z, dx: dir.x, dy: 0, dz: dir.z })
-       cost += this.placeCost // additional cost for placing a block
-     }
-@@ -388,7 +389,7 @@
-     if (cost > 100) return
-
-     // Open fence gates
--    if (this.canOpenDoors && blockC.openable && blockC.shapes && blockC.shapes.length !== 0) {
-+    if (this.canOpenDoors && blockC.openable && !blockC.getProperties().open) {
-       toPlace.push({ x: node.x + dir.x, y: node.y, z: node.z + dir.z, dx: 0, dy: 0, dz: 0, useOne: true }) // Indicate that a block should be used on this block not placed
-     } else {
-       cost += this.safeOrBreak(blockC, toBreak)
-@@ -658,6 +659,12 @@
-
-     return neighbors
-   }
-+
-+  updateLavaAvoidance () {
-+    const lavaId = this.bot.registry.blocksByName.lava.id
-+    if (this.bot.entity?.isInLava) this.blocksToAvoid.delete(lavaId)
-+    else this.blocksToAvoid.add(lavaId)
-+  }
- }
-
- module.exports = Movements
+       bot.setControlState('jump', false)
+       bot.setControlState('sprint', true)
 diff --git a/node_modules/mineflayer-pathfinder/lib/goals.js b/node_modules/mineflayer-pathfinder/lib/goals.js
+index cc6d875..81296cf 100644
 --- a/node_modules/mineflayer-pathfinder/lib/goals.js
 +++ b/node_modules/mineflayer-pathfinder/lib/goals.js
-@@ -212,8 +212,8 @@
+@@ -212,8 +212,8 @@ class GoalBreakBlock extends Goal {
      this.goal = new GoalLookAtBlock(new Vec3(x, y, z), bot, options)
    }
-
+ 
 -  isEnd () {
 -    return this.goal.isEnd()
 +  isEnd (node) {
 +    return this.goal.isEnd(node)
    }
-
+ 
    heuristic (node) {
 diff --git a/node_modules/mineflayer-pathfinder/lib/goto.js b/node_modules/mineflayer-pathfinder/lib/goto.js
+index 0b8b9de..994129f 100644
 --- a/node_modules/mineflayer-pathfinder/lib/goto.js
 +++ b/node_modules/mineflayer-pathfinder/lib/goto.js
-@@ -20,12 +20,14 @@
+@@ -20,12 +20,14 @@ function goto (bot, goal) {
      }
-
+ 
      function noPathListener (results) {
 -      if (results.path.length === 0) {
 -        cleanup()
@@ -174,14 +128,119 @@ diff --git a/node_modules/mineflayer-pathfinder/lib/goto.js b/node_modules/minef
 +        cleanup()
        }
      }
-
-@@ -44,6 +46,9 @@
-       bot.removeListener('path_update', noPathListener)
+ 
+@@ -45,6 +47,9 @@ function goto (bot, goal) {
        bot.removeListener('goal_updated', goalChangedListener)
        bot.removeListener('path_stop', pathStopped)
-+
+ 
 +      // A failed search must not leave an active goal behind.
 +      if (err && bot.pathfinder.goal === goal) bot.pathfinder.setGoal(null)
-
++
        // Run callback on next event stack to let pathfinder properly cleanup,
        // otherwise chaining waypoints does not work properly.
+       setTimeout(() => {
+diff --git a/node_modules/mineflayer-pathfinder/lib/movements.js b/node_modules/mineflayer-pathfinder/lib/movements.js
+index a7e3505..b6cbf5f 100644
+--- a/node_modules/mineflayer-pathfinder/lib/movements.js
++++ b/node_modules/mineflayer-pathfinder/lib/movements.js
+@@ -50,7 +50,7 @@ class Movements {
+     this.blocksToAvoid.add(registry.blocksByName.fire.id)
+     if (registry.blocksByName.cobweb) this.blocksToAvoid.add(registry.blocksByName.cobweb.id)
+     if (registry.blocksByName.web) this.blocksToAvoid.add(registry.blocksByName.web.id)
+-    this.blocksToAvoid.add(registry.blocksByName.lava.id)
++    this.updateLavaAvoidance()
+ 
+     this.liquids = new Set()
+     this.liquids.add(registry.blocksByName.water.id)
+@@ -62,7 +62,7 @@ class Movements {
+ 
+     this.climbables = new Set()
+     this.climbables.add(registry.blocksByName.ladder.id)
+-    // this.climbables.add(registry.blocksByName.vine.id)
++    this.climbables.add(registry.blocksByName.vine.id)
+     this.emptyBlocks = new Set()
+ 
+     this.replaceables = new Set()
+@@ -92,13 +92,13 @@ class Movements {
+       }
+     })
+     registry.blocksArray.forEach(block => {
+-      if (this.interactableBlocks.has(block.name) && block.name.toLowerCase().includes('gate') && !block.name.toLowerCase().includes('iron')) {
++      if (this.interactableBlocks.has(block.name) && (block.name.endsWith('_fence_gate') || block.name.endsWith('_door')) && !block.name.toLowerCase().includes('iron')) {
+         // console.info(block)
+         this.openable.add(block.id)
+       }
+     })
+ 
+-    this.canOpenDoors = false // Causes issues. Probably due to none paper servers.
++    this.canOpenDoors = true
+ 
+     this.exclusionAreasStep = []
+     this.exclusionAreasBreak = []
+@@ -284,6 +284,7 @@ class Movements {
+     cost += this.exclusionStep(block) // Is excluded so can't move or break
+     cost += this.getNumEntitiesAt(block.position, 0, 0, 0) * this.entityCost
+     if (block.safe) return cost
++    if (this.canOpenDoors && block.openable) return cost
+     if (!this.safeToBreak(block)) return 100 // Can't break, so can't move
+     toBreak.push(block.position)
+ 
+@@ -379,7 +380,7 @@ class Movements {
+         cost += this.exclusionBreak(blockD)
+         toBreak.push(blockD.position)
+       }
+-      cost += this.exclusionPlace(blockC)
++      cost += this.exclusionPlace(blockD)
+       toPlace.push({ x: node.x, y: node.y - 1, z: node.z, dx: dir.x, dy: 0, dz: dir.z })
+       cost += this.placeCost // additional cost for placing a block
+     }
+@@ -388,7 +389,7 @@ class Movements {
+     if (cost > 100) return
+ 
+     // Open fence gates
+-    if (this.canOpenDoors && blockC.openable && blockC.shapes && blockC.shapes.length !== 0) {
++    if (this.canOpenDoors && blockC.openable && !blockC.getProperties().open) {
+       toPlace.push({ x: node.x + dir.x, y: node.y, z: node.z + dir.z, dx: 0, dy: 0, dz: 0, useOne: true }) // Indicate that a block should be used on this block not placed
+     } else {
+       cost += this.safeOrBreak(blockC, toBreak)
+@@ -656,7 +657,39 @@ class Movements {
+     this.getMoveDown(node, neighbors)
+     this.getMoveUp(node, neighbors)
+ 
+-    return neighbors
++    return neighbors.filter(move => this.doorAllowsMove(node, move))
++  }
++
++  // [ai-player] A door or gate can only be walked through along its facing axis (in and out of its front and back),
++  // never sideways into the panel and never diagonally, whether it is open or closed. Without this the planner went
++  // into the door block from the side and Bob stood against the open panel (stuck at -821/-819 124 566, Oct 20).
++  doorAllowsMove (node, move) {
++    const dx = Math.sign(move.x - node.x)
++    const dz = Math.sign(move.z - node.z)
++    if (dx === 0 && dz === 0) return true // straight up or down
++    const diagonal = dx !== 0 && dz !== 0
++    const cols = [[node.x, node.z], [move.x, move.z]]
++    if (diagonal) cols.push([node.x + dx, node.z], [node.x, node.z + dz])
++    for (let x = node.x + dx, z = node.z + dz; !diagonal && (x !== move.x || z !== move.z); x += dx, z += dz) cols.push([x, z]) // parkour gap
++    const y0 = Math.min(node.y, move.y)
++    const y1 = Math.max(node.y, move.y) + 1
++    for (const [x, z] of cols) {
++      for (let y = y0; y <= y1; y++) {
++        const b = this.getBlock({ x, y, z }, 0, 0, 0)
++        if (!b.openable) continue
++        if (diagonal) return false
++        const facing = b.getProperties().facing
++        const alongX = facing === 'east' || facing === 'west'
++        if (alongX ? dz !== 0 : dx !== 0) return false
++      }
++    }
++    return true
++  }
++
++  updateLavaAvoidance () {
++    const lavaId = this.bot.registry.blocksByName.lava.id
++    if (this.bot.entity?.isInLava) this.blocksToAvoid.delete(lavaId)
++    else this.blocksToAvoid.add(lavaId)
+   }
+ }
+ 

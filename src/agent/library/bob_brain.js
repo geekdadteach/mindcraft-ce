@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
+import { BobV2Receipts, TRACE_ID_RE } from './bob_brain_v2.js';
 
 export const DEFAULT_BRAIN_URL = 'http://127.0.0.1:8765';
 export const LOW_HEALTH = 6;
@@ -259,8 +260,12 @@ export function resolveBobBrainConfig(env = process.env) {
 
 function asJobId(id) {
     if (typeof id === 'number' && Number.isSafeInteger(id)) id = String(id);
-    if (typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,80}$/.test(id)) return id;
+    if (typeof id === 'string' && TRACE_ID_RE.test(id)) return id;
     return null;
+}
+
+function storedTraceId(id) {
+    return asJobId(id);
 }
 
 function positionOf(bot) {
@@ -331,6 +336,13 @@ export class BobBrain {
         this._deathTimer = null;
         this._pollTimer = null;
         this._stopped = false;
+        this.receipts = options.receipts || new BobV2Receipts({
+            env: options.env || process.env,
+            log: this.log,
+            maxBytes: options.v2MaxBytes,
+            now: () => this.now(),
+            secrets: () => (this.config?.token ? [this.config.token] : []),
+        });
         if (this.config.enabled && typeof this.fetchImpl !== 'function') {
             this.config = { enabled: false, rejected: true, reason: 'fetch is not available' };
         }
@@ -362,6 +374,23 @@ export class BobBrain {
         if (this._deathTimer) clearTimeout(this._deathTimer);
         this._pollTimer = null;
         this._deathTimer = null;
+        try { this.receipts?.close(); } catch { /* receipts must not affect shutdown */ }
+    }
+
+    // Final assembled prompt. Emits advice_injected only after the stored line
+    // is found in that string. armAction is set by the conversation prompter.
+    observeAssembledPrompt(prompt, opts) {
+        try { return this.receipts.observePrompt(this, prompt, opts || {}); }
+        catch { return null; }
+    }
+
+    supersedeTurn() {
+        try { this.receipts.supersedeTurn(); } catch { /* ignore */ }
+    }
+
+    commitPromptTurn(token) {
+        try { return this.receipts.commitTurn(token) === true; }
+        catch { return false; }
     }
 
     startPolling() {
@@ -478,7 +507,7 @@ export class BobBrain {
                 const job = res.json.job;
                 const state = String(job.status || '').toLowerCase();
                 if (state === 'review') {
-                    this._storeAdvice(job);
+                    this._storeAdvice(job, id);
                     this._jobs.delete(id);
                     this.counters.jobs_review++;
                 } else if (state === 'failed') {
@@ -782,31 +811,43 @@ export class BobBrain {
         this._jobs.set(id, { ...meta, at: this.now() });
     }
 
-    _storeAdvice(job) {
-        const text = toAdvisoryText(job?.result, job?.kind).slice(0, this.maxAdviceChars);
+    _storeAdvice(job, trackedId) {
+        const full = toAdvisoryText(job?.result, job?.kind);
+        const text = full.slice(0, this.maxAdviceChars);
+        const shownId = String(trackedId ?? job?.id ?? '');
+        const kind = clip(job?.kind || 'note', 40);
         if (!text || text === '[removed]') {
             const invalid = job?.result?.validation?.valid === false;
-            this.log.log(`[bob-brain] job ${job?.id || '?'} review ${invalid ? 'failed validation; skipped' : 'had no usable advice'}`);
+            const reason = invalid ? 'validation_invalid' : (full === '[removed]' ? 'stripped' : 'empty');
+            hook(() => this.receipts.onAdviceDropped({ jobId: shownId, kind }, reason));
+            this.log.log(`[bob-brain] job ${shownId || '?'} review ${invalid ? 'failed validation; skipped' : 'had no usable advice'}`);
             return;
         }
+        const traceId = storedTraceId(trackedId) || storedTraceId(job?.id);
         this._advice.push({
             at: this.now(),
-            jobId: String(job.id),
-            kind: clip(job.kind || 'note', 40),
+            jobId: traceId || shownId,
+            kind,
             text,
+            truncated: full.length > text.length,
         });
-        while (this._advice.length > this.maxAdvice) this._advice.shift();
+        while (this._advice.length > this.maxAdvice) {
+            const dropped = this._advice.shift();
+            hook(() => this.receipts.onAdviceDropped(dropped, 'cap', this.maxAdvice));
+        }
         this.counters.advice++;
-        this.log.log(`[bob-brain] stored unverified advice for job ${job.id} (${text.length} chars)`);
+        this.log.log(`[bob-brain] stored unverified advice for job ${traceId || shownId} (${text.length} chars)`);
     }
 }
 
 export function attachBobBrain(agent, options = {}) {
     if (agent._bobBrainAttached && agent.bobBrain) return agent.bobBrain;
     agent._bobBrainAttached = true;
-    const config = options.config || resolveBobBrainConfig(options.env || process.env);
-    const brain = new BobBrain(config, options);
+    const env = options.env || process.env;
+    const config = options.config || resolveBobBrainConfig(env);
+    const brain = new BobBrain(config, { ...options, env });
     agent.bobBrain = brain;
+    try { brain.receipts.reportStartup(); } catch { /* receipts must not affect startup */ }
     if (!config.enabled) {
         const line = `[bob-brain] disabled: ${config.reason}`;
         if (config.rejected) brain.log.warn(line);

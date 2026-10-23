@@ -5,7 +5,7 @@ Append one dated entry per logical change, newest first. Never erase prior entri
 ### 2026-10-23 — MineBob — Branch cursor/bob-brain-advice-1dc4 (proposed)
 - **Why:** A live queue test of PR #4 (`caa179a`) stored review results as a truncated JSON dump. Advice was also appended to every prompt, including memory-saving and coding. Scripts had to call private enqueue helpers.
 - **Done:** `toAdvisoryText` prefers `summary`, otherwise renders a plan (footprint, wall height, materials, stage titles) or a failure analysis (cause, lesson, first two checks), and skips `validation.valid === false`. Public `enqueuePlan`, `enqueueFailureAnalysis`, `currentAdvice`, and `status`. Conversation prompt (`$LONG_MEMORY`) is the only injection point. Docs and unit tests updated.
-- **Live state:** Not deployed. No service or process change. PR #4 remains the merged client on `newearth/main`.
+- **Live state:** Not deployed. No service or process change. Opened as PR #5. PR #4 remains the merged client on `newearth/main`.
 - **Rollback:** Revert this branch. `caa179a` keeps the previous client.
 
 ### 2026-10-23 — MineBob — Branch cursor/bob-brain-client-1dc4 (proposed)

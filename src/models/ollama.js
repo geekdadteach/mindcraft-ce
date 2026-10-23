@@ -7,7 +7,7 @@ export class Ollama {
         this.params = params;
         this.url = url || 'http://127.0.0.1:11434';
         this.chat_endpoint = '/api/chat';
-        this.embedding_endpoint = '/api/embeddings';
+        this.embedding_endpoint = '/api/embed'; // [ai-player] /api/embed takes {input}, returns {embeddings}
     }
 
     async sendRequest(turns, systemMessage) {
@@ -72,7 +72,9 @@ export class Ollama {
         let model = this.model_name || 'embeddinggemma';
         let body = { model: model, input: text };
         let res = await this.send(this.embedding_endpoint, body);
-        return res['embedding'];
+        const embedding = res?.embeddings?.[0];
+        if (!Array.isArray(embedding)) throw new Error('Ollama returned no embedding.');
+        return embedding;
     }
 
     async send(endpoint, body) {
@@ -96,20 +98,29 @@ export class Ollama {
     }
 
     async sendVisionRequest(messages, systemMessage, imageBuffer) {
-        const imageMessages = [...messages];
-        imageMessages.push({
-            role: "user",
-            content: [
-                { type: "text", text: systemMessage },
-                {
-                    type: "image_url",
-                    image_url: {
-                        url: `data:image/jpeg;base64,${imageBuffer.toString('base64')}`
-                    }
-                }
-            ]
+        // Ollama's native /api/chat takes images as a base64 list on the message itself
+        // (no data: URI prefix); the OpenAI-style image_url content array is not understood.
+        const model = this.model_name;
+        const chatMessages = strictFormat(messages.map(m => ({ ...m })));
+        chatMessages.unshift({ role: 'system', content: systemMessage });
+        chatMessages.push({
+            role: 'user',
+            content: systemMessage,
+            images: [imageBuffer.toString('base64')]
         });
-        
-        return this.sendRequest(imageMessages, systemMessage);
+
+        const started = Date.now();
+        const apiResponse = await this.send(this.chat_endpoint, {
+            model: model,
+            messages: chatMessages,
+            stream: false,
+            ...(this.params || {})
+        });
+        console.log(`Ollama vision response in ${((Date.now() - started) / 1000).toFixed(1)}s (model: ${model})`);
+
+        let res = apiResponse?.message?.content;
+        if (!res) return 'No response data.';
+        res = res.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        return res;
     }
 }

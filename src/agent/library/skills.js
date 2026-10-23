@@ -7,6 +7,9 @@ import settings from "../../../settings.js";
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
 
+// [ai-player] true when a newer action started after generation g (see ActionManager): abandoned loops must quit
+export function superseded(bot, g) { return g !== undefined && bot._actionGen !== g; }
+
 export function log(bot, message) {
     bot.output += message + '\n';
 }
@@ -27,7 +30,7 @@ async function equipHighestAttack(bot) {
         weapons = bot.inventory.items().filter(item => item.name.includes('pickaxe') || item.name.includes('shovel'));
     if (weapons.length === 0)
         return;
-    weapons.sort((a, b) => a.attackDamage < b.attackDamage);
+    weapons.sort((a, b) => b.attackDamage - a.attackDamage); // [ai-player] backport 16e8d06
     let weapon = weapons[0];
     if (weapon)
         await bot.equip(weapon, 'hand');
@@ -353,10 +356,14 @@ export async function attackEntity(bot, entity, kill=true) {
         await bot.attack(entity);
     }
     else {
+        const gen = bot._actionGen;
+        const started = Date.now();
         bot.pvp.attack(entity);
         while (world.getNearbyEntities(bot, 24).includes(entity)) {
             await new Promise(resolve => setTimeout(resolve, 1000));
-            if (bot.interrupt_code) {
+            // [ai-player] quit when superseded, and give up a chase after 45 s (unreachable target in a cave)
+            if (bot.interrupt_code || superseded(bot, gen) || Date.now() - started > 45000) {
+                if (Date.now() - started > 45000) log(bot, `Gave up attacking ${entity.name} after 45 s (could not reach it).`);
                 bot.pvp.stop();
                 return false;
             }
@@ -379,8 +386,9 @@ export async function defendSelf(bot, range=9) {
     bot.modes.pause('self_defense');
     bot.modes.pause('cowardice');
     let attacked = false;
+    const gen = bot._actionGen;
     let enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), range);
-    while (enemy) {
+    while (enemy && !superseded(bot, gen)) {
         await equipHighestAttack(bot);
         if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
             try {
@@ -441,6 +449,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
     const isLiquid = blockType === 'lava' || blockType === 'water';
 
     let collected = 0;
+    const gen = bot._actionGen;
 
     const movements = new pf.Movements(bot);
     movements.dontMineUnderFallingBlock = false;
@@ -521,7 +530,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
             }
         }
         
-        if (bot.interrupt_code)
+        if (bot.interrupt_code || superseded(bot, gen))
             break;  
     }
     log(bot, `Collected ${collected} ${blockType}.`);
@@ -540,7 +549,8 @@ export async function pickupNearbyItems(bot) {
     const getNearestItem = bot => bot.nearestEntity(entity => entity.name === 'item' && bot.entity.position.distanceTo(entity.position) < distance);
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;
-    while (nearestItem) {
+    const gen = bot._actionGen;
+    while (nearestItem && !bot.interrupt_code && !superseded(bot, gen)) {
         let movements = new pf.Movements(bot);
         movements.canDig = false;
         bot.pathfinder.setMovements(movements);
@@ -1098,7 +1108,9 @@ export async function goToGoal(bot, goal) {
         log(bot, `Path not found, but attempting to navigate anyway using destructive movements.`);
     }
 
-    const doorCheckInterval = startDoorInterval(bot);
+    // [ai-player] The patched pathfinder opens doors itself (canOpenDoors); this helper then toggled the same
+    // door shut again while Bob stood in the doorway (stuck at -821 124 566, Oct 20). Only run it when the pathfinder can't.
+    const doorCheckInterval = final_movements.canOpenDoors ? null : startDoorInterval(bot);
 
     bot.pathfinder.setMovements(final_movements);
     try {
@@ -1161,6 +1173,7 @@ function startDoorInterval(bot) {
                 let block = bot.blockAt(position);
                 if (block && block.name &&
                     !block.name.includes('iron') &&
+                    !block.getProperties?.()?.open && // [ai-player] only open a closed door, never toggle an open one shut
                     (block.name.includes('door') ||
                      block.name.includes('fence_gate') ||
                      block.name.includes('trapdoor'))) 
@@ -1350,7 +1363,8 @@ export async function followPlayer(bot, username, distance=4) {
     log(bot, `You are now actively following player ${username}.`);
 
 
-    while (!bot.interrupt_code) {
+    const gen = bot._actionGen;
+    while (!bot.interrupt_code && !superseded(bot, gen)) {
         await new Promise(resolve => setTimeout(resolve, 500));
         // in cheat mode, if the distance is too far, teleport to the player
         const distance_from_player = bot.entity.position.distanceTo(player.position);
@@ -1453,7 +1467,8 @@ export async function avoidEnemies(bot, distance=16) {
      **/
     bot.modes.pause('self_preservation'); // prevents damage-on-low-health from interrupting the bot
     let enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), distance);
-    while (enemy) {
+    const gen = bot._actionGen;
+    while (enemy && !superseded(bot, gen)) {
         const follow = new pf.goals.GoalFollow(enemy, distance+1); // move a little further away
         const inverted_goal = new pf.goals.GoalInvert(follow);
         bot.pathfinder.setMovements(new pf.Movements(bot));
@@ -1489,7 +1504,8 @@ export async function stay(bot, seconds=30) {
     bot.modes.pause('torch_placing');
     bot.modes.pause('item_collecting');
     let start = Date.now();
-    while (!bot.interrupt_code && (seconds === -1 || Date.now() - start < seconds*1000)) {
+    const gen = bot._actionGen;
+    while (!bot.interrupt_code && !superseded(bot, gen) && (seconds === -1 || Date.now() - start < seconds*1000)) {
         await new Promise(resolve => setTimeout(resolve, 500));
     }
     log(bot, `Stayed for ${(Date.now() - start)/1000} seconds.`);
@@ -1534,7 +1550,10 @@ export async function useDoor(bot, door_pos=null) {
     bot.setControlState("forward", true);
     await new Promise((resolve) => setTimeout(resolve, 600));
     bot.setControlState("forward", false);
-    await bot.activateBlock(door_block);
+    // [ai-player] close it behind us only if it is open and not held open by a pressure plate (powered)
+    const door_now = bot.blockAt(door_pos);
+    if (door_now?.getProperties?.()?.open && !door_now.getProperties().powered)
+        await bot.activateBlock(door_now);
 
     log(bot, `Used door at ${door_pos}.`);
     return true;
@@ -1667,6 +1686,12 @@ export async function activateNearestBlock(bot, type) {
         let pos = block.position;
         bot.pathfinder.setMovements(new pf.Movements(bot));
         await goToGoal(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
+    }
+    // [ai-player] a door/gate held open by a pressure plate must not be clicked shut
+    const props = block.getProperties?.() || {};
+    if (/_door$|_fence_gate$|_trapdoor$/.test(block.name) && props.open && props.powered) {
+        log(bot, `The ${type} is held open by a pressure plate; leaving it open.`);
+        return false;
     }
     await bot.activateBlock(block);
     log(bot, `Activated ${type} at x:${block.position.x.toFixed(1)}, y:${block.position.y.toFixed(1)}, z:${block.position.z.toFixed(1)}.`);

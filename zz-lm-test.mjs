@@ -1,0 +1,44 @@
+import { LongMemory, correctName } from './src/agent/library/long_memory.js';
+import { Ollama } from './src/models/ollama.js';
+import { makeCompartment, lockdown } from './src/agent/library/lockdown.js';
+import { Vec3 } from 'vec3';
+import registryLoader from 'prismarine-registry';
+const registry = registryLoader('1.21.6');
+const emb = new Ollama('nomic-embed-text', 'http://192.168.1.143:11434');
+const blocks = { [`${-830},${70},${540}`]: 'oak_log', [`${-828},${60},${545}`]: 'coal_ore' };
+const bot = { registry, entity: { position: new Vec3(-825, 70, 545) }, entities: { 1: { name: 'cow', position: new Vec3(-820, 70, 550) } },
+  findBlocks: () => Object.keys(blocks).map(k => new Vec3(...k.split(',').map(Number))),
+  blockAt: (p) => ({ name: blocks[`${p.x},${p.y},${p.z}`] }), findBlock: () => null, inventory: { items: () => [] }, time: { timeOfDay: 18000 } };
+const agent = { name: 'LMTest', bot, prompter: { embedding_model: emb }, self_prompter: { prompt: 'gather wood, stone and coal' } };
+const lm = new LongMemory(agent);
+await new Promise(r => setTimeout(r, 1500));
+lm.observeCommand('!collectBlocks("coal_ore", 5)', "Action output:\nDon't have right tools to harvest coal_ore.");
+lm.observeCommand('!collectBlocks("coal_ore", 5)', "Action output:\nDon't have right tools to harvest coal_ore.");
+lm.observeCommand('!smeltItem("coal_ore", 5)', 'Cannot smelt coal_ore. Hint: make sure you are smelting the raw item.');
+lm.observeCommand('!collectBlocks("oak_log", 5)', 'Failed to collect oak_log: Timeout: Took to long to decide path to goal!.\nCollected 0 oak_log.');
+lm.observeDeath('LMTest was slain by Zombie');
+lm.observe();
+await new Promise(r => setTimeout(r, 1500));
+let t = Date.now();
+const block = await lm.promptBlock([{ role: 'system', content: 'You are self-prompting: get coal for torches' }]);
+console.log('--- block (' + block.length + ' chars, ' + (Date.now() - t) + 'ms):\n' + block);
+agent.prompter.embedding_model = { embed: async () => { throw new Error('down'); } };
+const kb = await lm.promptBlock([{ role: 'user', content: 'go get some wood logs' }]);
+console.log('--- keyword fallback ok, chars=' + kb.length);
+agent.prompter.embedding_model = emb;
+console.log('nearest log place:', lm.nearestPlace('log')?.type, 'cow:', lm.nearestPlace('cows')?.type, 'house:', lm.nearestPlace('house')?.x);
+console.log('names:', correctName(agent, '!collectBlocks', 'log', 'block'), correctName(agent, '!smeltItem', 'iron_ore', 'item'), correctName(agent, '!collectBlocks', 'cobble', 'block'), correctName(agent, '!craftRecipe', 'sticks', 'item'), correctName(agent, '!x', 'qwerty', 'item'));
+// skills
+const before = { inv: { cobblestone: 2 }, pos: new Vec3(0, 0, 0) }, after = { inv: { cobblestone: 2, furnace: 1 }, pos: new Vec3(0, 0, 0) };
+console.log('critic ok:', JSON.stringify(lm.verify(before, after, 'Code finished.')), 'critic fail:', JSON.stringify(lm.verify(before, after, 'Failed to place furnace')), 'nochange:', JSON.stringify(lm.verify(before, before, 'Code finished.')));
+await lm.saveSkill('"craft and place a furnace near the house"', 'await skills.craftRecipe(bot, "furnace", 1);\nlog(bot, "made furnace");', '+1 furnace');
+await lm.saveSkill('craft and place a furnace near the house', 'await skills.craftRecipe(bot, "furnace", 1);\nlog(bot, "made furnace v2");', '+1 furnace');
+await lm.saveSkill('collect five oak logs for planks', 'await skills.collectBlock(bot, "oak_log", 5);', '+5 oak_log');
+const docs = await lm.skillDocs('make a furnace');
+console.log('--- skill docs:\n' + docs);
+lockdown();
+const learned = lm.compileLearned(makeCompartment, { skills: { craftRecipe: async (b, n) => console.log('  [sandbox] craftRecipe', n) }, log: (b, m) => console.log('  [sandbox] log', m), world: {}, Vec3 });
+console.log('learned fns:', Object.keys(learned));
+await learned[Object.keys(learned)[0]]({ interrupt_code: false });
+await new Promise(r => setTimeout(r, 2600));
+console.log('stats', JSON.stringify(lm.stats));

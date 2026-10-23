@@ -45,10 +45,19 @@ export async function createAgent(settings) {
 
     try {
         try {
-            const server = await getServer(settings.host, settings.port, settings.minecraft_version);
+            const pinned = settings.minecraft_version;
+            // Probe with auto so ViaProxy's advertised 26.3 does not throw; restore pinned client version after.
+            const server = await getServer(settings.host, settings.port, "auto");
             settings.host = server.host;
             settings.port = server.port;
-            settings.minecraft_version = server.version;
+            // [ai-player] ViaProxy advertises Paper 26.3; keep pinned client version (e.g. 1.21.6)
+            // so mineflayer talks a supported protocol and ViaProxy translates.
+            if (pinned && pinned !== "auto") {
+                settings.minecraft_version = pinned;
+                console.log(`[ai-player] Keeping pinned minecraft_version=${pinned} (server ping was ${server.version})`);
+            } else {
+                settings.minecraft_version = server.version;
+            }
         } catch (error) {
             console.warn(`Error getting server:`, error);
             if (settings.minecraft_version === "auto") {

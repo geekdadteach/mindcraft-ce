@@ -62,18 +62,29 @@ export class SelfPrompter {
         this.loop_active = true;
         let no_command_count = 0;
         const MAX_NO_COMMAND = 3;
+        const NO_COMMAND_PAUSE_MS = 60000;
         while (!this.interrupt) {
             const msg = `You are self-prompting with the goal: '${this.prompt}'. Your next response MUST contain a command with this syntax: !commandName. Respond:`;
             
+            this.agent.last_reply_was_model_error = false;
             let used_command = await this.agent.handleMessage('system', msg, -1);
             if (!used_command) {
+                // [ai-player] API placeholder replies ("No response data." etc.) are not the model ignoring
+                // the goal, so they do not count toward MAX_NO_COMMAND.
+                if (this.agent.last_reply_was_model_error) {
+                    console.warn('[ai-player] self-prompt: model error reply, not counted toward no-command limit');
+                    await new Promise(r => setTimeout(r, this.cooldown));
+                    continue;
+                }
                 no_command_count++;
                 if (no_command_count >= MAX_NO_COMMAND) {
-                    let out = `Agent did not use command in the last ${MAX_NO_COMMAND} auto-prompts. Stopping auto-prompting.`;
-                    this.agent.openChat(out);
-                    console.warn(out);
-                    this.state = STOPPED;
-                    break;
+                    // [ai-player] console only (never in-game chat); pause ~60s, reset and keep self-prompting.
+                    console.warn(`[ai-player] Agent did not use command in the last ${MAX_NO_COMMAND} auto-prompts. Pausing self-prompting ${NO_COMMAND_PAUSE_MS/1000}s, then continuing.`);
+                    const until = Date.now() + NO_COMMAND_PAUSE_MS;
+                    while (!this.interrupt && Date.now() < until)
+                        await new Promise(r => setTimeout(r, 1000));
+                    no_command_count = 0;
+                    continue;
                 }
             }
             else {

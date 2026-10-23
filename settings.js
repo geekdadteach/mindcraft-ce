@@ -1,16 +1,37 @@
+// [ai-player] Bob mode switch (2026-10-21). Mode comes from $BOB_MODE if set, else from the persistent file
+// /home/dad/ai-player/run/bob-mode.env (BOB_MODE=lite|normal, written by ~/ai-player/bin/bob-mode.sh). Anything other
+// than "lite" (missing file, typo) = normal = the setup below, unchanged.
+// LITE: profile ./profiles/andy-api-lite.json (thinking: Andy-4.2 on LM Studio 192.168.1.20 + Andy API fallback;
+// embeddings: LM Studio on .20, word-overlap if that fails; no code_model / vision_model), no coding
+// (allow_insecure_coding false + "!newAction" blocked), no vision. Lite makes no calls to the living-room mini (.143).
+import { readFileSync, writeFileSync, renameSync } from 'fs';
+const BOB_MODE_FILE = process.env.BOB_MODE_FILE || '/home/dad/ai-player/run/bob-mode.env';
+function readBobMode() {
+    let m = process.env.BOB_MODE;
+    if (!m) {
+        try {
+            const r = readFileSync(BOB_MODE_FILE, 'utf8').match(/^\s*BOB_MODE\s*=\s*["']?([A-Za-z]+)/m);
+            if (r) m = r[1];
+        } catch (e) { /* no file: normal */ }
+    }
+    return String(m || 'normal').trim().toLowerCase() === 'lite' ? 'lite' : 'normal';
+}
+export const bob_mode = readBobMode();
+
 const settings = {
-    "minecraft_version": "auto", // or specific version like "1.21.6"
+    "minecraft_version": "1.21.6", // or specific version like "1.21.6"
     "host": "127.0.0.1", // or "localhost", "your.ip.address.here"
-    "port": 55916, // set to -1 to automatically scan for open ports
+    "port": 25599, // set to -1 to automatically scan for open ports
     "auth": "offline", // or "microsoft"
 
     // the mindserver manages all agents and hosts the UI
-    "mindserver_port": 8080,
-    "auto_open_ui": true, // opens UI in browser on startup
+    "mindserver_port": 8081, // [ai-player] moved from 8080 for UniFi 2026-10-19
+    "auto_open_ui": false, // opens UI in browser on startup
     
-    "base_profile": "assistant", // survival, assistant, creative, or god_mode
+    "base_profile": "survival", // survival, assistant, creative, or god_mode
     "profiles": [
-        "./andy.json",
+        "./profiles/andy-api.json", // [ai-player] Andy API trial (andy/auto)
+        // "./andy.json", // cloud andy/auto - not used
         // "./profiles/gpt.json",
         // "./profiles/claude.json",
         // "./profiles/gemini.json",
@@ -26,8 +47,8 @@ const settings = {
         // individual profiles override values from the base profile
     ],
 
-    "load_memory": false, // load memory from previous session
-    "init_message": "Respond with hello world and your name", // sends to all on spawn
+    "load_memory": true, // load memory from previous session
+    "init_message": "", // [ai-player] empty: no greeting/spam on join (family server)
     "only_chat_with": [], // users that the bots listen to and send general messages to. if empty it will chat publicly
 
     "speak": false,
@@ -40,24 +61,42 @@ const settings = {
     "language": "en", // translate to/from this language. Supports these language names: https://cloud.google.com/translate/docs/languages
     "render_bot_view": false, // show bot's view in browser at localhost:3000, 3001...
 
-    "allow_insecure_coding": false, // allows newAction command and model can write/run code on your computer. enable at own risk
-    "allow_vision": false, // allows vision model to interpret screenshots as inputs
+    "allow_insecure_coding": true, // [ai-player] approved by Randy 2026-10-19 15:47; // allows newAction command and model can write/run code on your computer. enable at own risk
+    "allow_vision": true, // allows vision model to interpret screenshots as inputs
     "blocked_actions" : ["!checkBlueprint", "!checkBlueprintLevel", "!getBlueprint", "!getBlueprintLevel"] , // commands to disable and remove from docs. Ex: ["!setMode"]
-    "code_timeout_mins": -1, // minutes code is allowed to run. -1 for no timeout
-    "relevant_docs_count": 5, // number of relevant code function docs to select for prompting. -1 for all
+    "code_timeout_mins": 10, // [ai-player] was -1; // minutes code is allowed to run. -1 for no timeout
+    "relevant_docs_count": 3, // number of relevant code function docs to select for prompting. -1 for all
 
-    "max_messages": 15, // max number of messages to keep in context
-    "num_examples": 2, // number of examples to give to the model
+    "max_messages": 12, // [ai-player] was 8 for the 8K LM Studio context; 16K since 10:42 Oct 20 (upstream default 15, kept lower for latency)
+    "num_examples": 1, // number of examples to give to the model
     "max_commands": -1, // max number of commands that can be used in consecutive responses. -1 for no limit
     "show_command_syntax": "full", // "full", "shortened", or "none"
-    "narrate_behavior": true, // chat simple automatic actions ('Picking up item!')
-    "chat_bot_messages": true, // publicly chat messages to other bots
+    "narrate_behavior": false, // [ai-player] off: avoid auto chat spam on family server
+    "chat_bot_messages": false, // publicly chat messages to other bots
 
-    "spawn_timeout": 30, // num seconds allowed for the bot to spawn before throwing error. Increase when spawning takes a while.
+    "spawn_timeout": 60, // num seconds allowed for the bot to spawn before throwing error. Increase when spawning takes a while.
     "block_place_delay": 0, // delay between placing blocks (ms) if using newAction. helps avoid bot being kicked by anti-cheat mechanisms on servers.
   
     "log_all_prompts": false, // log ALL prompts to file
 
+}
+
+// [ai-player] apply Bob mode (see top of file)
+settings.bob_mode = bob_mode;
+if (bob_mode === 'lite') {
+    settings.profiles = ["./profiles/andy-api-lite.json"];
+    settings.allow_insecure_coding = false;
+    settings.allow_vision = false;
+    settings.blocked_actions = settings.blocked_actions.concat(["!newAction"]);
+}
+// Only the real Bob process (node main.js) logs the mode and records it for bob-mode.sh status.
+if (/(^|[\/\\])main\.js$/.test(process.argv[1] || '')) {
+    console.log(`[ai-player] Bob mode: ${bob_mode} profiles=${JSON.stringify(settings.profiles)} allow_insecure_coding=${settings.allow_insecure_coding} allow_vision=${settings.allow_vision} blocked_actions=${JSON.stringify(settings.blocked_actions)}`);
+    try {
+        const f = '/home/dad/ai-player/run/bob-mode.active';
+        writeFileSync(f + '.tmp', JSON.stringify({ mode: bob_mode, pid: process.pid, started: new Date().toISOString(), profiles: settings.profiles }) + '\n');
+        renameSync(f + '.tmp', f);
+    } catch (e) { console.warn('[ai-player] could not write bob-mode.active:', e?.message || e); }
 }
 
 export default settings;

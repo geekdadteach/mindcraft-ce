@@ -58,11 +58,19 @@ export class SkillLibrary {
                 .sort((a, b) => b.similarity_score - a.similarity_score);
         }
         else {
-            let latest_message_embedding = await this.embedding_model.embed(message);
+            // [ai-player] On embedding failure, rank by word overlap with the doc text instead of crashing.
+            let latest_message_embedding = null;
+            try {
+                latest_message_embedding = await this.embedding_model.embed(message);
+            } catch (err) {
+                console.warn(`[ai-player] skill-doc embedding failed (${err?.message || err}); using word-overlap for this turn.`);
+            }
             skill_doc_similarities = Object.keys(this.skill_docs_embeddings)
             .map(doc_key => ({
                 doc_key,
-                similarity_score: cosineSimilarity(latest_message_embedding, this.skill_docs_embeddings[doc_key])
+                similarity_score: latest_message_embedding
+                    ? cosineSimilarity(latest_message_embedding, this.skill_docs_embeddings[doc_key])
+                    : wordOverlapScore(message, doc_key)
             }))
             .sort((a, b) => b.similarity_score - a.similarity_score);
         }

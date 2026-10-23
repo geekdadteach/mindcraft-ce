@@ -427,5 +427,19 @@ export function getBiomeName(bot) {
      * let biome = world.getBiomeName(bot);
      **/
     const biomeId = bot.world.getBiome(bot.entity.position);
-    return mc.getAllBiomes()[biomeId].name;
+    // [ai-player] Prefer server registry (1.20.5+ registry_data for minecraft:worldgen/biome)
+    // so Paper 26.3 biome IDs resolve even when minecraft-data 1.21.6 lacks them.
+    const strip = (n) => (typeof n === 'string' ? n.replace(/^minecraft:/, '') : n);
+    const fromReg = bot.registry?.biomes?.[biomeId];
+    if (fromReg && fromReg.name) return strip(fromReg.name);
+    // Some builds keep name only on biomesByName entries; scan by id field if present
+    if (bot.registry?.biomesArray) {
+        const hit = bot.registry.biomesArray.find(b => b && (b.id === biomeId || b.biomeId === biomeId));
+        if (hit?.name) return strip(hit.name);
+    }
+    // Fallback: static minecraft-data
+    const biomes = mc.getAllBiomes();
+    const biome = biomes && biomes[biomeId];
+    if (biome && biome.name) return biome.name;
+    return `unknown_biome_${biomeId}`;
 }

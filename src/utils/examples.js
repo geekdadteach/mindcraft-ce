@@ -48,8 +48,17 @@ export class Examples {
             return [];
 
         let turn_text = this.turnsToText(turns);
+        // [ai-player] An embedding failure (e.g. Andy quota guard) falls back to word overlap instead of
+        // escaping as an unhandled rejection and crashing the agent process.
+        let embedding = null;
         if (this.model !== null) {
-            let embedding = await this.model.embed(turn_text);
+            try {
+                embedding = await this.model.embed(turn_text);
+            } catch (err) {
+                console.warn(`[ai-player] examples embedding failed (${err?.message || err}); using word-overlap for this turn.`);
+            }
+        }
+        if (embedding) {
             this.examples.sort((a, b) => 
                 cosineSimilarity(embedding, this.embeddings[this.turnsToText(b)]) -
                 cosineSimilarity(embedding, this.embeddings[this.turnsToText(a)])

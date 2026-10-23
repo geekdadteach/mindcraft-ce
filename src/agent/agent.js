@@ -8,15 +8,43 @@ import { containsCommand, commandExists, executeCommand, truncCommandMessage, is
 import { ActionManager } from './action_manager.js';
 import { NPCContoller } from './npc/controller.js';
 import { MemoryBank } from './memory_bank.js';
+import { LongMemory } from './library/long_memory.js';
 import { SelfPrompter } from './self_prompter.js';
 import convoManager from './conversation.js';
 import { handleTranslation, handleEnglishTranslation } from '../utils/translator.js';
 import { addBrowserViewer } from './vision/browser_viewer.js';
 import { serverProxy, sendOutputToServer } from './mindserver_proxy.js';
+import { isModelErrorReply } from '../utils/model_errors.js';
 import settings from './settings.js';
 import { Task } from './tasks/tasks.js';
 import { speak } from './speak.js';
 import { log, validateNameFormat, handleDisconnection } from './connection_handler.js';
+import { installNoGoZoneGuard } from './library/no_go_zones.js';
+import { installProtectedAreaGuard } from './library/protected_area.js';
+import { RepeatGuard } from './library/repeat_guard.js';
+import Vec3 from 'vec3';
+import { installPhysicsGuard, memStatus, heapGuard } from './library/stability.js';
+import { escapeUp, gotoChecked } from './library/escape.js';
+import { HomeRoutes } from './library/home_route.js';
+import { Failures } from './library/failures.js';
+
+// [ai-player] read-only: doors, gates and pressure plates around the front door (-820 124 566), for the log
+function frontDoorState(bot) {
+    const out = [];
+    for (let x = -822; x <= -818; x++) for (let y = 124; y <= 125; y++) for (let z = 564; z <= 568; z++) {
+        const b = bot.blockAt(new Vec3(x, y, z));
+        if (!b || !/_door$|_gate$|pressure_plate/.test(b.name)) continue;
+        const p = b.getProperties();
+        out.push(`${b.name}@${x},${y},${z}` + ['facing', 'half', 'hinge', 'open', 'powered'].filter(k => p[k] != null).map(k => ` ${k}=${p[k]}`).join(''));
+    }
+    return out.join('; ');
+}
+
+// [ai-player] Public chat gate: Bob only talks in chat when answering a player who spoke to him.
+const ADDRESSED_WINDOW_MS = 5 * 60_000;   // a reply may take a while (75 s model spacing)
+const CONVO_FOLLOWUP_MS = 2 * 60_000;     // after Bob replied, that player's next lines count as addressed
+// [ai-player] Essentials and other plugin notices, e.g. "Set fly mode enabled for MineBobNE." (Oct 20, server agent)
+const SYSTEM_LINE = /^(set (fly|flight|god|walk|speed|fly speed|walk speed)[ a-z]* (mode|speed)? ?(enabled|disabled|to)|set fly mode|fly mode|flight (enabled|disabled)|god mode (enabled|disabled)|is now afk|is no longer afk|teleporting\.\.\.|your game ?mode has been|\[(essentials|server|grim|newearth)[^\]]*\])/i;
 
 export class Agent {
     async start(load_mem=false, init_message=null, count_id=0) {
@@ -46,6 +74,9 @@ export class Agent {
         this.self_prompter = new SelfPrompter(this);
         convoManager.initAgent(this);
         await this.prompter.initExamples();
+        // [ai-player] lessons / places / saved skills (bots/<name>/*.json); never fatal
+        try { this.longMemory = new LongMemory(this); } catch (e) { console.warn('[ai-player] long-memory disabled:', e.message); this.longMemory = null; }
+        try { this.failures = new Failures(this); } catch (e) { console.warn('[ai-player] failures disabled:', e.message); this.failures = null; } // item 5
 
         // load mem first before doing task
         let save_data = null;
@@ -64,6 +95,35 @@ export class Agent {
 
         console.log(this.name, 'logging into minecraft...');
         this.bot = initBot(this.name);
+        installPhysicsGuard(this.bot); // [ai-player] stability.js: clamp runaway velocity (hang/OOM fix)
+        this.escape = { up: escapeUp, gotoChecked }; // [ai-player] item 3: staircase escape + checked routes
+        try { this.home = new HomeRoutes(this); } catch (e) { console.warn('[ai-player] home-route disabled:', e.message); this.home = null; } // item 4
+
+        // [ai-player] Watchdog heartbeat to the parent (agent_process.js). If the event loop hangs or the
+        // server connection goes silent (no packets) the parent kills and restarts this process.
+        this._lastPacketAt = 0;
+        this._spawned = false;
+        try { this.bot._client.on('packet', () => { this._lastPacketAt = Date.now(); }); } catch (_) {}
+        if (typeof process.send === 'function' && !this._heartbeatTimer) {
+            let beats = 0;
+            const beat = () => {
+                try { process.send({ type: 'ai-player-heartbeat', at: Date.now(), spawned: this._spawned, lastPacketAt: this._lastPacketAt }); } catch (_) {}
+                // [ai-player] read-only status line once a minute (position / health / food) for monitoring.
+                try {
+                    const ds = this._spawned ? frontDoorState(this.bot) : '';
+                    if (ds && ds !== this._lastDoorState) { this._lastDoorState = ds; console.log(`[ai-player] door-state ${ds}`); }
+                } catch (_) {}
+                if (this._spawned && (beats++ % 6) === 0) {
+                    try {
+                        const p = this.bot.entity?.position;
+                        console.log(`[ai-player] status pos=${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'} health=${Math.round(this.bot.health ?? -1)} food=${Math.round(this.bot.food ?? -1)} action=${this.actions?.currentActionLabel || '-'} time=${this.bot.time?.timeOfDay ?? '?'} ${memStatus(this)}`);
+                    } catch (_) {}
+                }
+                try { heapGuard(this); } catch (_) {}
+            };
+            this._heartbeatTimer = setInterval(beat, 10_000);
+            beat();
+        }
         
         // Connection Handler
         const onDisconnect = (event, reason) => {
@@ -117,7 +177,10 @@ export class Agent {
                 await new Promise((resolve) => setTimeout(resolve, 1000));
                 
                 console.log(`${this.name} spawned.`);
+                this._spawned = true;
                 this.clearBotLogs();
+                installNoGoZoneGuard(this);
+                installProtectedAreaGuard(this);
               
                 this._setupEventHandlers(save_data, init_message);
                 this.startEvents();
@@ -145,6 +208,11 @@ export class Agent {
     }
 
     async _setupEventHandlers(save_data, init_message) {
+        if (this.longMemory && !this._placeTimer) {
+            this._placeTimer = setInterval(() => this.longMemory?.observe(), 30000);
+            if (!this._homeTimer) this._homeTimer = setInterval(() => { try { this.home?.tick(); } catch (_) {} }, 2000); // [ai-player] item 4 breadcrumbs
+            setTimeout(() => this.longMemory?.observe(), 5000);
+        }
         const ignore_messages = [
             "Set own game mode to",
             "Set the time to",
@@ -154,14 +222,20 @@ export class Agent {
             "Gamerule "
         ];
         
-        const respondFunc = async (username, message) => {
+        const respondFunc = async (username, message, is_whisper = false) => {
             if (message === "") return;
             if (username === this.name) return;
             if (settings.only_chat_with.length > 0 && !settings.only_chat_with.includes(username)) return;
             try {
                 if (ignore_messages.some((m) => message.startsWith(m))) return;
+                // [ai-player] server/plugin system lines (Essentials fly/god/afk/teleport notices etc.) are not players talking
+                if (SYSTEM_LINE.test(message) || !username || /^(server|console|essentials)$/i.test(username)) {
+                    console.log(`[ai-player] ignored system line from ${username || '-'}: ${String(message).slice(0, 80)}`);
+                    return;
+                }
 
                 this.shut_up = false;
+                this._noteAddressed(username, message, is_whisper);
 
                 console.log(this.name, 'received message from', username, ':', message);
 
@@ -179,7 +253,7 @@ export class Agent {
 
 		this.respondFunc = respondFunc;
 
-        this.bot.on('whisper', respondFunc);
+        this.bot.on('whisper', (username, message) => respondFunc(username, message, true));
         
         this.bot.on('chat', (username, message) => {
             if (serverProxy.getNumOtherAgents() > 0) return;
@@ -188,11 +262,14 @@ export class Agent {
         });
 
         // Set up auto-eat
-        this.bot.autoEat.options = {
+        // [ai-player] backport of 26f72b6 for auto-eat 3.3.6: merge into the defaults instead of
+        // replacing them (replacing dropped eatingTimeout/offhand/equipOldItem), and make sure it's on.
+        Object.assign(this.bot.autoEat.options, {
             priority: 'foodPoints',
             startAt: 14,
             bannedFood: ["rotten_flesh", "spider_eye", "poisonous_potato", "pufferfish", "chicken"]
-        };
+        });
+        this.bot.autoEat.enable();
 
         if (save_data?.self_prompt) {
             if (init_message) {
@@ -214,7 +291,9 @@ export class Agent {
             await this.handleMessage('system', init_message, 2);
         }
         else {
-            this.openChat("Hello world! I am "+this.name);
+            // [ai-player] No auto-greeting on join (family server chat filter + kids).
+            // Stay quiet until a player talks to the bot.
+            console.log(`[ai-player] Spawned as ${this.name}; no init_message, skipping auto greeting.`);
         }
     }
 
@@ -283,6 +362,8 @@ export class Agent {
                     this.history.add(source, message);
                 }
                 let execute_res = await executeCommand(this, message);
+                this.longMemory?.observeCommand(message, execute_res);
+                this.failures?.observeCommand(message, execute_res);
                 if (execute_res) 
                     this.routeResponse(source, execute_res);
                 return true;
@@ -325,6 +406,12 @@ export class Agent {
                 console.warn('no response')
                 break; // empty response ends loop
             }
+            if (isModelErrorReply(res)) {
+                // [ai-player] API placeholder: not added to history, never sent to chat.
+                console.warn(`[ai-player] model error reply ${JSON.stringify(res.trim())}; not chatted, not stored in history.`);
+                this.last_reply_was_model_error = true;
+                break;
+            }
 
             let command_name = containsCommand(res);
 
@@ -341,27 +428,29 @@ export class Agent {
                 if (checkInterrupt()) break;
                 this.self_prompter.handleUserPromptedCmd(self_prompt, isAction(command_name));
 
-                if (settings.show_command_syntax === "full") {
-                    this.routeResponse(source, res);
-                }
-                else if (settings.show_command_syntax === "shortened") {
-                    // show only "used !commandname"
+                // [ai-player] Command text never goes to chat (show_command_syntax ignored). Only the plain
+                // talk before the command is sent, and only when answering a player (gate in routeResponse).
+                {
                     let pre_message = res.substring(0, res.indexOf(command_name)).trim();
-                    let chat_message = `*used ${command_name.substring(1)}*`;
+                    console.log(`[ai-player] command not chatted: ${res.slice(0, 200)}`);
                     if (pre_message.length > 0)
-                        chat_message = `${pre_message}  ${chat_message}`;
-                    this.routeResponse(source, chat_message);
+                        this.routeResponse(source, pre_message, { talk: true });
                 }
-                else {
-                    // no command at all
-                    let pre_message = res.substring(0, res.indexOf(command_name)).trim();
-                    if (pre_message.trim().length > 0)
-                        this.routeResponse(source, pre_message);
+
+                // [ai-player] Do not run the same command (or a goToCoordinates within 3 blocks of the same
+                // target) a 3rd time within 2 minutes, nor !stop twice in a row; tell the model instead.
+                this._repeatGuard = this._repeatGuard || new RepeatGuard();
+                const repeat_note = this._repeatGuard.check(res);
+                if (repeat_note) {
+                    this.history.add('system', repeat_note);
+                    continue;
                 }
 
                 let execute_res = await executeCommand(this, res);
 
                 console.log('Agent executed:', command_name, 'and got:', execute_res);
+                this.longMemory?.observeCommand(res, execute_res);
+                this.failures?.observeCommand(res, execute_res);
                 used_command = true;
 
                 if (execute_res)
@@ -371,7 +460,7 @@ export class Agent {
             }
             else { // conversation response
                 this.history.add(this.name, res);
-                this.routeResponse(source, res);
+                this.routeResponse(source, res, { talk: true });
                 break;
             }
             
@@ -381,7 +470,28 @@ export class Agent {
         return used_command;
     }
 
-    async routeResponse(to_player, message) {
+    // [ai-player] Remember players who actually spoke to Bob (whisper, his name in the line, or a follow-up
+    // shortly after Bob replied to them). Only those players get chat replies.
+    _noteAddressed(username, message, is_whisper) {
+        this._addressedAt = this._addressedAt || {};
+        this._repliedAt = this._repliedAt || {};
+        const now = Date.now();
+        const text = String(message || '').toLowerCase();
+        const name = String(this.name || '').toLowerCase();
+        const addressed = is_whisper
+            || /\bbob\b/.test(text)
+            || (name && text.includes(name))
+            || (this._repliedAt[username] && now - this._repliedAt[username] < CONVO_FOLLOWUP_MS);
+        if (addressed) this._addressedAt[username] = now;
+        console.log(`[ai-player] player message from ${username} addressed_to_bob=${!!addressed}${is_whisper ? ' (whisper)' : ''}`);
+    }
+
+    _wasAddressedBy(username) {
+        const at = this._addressedAt?.[username];
+        return !!at && Date.now() - at < ADDRESSED_WINDOW_MS;
+    }
+
+    async routeResponse(to_player, message, opts = {}) {
         if (this.shut_up) return;
         let self_prompt = to_player === 'system' || to_player === this.name;
         if (self_prompt && this.last_sender) {
@@ -395,13 +505,34 @@ export class Agent {
             convoManager.sendToBot(to_player, message);
         }
         else {
-            // otherwise, use open chat
-            this.openChat(message);
-            // note that to_player could be another bot, but if we get here the conversation has ended
+            // [ai-player] Public chat only for plain talk answering a player who spoke to Bob.
+            // Self-prompted turns, command output and system text stay in the console/log.
+            const is_player = !self_prompt && to_player !== 'system' && to_player !== this.name && !convoManager.isOtherAgent(to_player);
+            if (!opts.talk || !is_player || !this._wasAddressedBy(to_player)) {
+                const why = !opts.talk ? 'system/command text' : (!is_player ? 'self-prompt' : `${to_player} did not speak to Bob`);
+                console.log(`[ai-player] chat suppressed (${why}): ${String(message).slice(0, 200)}`);
+                return;
+            }
+            this._repliedAt = this._repliedAt || {};
+            this._repliedAt[to_player] = Date.now();
+            this.openChat(message, { reply_to: to_player });
         }
     }
 
-    async openChat(message) {
+    async openChat(message, opts = {}) {
+        // [ai-player] Never post command text, and only post when routeResponse cleared it as a reply to a player.
+        message = String(message ?? '');
+        const cmd_in_msg = containsCommand(message);
+        if (cmd_in_msg) message = message.substring(0, message.indexOf(cmd_in_msg));
+        message = message.replace(/![a-zA-Z_]+(\([^)]*\))?/g, '').trim();
+        if (!opts.reply_to) {
+            if (message) console.log(`[ai-player] chat suppressed (not a player reply): ${message.slice(0, 200)}`);
+            return;
+        }
+        if (!message) {
+            console.log('[ai-player] chat suppressed (command only, no plain talk)');
+            return;
+        }
         let to_translate = message;
         let remaining = '';
         let command_name = containsCommand(message);
@@ -412,7 +543,7 @@ export class Agent {
         }
         message = (await handleTranslation(to_translate)).trim() + " " + remaining;
         // newlines are interpreted as separate chats, which triggers spam filters. replace them with spaces
-        message = message.replaceAll('\n', ' ');
+        message = message.replaceAll('\n', ' ').trim();
 
         if (settings.only_chat_with.length > 0) {
             for (let username of settings.only_chat_with) {
@@ -423,7 +554,19 @@ export class Agent {
             if (settings.speak) {
                 speak(to_translate, this.prompter.profile.speak_model);
             }
-            if (settings.chat_ingame) {this.bot.chat(message);}
+            // [ai-player] GriefPrevention spam filter: never repeat a chat line Bob sent in the last 15 min.
+            const norm = message.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+            this._recentChats = (this._recentChats || []).filter(c => Date.now() - c.at < 15 * 60_000);
+            if (this._recentChats.some(c => c.norm === norm)) {
+                console.log(`[ai-player] chat suppressed (repeat of a recent line): ${message.slice(0, 200)}`);
+                return;
+            }
+            this._recentChats.push({ norm, at: Date.now() });
+            if (this._recentChats.length > 20) this._recentChats.shift();
+            if (settings.chat_ingame) {
+                console.log(`[ai-player] ingame-chat: ${message.slice(0, 200)}`);
+                this.bot.chat(message);
+            }
             sendOutputToServer(this.name, message);
         }
     }
@@ -462,6 +605,17 @@ export class Agent {
                 this.cleanKill(msg);
             }
         });
+        // [ai-player] log death / respawn positions (to check the bed respawn point).
+        this.bot.on('death', () => {
+            const p = this.bot.entity?.position;
+            console.log(`[ai-player] died at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
+        });
+        this.bot.on('spawn', () => {
+            setTimeout(() => {
+                const p = this.bot.entity?.position;
+                console.log(`[ai-player] spawn event at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
+            }, 1500);
+        });
         this.bot.on('death', () => {
             this.actions.cancelResume();
             this.actions.stop();
@@ -475,6 +629,7 @@ export class Agent {
         this.bot.on('messagestr', async (message, _, jsonMsg) => {
             if (jsonMsg.translate && jsonMsg.translate.startsWith('death') && message.startsWith(this.name)) {
                 console.log('Agent died: ', message);
+                this.longMemory?.observeDeath(message);
                 let death_pos = this.bot.entity.position;
                 this.memory_bank.rememberPlace('last_death_position', death_pos.x, death_pos.y, death_pos.z);
                 let death_pos_text = null;
@@ -507,9 +662,9 @@ export class Agent {
                 let start = Date.now();
                 await this.update(start - last);
                 let remaining = INTERVAL - (Date.now() - start);
-                if (remaining > 0) {
-                    await new Promise((resolve) => setTimeout(resolve, remaining));
-                }
+                // [ai-player] always yield to timers/IO: when update() took >= 300 ms this loop used to continue on
+                // microtasks only, which can starve heartbeat, physics and network timers.
+                await new Promise((resolve) => setTimeout(resolve, Math.max(remaining, 25)));
                 last = start;
             }
         }, INTERVAL);
@@ -530,7 +685,7 @@ export class Agent {
 
     cleanKill(msg='Killing agent process...', code=1) {
         this.history.add('system', msg);
-        this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
+        console.log(`[ai-player] cleanKill (not chatted): ${code > 1 ? 'Restarting.' : 'Exiting.'} ${msg}`);
         this.history.save();
         process.exit(code);
     }

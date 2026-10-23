@@ -1,6 +1,7 @@
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { NPCData } from './npc/data.js';
 import settings from './settings.js';
+import { isModelErrorReply } from '../utils/model_errors.js';
 
 
 export class History {
@@ -32,7 +33,13 @@ export class History {
 
     async summarizeMemories(turns) {
         console.log("Storing memories...");
-        this.memory = await this.agent.prompter.promptMemSaving(turns);
+        const new_memory = await this.agent.prompter.promptMemSaving(turns);
+        if (isModelErrorReply(new_memory)) {
+            // [ai-player] keep the previous memory instead of overwriting it with an API placeholder.
+            console.warn(`[ai-player] memory summary was a model error reply (${JSON.stringify(String(new_memory ?? '').trim())}); keeping previous memory.`);
+            return;
+        }
+        this.memory = new_memory;
 
         if (this.memory.length > 500) {
             this.memory = this.memory.slice(0, 500);

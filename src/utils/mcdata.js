@@ -8,7 +8,10 @@ import { plugin as collectblock } from 'mineflayer-collectblock';
 import { plugin as autoEat } from 'mineflayer-auto-eat';
 import plugin from 'mineflayer-armor-manager';
 const armorManager = plugin;
-let mc_version = settings.minecraft_version;
+// [ai-player] Do NOT capture settings.minecraft_version at module load —
+// agent/settings.js is {} until setSettings() runs after MindServer connect.
+// Reading it here made version undefined → autoVersion → protocol 777 crash.
+let mc_version = null;
 let mcdata = null;
 let Item = null;
 
@@ -53,6 +56,8 @@ export const WOOL_COLORS = [
 
 
 export function initBot(username) {
+    // Always read live settings (set after MindServer handoff)
+    mc_version = settings.minecraft_version;
     const options = {
         username: username,
         host: settings.host,
@@ -63,9 +68,39 @@ export function initBot(username) {
     }
     if (!mc_version || mc_version === "auto") {
         delete options.version;
+    } else {
+        console.log(`[ai-player] initBot forcing minecraft version ${mc_version} (no autoVersion ping)`);
     }
 
     const bot = createBot(options);
+
+    // [ai-player patch] Paper 26.3 fix (see mineflayer issue #4189):
+    // newer servers expect a 'tick_end' packet after each client movement
+    // packet. Mineflayer does not send it, so append one after every
+    // position/position_look/look/flying write when the protocol has it.
+    // Installed before the throttle wrapper below, so throttled (delayed)
+    // movement packets are followed by tick_end too.
+    {
+        const MOVEMENT_PACKETS = new Set(['position', 'position_look', 'look', 'flying']);
+        const writeWithTickEnd = bot._client.write.bind(bot._client);
+        let hasTickEnd = null; // resolved lazily once the protocol version is known
+        bot._client.write = function(name, data) {
+            const result = writeWithTickEnd(name, data);
+            if (MOVEMENT_PACKETS.has(name)) {
+                try {
+                    if (hasTickEnd === null) {
+                        const md = minecraftData(bot._client.version || bot.version);
+                        hasTickEnd = !!(md && md.protocol && md.protocol.play &&
+                            md.protocol.play.toServer.types.packet_tick_end);
+                    }
+                    if (hasTickEnd) writeWithTickEnd('tick_end', {});
+                } catch (err) {
+                    hasTickEnd = false; // never let this fix break the bot
+                }
+            }
+            return result;
+        };
+    }
 
     // Throttle position packets to avoid kicks on Paper/Spigot servers
     // Paper enforces stricter packet rate limits than vanilla, causing ECONNRESET
@@ -106,8 +141,9 @@ export function initBot(username) {
         if (event === 'error' && args[0]) {
             const err = args[0];
             const errStr = err instanceof Error ? err.message : String(err);
-            if (errStr.includes('PartialReadError')) {
-                console.warn('[mcdata] Suppressed PartialReadError:', errStr.substring(0, 120));
+            const name = (err && (err.name || err.constructor?.name)) || '';
+            if (name.includes('PartialRead') || errStr.includes('PartialRead') || errStr.includes('Unexpected buffer end')) {
+                console.warn('[mcdata] Suppressed PartialReadError:', (name + ': ' + errStr).substring(0, 160));
                 return true; // Swallow the error
             }
         }
@@ -119,14 +155,32 @@ export function initBot(username) {
     bot.loadPlugin(collectblock);
     bot.loadPlugin(autoEat);
     bot.loadPlugin(armorManager); // auto equip armor
-    bot.once('resourcePack', () => {
-        bot.acceptResourcePack();
+    bot.on('resourcePack', (url) => {
+        // [ai-player] accept every pack prompt (NewEarth requires its pack)
+        console.log('[ai-player] resource pack offered; accepting');
+        try { bot.acceptResourcePack(); } catch (e) { console.warn('[ai-player] acceptResourcePack failed:', e?.message); }
     });
 
     bot.once('login', () => {
         mc_version = bot.version;
         mcdata = minecraftData(mc_version);
         Item = prismarine_items(mc_version);
+    });
+
+    // [ai-player] After spawn, log biome via getBiomeName (uses server registry when available)
+    bot.once('spawn', () => {
+        try {
+            const biomeId = bot.world.getBiome(bot.entity.position);
+            const reg = bot.registry?.biomes?.[biomeId];
+            const regName = reg?.name || '(no registry entry)';
+            const md = mcdata?.biomes?.[biomeId]?.name || '(not in minecraft-data)';
+            console.log(`[ai-player] biome id=${biomeId} registry=${regName} minecraft-data=${md}`);
+            // Count registry biomes for diagnostics
+            const n = bot.registry?.biomesArray?.length ?? (bot.registry?.biomes ? Object.keys(bot.registry.biomes).filter(k => bot.registry.biomes[k]).length : 0);
+            console.log(`[ai-player] bot.registry biomes loaded: ${n}`);
+        } catch (e) {
+            console.warn('[ai-player] biome log failed:', e.message);
+        }
     });
 
     return bot;

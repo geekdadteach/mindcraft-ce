@@ -4,7 +4,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as mindcraft from './mindcraft.js';
-import { readFileSync } from 'fs';
+import { readFileSync, watchFile, unwatchFile, openSync, readSync, closeSync, fstatSync } from 'fs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Mindserver is:
@@ -45,6 +45,80 @@ export function logoutAgent(agentName) {
 }
 
 // Initialize the server
+
+
+// [ai-player] READ-ONLY live agent log panel (tails mindcraft.log; no command execution)
+const AGENT_LOG_PATH = '/home/dad/ai-player/logs/mindcraft.log';
+const AGENT_LOG_MAX = 500;
+const agentLogBuffer = [];
+let agentLogWatchStarted = false;
+let agentLogFd = -1;
+let agentLogOffset = 0;
+
+function agentLogIsSensitive(line) {
+    const l = String(line).toLowerCase();
+    // Never show secrets or auth material in the read-only UI log
+    if (l.includes('token') || l.includes('access') || l.includes('saves.json')) return true;
+    if (l.includes('authorization') || l.includes('bearer')) return true;
+    // generic API key material
+    if (l.includes('api_key') || l.includes('apikey') || (l.includes('key') && (l.includes('andy') || l.includes('bearer') || l.includes('auth')))) return true;
+    if (l.includes('"key"') || l.includes("'key'") || l.includes(' api key') || l.includes('apikey=')) return true;
+    // bare word key as field assignment
+    if (/(^|[^a-z])key([^a-z]|$)/i.test(String(line)) && /(andy|bearer|auth|api|secret|password)/i.test(String(line))) return true;
+    return false;
+}
+
+function agentLogPush(line) {
+    const cleaned = String(line).replace(/\x1b\[[0-9;]*m/g, '').replace(/\r/g, '');
+    if (!cleaned.trim()) return;
+    if (agentLogIsSensitive(cleaned)) return;
+    agentLogBuffer.push(cleaned);
+    while (agentLogBuffer.length > AGENT_LOG_MAX) agentLogBuffer.shift();
+    if (io) io.emit('agent-log', cleaned);
+}
+
+function agentLogReadNew() {
+    try {
+        if (agentLogFd < 0) {
+            try { agentLogFd = openSync(AGENT_LOG_PATH, 'r'); } catch { return; }
+            // Start near end so we don't dump megabytes on first connect; keep last ~64KB
+            const st = fstatSync(agentLogFd);
+            agentLogOffset = Math.max(0, st.size - 65536);
+        }
+        const st = fstatSync(agentLogFd);
+        if (st.size < agentLogOffset) {
+            // truncated/rotated
+            agentLogOffset = 0;
+        }
+        if (st.size === agentLogOffset) return;
+        const len = st.size - agentLogOffset;
+        const buf = Buffer.alloc(len);
+        readSync(agentLogFd, buf, 0, len, agentLogOffset);
+        agentLogOffset = st.size;
+        const text = buf.toString('utf8');
+        const parts = text.split('\n');
+        // If file didn't end with newline, last part is incomplete — keep for next read by rewinding
+        // Simple approach: only emit complete lines; if no trailing newline, put last chunk back
+        let lines = parts;
+        if (!text.endsWith('\n') && parts.length) {
+            const incomplete = parts.pop();
+            agentLogOffset -= Buffer.byteLength(incomplete, 'utf8');
+            lines = parts;
+        }
+        for (const line of lines) agentLogPush(line);
+    } catch (e) {
+        // ignore transient read errors
+    }
+}
+
+function startAgentLogWatch() {
+    if (agentLogWatchStarted) return;
+    agentLogWatchStarted = true;
+    // Seed buffer once
+    agentLogReadNew();
+    watchFile(AGENT_LOG_PATH, { interval: 1000 }, () => agentLogReadNew());
+}
+
 export function createMindServer(host_public = false, port = 8080) {
     const app = express();
     server = http.createServer(app);
@@ -143,6 +217,7 @@ export function createMindServer(host_public = false, port = 8080) {
                 console.warn(`Agent ${agentName} tried to send a message but is not logged in`);
                 return;
             }
+            if (!agent_connections[agentName].socket) { console.warn(`[ai-player] chat-message: ${agentName} socket null (restarting?)`); return; }
             console.log(`${curAgentName} sending message to ${agentName}: ${json.message}`);
             agent_connections[agentName].socket.emit('chat-message', curAgentName, json);
         });
@@ -151,13 +226,16 @@ export function createMindServer(host_public = false, port = 8080) {
             const agent = agent_connections[agentName];
             if (agent) {
                 agent.setSettings(settings);
-                agent.socket.emit('restart-agent');
+                if (agent.socket) agent.socket.emit('restart-agent');
+                else console.warn(`[ai-player] set-agent-settings: ${agentName} socket null (restarting?)`);
             }
         });
 
         socket.on('restart-agent', (agentName) => {
             console.log(`Restarting agent: ${agentName}`);
-            agent_connections[agentName].socket.emit('restart-agent');
+            const conn = agent_connections[agentName];
+            if (!conn || !conn.socket) { console.warn(`[ai-player] restart-agent: ${agentName} not connected`); return; }
+            conn.socket.emit('restart-agent');
         });
 
         socket.on('stop-agent', (agentName) => {
@@ -197,8 +275,8 @@ export function createMindServer(host_public = false, port = 8080) {
         });
 
 		socket.on('send-message', (agentName, data) => {
-			if (!agent_connections[agentName]) {
-				console.warn(`Agent ${agentName} not in game, cannot send message via MindServer.`);
+			if (!agent_connections[agentName] || !agent_connections[agentName].socket) {
+				console.warn(`[ai-player] Agent ${agentName} not connected (offline/restarting), dropping send-message.`);
 				return
 			}
 			try {
@@ -215,14 +293,21 @@ export function createMindServer(host_public = false, port = 8080) {
         socket.on('listen-to-agents', () => {
             addListener(socket);
         });
+
+        // [ai-player] read-only log panel: send buffer then stream new lines
+        socket.on('subscribe-agent-log', () => {
+            startAgentLogWatch();
+            socket.emit('agent-log-history', agentLogBuffer.slice());
+        });
     });
 
     if (host_public) {
         console.log('Public hosting not supported yet. Using localhost.');
     }
-    const host = 'localhost';
+    const host = "0.0.0.0"; // [ai-player] LAN access for Randy (ufw allows 8080)
     server.listen(port, host, () => {
         console.log(`MindServer running on port ${port} on host ${host}`);
+        startAgentLogWatch();
     });
 
     return server;

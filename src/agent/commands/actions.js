@@ -1,3 +1,5 @@
+import { surfaceForWood } from '../library/ai_player_nav.js';
+import * as survival from '../library/survival.js';
 import * as skills from '../library/skills.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
@@ -35,7 +37,8 @@ export const actionsList = [
         perform: async function(agent, prompt) {
             // just ignore prompt - it is now in context in chat history
             if (!settings.allow_insecure_coding) { 
-                agent.openChat('newAction is disabled. Enable with allow_insecure_coding=true in settings.js');
+                // [ai-player] Stay quiet in game: log instead of posting to public chat.
+                console.log('[ai-player] newAction is disabled (allow_insecure_coding=false); not posted to chat.');
                 return "newAction not allowed! Code writing is disabled in settings. Notify the user.";
             }
             let result = "";
@@ -135,6 +138,7 @@ export const actionsList = [
                 skills.log(agent.bot, `Minimum search range is 32.`);
                 range = 32;
             }
+            if (!await surfaceForWood(agent, block_type)) return; // [ai-player] surface before tree searches
             await skills.goToNearestBlock(agent.bot, block_type, 4, range);
         })
     },
@@ -172,10 +176,17 @@ export const actionsList = [
         description: 'Go to a saved location.',
         params: {'name': { type: 'string', description: 'The name of the location to go to.' }},
         perform: runAsAction(async (agent, name) => {
-            const pos = agent.memory_bank.recallPlace(name);
+            let pos = agent.memory_bank.recallPlace(name);
             if (!pos) {
-            skills.log(agent.bot, `No location named "${name}" saved.`);
-            return;
+                // [ai-player] fall back to the nearest auto-recorded place of that type (oak_log, coal_ore, water, cow, house, ...)
+                const p = agent.longMemory?.nearestPlace(name);
+                if (p) {
+                    skills.log(agent.bot, `Going to the nearest known ${p.type} at ${p.x} ${p.y} ${p.z}.`);
+                    pos = [p.x, p.y, p.z];
+                } else {
+                    skills.log(agent.bot, `No location named "${name}" saved.${agent.longMemory ? ' Known place types: ' + agent.longMemory.placeTypes() + '.' : ''}`);
+                    return;
+                }
             }
             await skills.goToPosition(agent.bot, pos[0], pos[1], pos[2], 1);
         })
@@ -260,8 +271,25 @@ export const actionsList = [
             'num': { type: 'int', description: 'The number of blocks to collect.', domain: [1, Number.MAX_SAFE_INTEGER] }
         },
         perform: runAsAction(async (agent, type, num) => {
+            // [ai-player] berries are picked (right-click), not mined: breaking the bush/vine loses the plant
+            if (/berr|^cave_vines/.test(String(type))) {
+                const r = await survival.harvestBerries(agent, 32);
+                skills.log(agent.bot, r.ok ? `Picked ${r.got} berries.` : `No berries picked: ${r.why}.`);
+                return;
+            }
+            if (!await surfaceForWood(agent, type)) return; // [ai-player] surface before tree searches
             await skills.collectBlock(agent.bot, type, num);
         }, false, 10) // 10 minute timeout
+    },
+    {
+        // [ai-player] the model picks "get food"; this does the hunting/berries/crops/cooking reliably
+        name: '!getFood',
+        description: 'Get food and eat: hunt a nearby cow, pig, sheep, chicken or rabbit (or pick berries / harvest ripe crops), collect the drops, cook raw meat if you have a furnace and fuel, then eat. Goes up to the surface first if nothing is found underground.',
+        params: {},
+        perform: runAsAction(async (agent) => {
+            const ok = await survival.getFood(agent, { escapeUp: agent.escape?.up, reason: 'asked for food' });
+            skills.log(agent.bot, ok ? `Got food. Food now ${agent.bot.food}/20, food items in inventory: ${survival.foodStock(agent.bot)}.` : 'Found no food here; try another area on the surface in daylight.');
+        }, false, 4)
     },
     {
         name: '!craftRecipe',
@@ -337,9 +365,16 @@ export const actionsList = [
     },
     {
         name: '!stay',
-        description: 'Stay in the current location no matter what. Pauses all modes.',
-        params: {'type': { type: 'int', description: 'The number of seconds to stay. -1 for forever.', domain: [-1, Number.MAX_SAFE_INTEGER] }},
+        description: 'Stay in the current location no matter what. Pauses all modes. Lasts at most 10 minutes.',
+        params: {'type': { type: 'int', description: 'The number of seconds to stay (at most 600). -1 means the maximum, 600.', domain: [-1, Number.MAX_SAFE_INTEGER] }},
         perform: runAsAction(async (agent, seconds) => {
+            // [ai-player] Cap every stay at 10 minutes (-1 and anything over 600 s become 600 s) so a
+            // self-prompted !stay(-1) cannot park the bot for hours; afterwards the goal loop resumes.
+            const STAY_MAX_S = 600;
+            if (seconds === -1 || !(seconds <= STAY_MAX_S)) {
+                console.log(`[ai-player] stay capped: requested ${seconds}s, staying ${STAY_MAX_S}s`);
+                seconds = STAY_MAX_S;
+            }
             await skills.stay(agent.bot, seconds);
         })
     },

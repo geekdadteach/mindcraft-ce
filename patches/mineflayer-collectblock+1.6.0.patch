@@ -1,0 +1,81 @@
+diff --git a/node_modules/mineflayer-collectblock/lib/CollectBlock.js b/node_modules/mineflayer-collectblock/lib/CollectBlock.js
+index 445df38..1d6fe89 100644
+--- a/node_modules/mineflayer-collectblock/lib/CollectBlock.js
++++ b/node_modules/mineflayer-collectblock/lib/CollectBlock.js
+@@ -28,7 +28,16 @@ function collectAll(bot, options) {
+             switch (closest.constructor.name) {
+                 case 'Block': {
+                     const goal = new mineflayer_pathfinder_1.goals.GoalLookAtBlock(closest.position, bot.world);
+-                    yield bot.pathfinder.goto(goal);
++                    try {
++                        yield bot.pathfinder.goto(goal);
++                    }
++                    catch (err) {
++                        if (err.name !== 'NoPath') throw err;
++                        // A buried block has no visible face in the current world.
++                        // Tunnel next to it first, then check reach and line of sight again.
++                        yield bot.pathfinder.goto(new mineflayer_pathfinder_1.goals.GoalGetToBlock(closest.position.x, closest.position.y, closest.position.z));
++                        yield bot.pathfinder.goto(goal);
++                    }
+                     yield mineBlock(bot, closest, options);
+                     // TODO: options.ignoreNoPath
+                     break;
+@@ -38,16 +47,25 @@ function collectAll(bot, options) {
+                     if (!closest.isValid)
+                         break;
+                     const tempEvents = new TemporarySubscriber_1.TemporarySubscriber(bot);
++                    // [ai-player] bounded: an item that is never picked up (unreachable, already gone) used to leave
++                    // collect() pending forever with its listeners attached; give up on it after 5 s.
++                    let pickupTimer = null;
+                     const waitForPickup = new Promise(resolve => {
+                         tempEvents.subscribeTo('entityGone', (entity) => {
+                             if (entity === closest) {
+-                                tempEvents.cleanup();
+                                 resolve();
+                             }
+                         });
++                        pickupTimer = setTimeout(resolve, 5000);
+                     });
+-                    yield bot.pathfinder.goto(new mineflayer_pathfinder_1.goals.GoalFollow(closest, 0));
+-                    yield waitForPickup;
++                    try {
++                        yield bot.pathfinder.goto(new mineflayer_pathfinder_1.goals.GoalFollow(closest, 0));
++                        yield waitForPickup;
++                    }
++                    finally {
++                        clearTimeout(pickupTimer);
++                        tempEvents.cleanup();
++                    }
+                     break;
+                 }
+                 default: {
+@@ -190,8 +208,6 @@ class CollectBlock {
+                 throw (0, Util_1.error)('UnresolvedDependency', 'The mineflayer-collectblock plugin relies on the mineflayer-tool plugin to run!');
+             }
+             if (this.movements != null) {
+-                this.movements.dontMineUnderFallingBlock = false;
+-                this.movements.dontCreateFlow = false;
+                 this.bot.pathfinder.setMovements(this.movements);
+             }
+             if (!optionsFull.append)
+@@ -243,11 +259,15 @@ class CollectBlock {
+                 return yield Promise.resolve();
+             }
+             this.bot.pathfinder.stop();
+-            if (cb != null) {
+-                // @ts-expect-error
+-                this.bot.once('collectBlock_finished', cb);
+-            }
+-            yield (0, events_1.once)(this.bot, 'collectBlock_finished');
++            // [ai-player] bounded wait without events.once (which also adds an 'error' listener that is only removed
++            // when the event fires: a task that never finished piled up 11+ listeners and a forever-pending promise).
++            yield new Promise(resolve => {
++                const done = () => { clearTimeout(t); this.bot.removeListener('collectBlock_finished', done); resolve(); };
++                const t = setTimeout(() => { this.targets.clear(); done(); }, 5000);
++                this.bot.on('collectBlock_finished', done);
++            });
++            if (cb != null)
++                cb();
+         });
+     }
+ }

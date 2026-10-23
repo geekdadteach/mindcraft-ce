@@ -9,6 +9,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { selectAPI, createModel } from './_model_map.js';
+import { logEmbeddingCacheStartupSummary } from '../utils/embedding_cache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -126,6 +127,7 @@ export class Prompter {
             });
 
             console.log('Examples initialized.');
+            logEmbeddingCacheStartupSummary('after-initExamples');
         } catch (error) {
             console.error('Failed to initialize examples:', error);
             console.error('Stack trace:', error.stack);
@@ -159,10 +161,13 @@ export class Prompter {
             prompt = prompt.replaceAll(
                 '$CODE_DOCS',
                 await this.skill_libary.getRelevantSkillDocs(code_task_content, settings.relevant_docs_count)
+                + (this.agent.longMemory ? await this.agent.longMemory.skillDocs(code_task_content) : '')
             );
         }
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
+        if (prompt.includes('$LONG_MEMORY'))
+            prompt = prompt.replaceAll('$LONG_MEMORY', [this.agent.longMemory ? await this.agent.longMemory.promptBlock(messages) : '', this.agent.failures?.promptBlock() || ''].filter(Boolean).join('\n')); // [ai-player] item 5: + recent failures
         if (prompt.includes('$MEMORY'))
             prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
         if (prompt.includes('$TO_SUMMARIZE'))

@@ -223,7 +223,7 @@ export const queryList = [
         name: '!savedPlaces',
         description: 'List all saved locations.',
         perform: async function (agent) {
-            return "Saved place names: " + agent.memory_bank.getKeys();
+            return "Saved place names: " + agent.memory_bank.getKeys() + (agent.longMemory ? `\nAuto-recorded place types (use with !goToRememberedPlace): ${agent.longMemory.placeTypes()}` : '');
         }
     }, 
     {

@@ -3,6 +3,17 @@ import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
 import settings from './settings.js'
 import convoManager from './conversation.js';
+import pf from 'mineflayer-pathfinder';
+import Vec3 from 'vec3';
+import * as nav from './library/ai_player_nav.js';
+import * as survival from './library/survival.js';
+
+// [ai-player] spectators (e.g. Randy via /bobwatch) are invisible observers: never stare at, avoid or react to them
+function isSpectator(bot, entity) {
+    if (!entity || entity.type !== 'player') return false;
+    const p = Object.values(bot.players || {}).find(pl => pl.entity === entity || pl.username === entity.username);
+    return p?.gamemode === 3;
+}
 
 async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
@@ -106,7 +117,24 @@ const modes_list = [
                 return; // don't get stuck when idle
             }
             const bot = agent.bot;
+            // [ai-player] Fighting or fleeing in place is not being stuck: interrupting combat got Bob shot (10:44 Oct 20).
+            if (/^mode:(self_defense|self_preservation|cowardice|hunting|ranged_threat)$/.test(agent.actions.currentActionLabel || '')) {
+                this.prev_location = null; this.stuck_time = 0; this.last_time = Date.now(); return;
+            }
             const cur_dig_block = bot.targetDigBlock;
+            // [ai-player] Mining in place is not being stuck: digging a block (bot.dig or pathfinder
+            // tunnelling/pillaring) or an inventory change since the last tick counts as progress.
+            const inv_count = bot.inventory.items().reduce((sum, item) => sum + item.count, 0);
+            const inv_changed = this.prev_inv_count != null && inv_count !== this.prev_inv_count;
+            this.prev_inv_count = inv_count;
+            const pf_working = !!(bot.pathfinder?.isMining?.() || bot.pathfinder?.isBuilding?.());
+            if (cur_dig_block || pf_working || inv_changed) {
+                this.prev_location = bot.entity.position.clone();
+                this.stuck_time = 0;
+                this.prev_dig_block = null;
+                this.last_time = Date.now();
+                return;
+            }
             if (cur_dig_block && !this.prev_dig_block) {
                 this.prev_dig_block = cur_dig_block;
             }
@@ -118,15 +146,69 @@ const modes_list = [
                 this.stuck_time = 0;
                 this.prev_dig_block = null;
             }
-            const max_stuck_time = cur_dig_block?.name === 'obsidian' ? this.max_stuck_time * 2 : this.max_stuck_time;
+            let max_stuck_time = cur_dig_block?.name === 'obsidian' ? this.max_stuck_time * 2 : this.max_stuck_time;
+            // [ai-player] collectBlocks also spends time planning tunnels to buried blocks: allow 40 s.
+            if (agent.actions.currentActionLabel === 'action:collectBlocks') max_stuck_time = this.max_stuck_time * 2;
             if (this.stuck_time > max_stuck_time) {
+                const p = bot.entity.position.floored();
+                try {
+                    const around = [[0,-1,0],[0,2,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[1,1,0],[-1,1,0],[0,1,1],[0,1,-1]]
+                        .map(([dx,dy,dz]) => bot.blockAt(p.offset(dx,dy,dz))?.name?.replace('minecraft:','') ?? '?').join(',');
+                    console.log(`[ai-player] unstuck: triggered at ${p} after ${Math.round(this.stuck_time)}s action=${agent.actions.currentActionLabel} goal=${bot.pathfinder?.goal?.constructor?.name ?? 'none'} moving=${bot.pathfinder?.isMoving?.()} around(below,above2,+x,-x,+z,-z,+x1,-x1,+z1,-z1)=${around}`);
+                } catch (e) {}
                 say(agent, 'I\'m stuck!');
                 this.stuck_time = 0;
+                // [ai-player] Escalate instead of nudging again when the nudge already failed twice within 3 blocks of here
+                // in the last 5 min (Oct 20: 89 triggers in 3 h, mostly in the tunnels under the house, 79 never freed).
+                const now = Date.now();
+                const cmd = agent.last_command_key || agent.actions.currentActionLabel;
+                this.fails = (this.fails || []).filter(f => now - f.t < 5 * 60e3);
+                const near = this.fails.filter(f => f.pos.distanceTo(p) <= 3);
+                try { agent.failures?.record(cmd || 'action', 'stuck', p, `no movement for ${Math.round(max_stuck_time)}s`); } catch (_) {}
+                // [ai-player] item 3: underground, one failed nudge here is enough: climb out instead of nudging again
+                if (near.length >= (nav.isUnderground(bot) ? 1 : 2)) {
+                    this.fails = this.fails.filter(f => f.pos.distanceTo(p) > 3);
+                    execute(this, agent, async () => {
+                        await escapeStuck(agent, p, [cmd, ...near.map(f => f.cmd)]);
+                    }, -1, 130000);
+                    this.last_time = Date.now();
+                    return;
+                }
                 execute(this, agent, async () => {
-                    const crashTimeout = setTimeout(() => { agent.cleanKill("Got stuck and couldn't get unstuck") }, 10000);
-                    await skills.moveAway(bot, 5);
-                    clearTimeout(crashTimeout);
-                    say(agent, 'I\'m free.');
+                    // [ai-player] never kill the process when stuck: try moveAway for 10s,
+                    // then stop pathing, nudge (jump + a few random steps), and carry on.
+                    const before = bot.entity.position.clone();
+                    const freed = await Promise.race([
+                        skills.moveAway(bot, 5).then(() => bot.entity.position.distanceTo(before) >= 3).catch(() => false), // [ai-player] really moved
+                        new Promise(r => setTimeout(() => r(false), 10000)),
+                    ]);
+                    if (freed) {
+                        console.log('[ai-player] unstuck: freed by moveAway');
+                        say(agent, 'I\'m free.');
+                        return;
+                    }
+                    console.log('[ai-player] unstuck: could not free in 10s; stopping action/pathfinder, nudging, continuing (no restart)');
+                    this.fails.push({ pos: p, t: Date.now(), cmd });
+                    try { bot.pathfinder.stop(); } catch (e) {}
+                    try { bot.pathfinder.setGoal(null); } catch (e) {}
+                    try { bot.clearControlStates(); } catch (e) {}
+                    agent.actions.cancelResume();
+                    // [ai-player] at 4 HP or less no jump-nudges (one bad step kills him); wait and let the escalation handle it
+                    if (bot.health <= 4) {
+                        console.log(`[ai-player] unstuck: health ${Math.round(bot.health)} <= 4, skipping jump-nudge; waiting`);
+                        await new Promise(r => setTimeout(r, 3000));
+                        return;
+                    }
+                    for (let i = 0; i < 3; i++) {
+                        try {
+                            await bot.look(Math.random() * Math.PI * 2, 0, true);
+                            bot.setControlState('jump', true);
+                            bot.setControlState('forward', true);
+                            await new Promise(r => setTimeout(r, 700));
+                            bot.clearControlStates();
+                        } catch (e) { try { bot.clearControlStates(); } catch (e2) {} }
+                    }
+                    console.log('[ai-player] unstuck: nudge done; continuing');
                 });
             }
             this.last_time = Date.now();
@@ -154,19 +236,193 @@ const modes_list = [
         }
     },
     {
+        // [ai-player] Oct 20: 6 of 8 deaths were skeleton arrows (self_defense chased them through caves). Skeletons and
+        // other ranged mobs that can see Bob: fight only with health >= 14, a sword and a short clear path, else take
+        // cover out of their line of sight (or back away). Creepers within 6 blocks: walk away, never melee them.
+        name: 'ranged_threat',
+        description: 'Take cover from skeletons and other ranged mobs that can see you; move away from creepers. Interrupts all actions.',
+        interrupts: ['all'],
+        on: true,
+        active: false,
+        next_check: 0,
+        update: async function (agent) {
+            const bot = agent.bot;
+            const now = Date.now();
+            if (now < this.next_check) return;
+            this.next_check = now + 700;
+            const creeper = survival.creeperClose(bot, 6);
+            if (creeper) {
+                console.log(`[ai-player] threat: creeper ${Math.round(creeper.position.distanceTo(bot.entity.position))}m away; moving off`);
+                execute(this, agent, async () => {
+                    await survival.gotoQuick(bot, new pf.goals.GoalInvert(new pf.goals.GoalFollow(creeper, 10)), 5000);
+                }, -1, 15000);
+                return;
+            }
+            const mobs = survival.rangedThreats(bot, 16);
+            if (!mobs.length) return;
+            const seen = survival.exposedTo(bot, mobs);
+            if (!seen.length) return;
+            say(agent, `Taking cover from ${seen[0].name}!`);
+            execute(this, agent, async () => {
+                const how = await survival.handleRanged(agent, seen);
+                bot.modes.behavior_log += `[threat] ${seen.map(m => m.name).join(', ')} could see you; you ${how === 'fought' ? 'fought it' : how === 'cover' ? 'took cover behind blocks' : 'backed away'}.\n`;
+                // daylight + underground: leave the caves (that is where the skeletons are)
+                if (how !== 'fought' && !nav.isNightTime(bot) && nav.isUnderground(bot) && agent.escape?.up) {
+                    await agent.escape.up(agent, { reason: 'skeletons', maxMs: 45000 });
+                }
+            }, -1, 70000);
+        }
+    },
+    {
         name: 'self_defense',
         description: 'Attack nearby enemies. Interrupts all actions.',
         interrupts: ['all'],
         on: true,
         active: false,
         update: async function (agent) {
-            const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity), 8);
+            // [ai-player] melee threats only: ranged mobs further than 3 blocks and creepers belong to ranged_threat
+            // (chasing skeletons into caves got Bob shot), so self_defense does not chase them.
+            const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity) && entity.name !== 'creeper' &&
+                !(survival.RANGED_MOBS.includes(entity.name) && entity.position.distanceTo(agent.bot.entity.position) > 3), 8);
             if (enemy && await world.isClearPath(agent.bot, enemy)) {
                 say(agent, `Fighting ${enemy.name}!`);
                 execute(this, agent, async () => {
                     await skills.defendSelf(agent.bot, 8);
                 });
             }
+        }
+    },
+    {
+        // [ai-player] Oct 20: Bob sat at 1 HP / 0 food for hours with no food while the model mined coal. Runs after
+        // self_defense (earlier modes win), before everything else. Eats if auto-eat hasn't within 15 s; at food <= 6
+        // with nothing to eat it goes and gets food.
+        name: 'hunger',
+        description: 'Eat when hungry; when food is low and there is no food, go get some (hunt animals, berries, crops). Interrupts all actions.',
+        interrupts: ['all'],
+        on: true,
+        active: false,
+        hungry_since: 0,
+        next_try: 0,
+        next_stock: 0,
+        update: async function (agent) {
+            const bot = agent.bot;
+            if (bot.food == null) return;
+            if (bot.autoEat?.isEating) return;
+            if (/^mode:(self_preservation|self_defense|cowardice|ranged_threat|night)$/.test(agent.actions.currentActionLabel || '')) return;
+            const now = Date.now();
+            const stock = survival.foodStock(bot);
+            // [ai-player] keep a small food stock: in daylight, when an animal is close, hunt it (every 10 min at most)
+            if (bot.food > 14) {
+                this.hungry_since = 0;
+                if (stock < 2 && now > this.next_stock && !nav.isNightTime(bot) && bot.health >= 10 &&
+                    world.getNearestEntityWhere(bot, e => survival.FOOD_ANIMALS.includes(e.name) && mc.isHuntable(e), 16)) {
+                    this.next_stock = now + 10 * 60e3;
+                    execute(this, agent, async () => {
+                        const r = await survival.huntAnimal(agent, 16);
+                        if (r.ok) { await survival.cookRaw(bot); skills.log(bot, `Hunted a ${r.animal} for your food stock.`); }
+                    }, -1, 90000);
+                }
+                return;
+            }
+            if (edibleFoods(bot, bot.food <= 6).length) {
+                if (!this.hungry_since) this.hungry_since = now;
+                if (now - this.hungry_since < 15000) return; // auto-eat normally handles this
+                this.hungry_since = now;
+                execute(this, agent, async () => { await survival.cookOrEat(bot); });
+                return;
+            }
+            this.hungry_since = 0;
+            // [ai-player] no food at food <= 12 (was <= 6: he only started looking when already starving)
+            if (bot.food > 12 || now < this.next_try) return;
+            this.next_try = now + 120000;
+            execute(this, agent, async () => {
+                const got = await survival.getFood(agent, { escapeUp: agent.escape?.up, reason: 'hungry and no food' });
+                if (!got) this.next_try = Date.now() + 180000;
+            }, -1, 150000);
+        }
+    },
+    {
+        // [ai-player] Oct 20: Bob ignored "sleep at night" in his self-prompt and looped in the cave. At night: stop the
+        // self-prompt task, go home through the front door (-820 124 565 -> 567), sleep in the house bed, and keep
+        // self-prompting paused until morning. If the bed can't be used, stay inside idle (lower modes are held off)
+        // and retry the bed every ~2 min. Once per night; a failed trip home is retried after ~2 min.
+        // Listed after self_defense and hunger, so those still win.
+        name: 'night',
+        description: 'At night go home and sleep in the bed; stay inside until morning. Interrupts all actions.',
+        interrupts: ['all'],
+        on: true,
+        active: false,
+        holding: false,
+        done_day: null,
+        next_try: 0,
+        tries: 0,
+        paused_sp: false,
+        boot_checked: false,
+        far_logged: null,
+        max_action_ms: 180000,
+        release: function (agent, why) {
+            const sp = agent.self_prompter;
+            const resume = (this.paused_sp || !this.boot_checked) && sp.isPaused() && !convoManager.inConversation();
+            if (this.holding || resume) console.log(`[ai-player] night: ${why}; ${resume ? 'resuming self-prompting' : 'self-prompting unchanged'}`);
+            this.holding = false; this.paused_sp = false; this.tries = 0;
+            if (resume) sp.start();
+        },
+        pauseSelfPrompt: function (agent) {
+            const sp = agent.self_prompter;
+            if (sp.isActive()) { sp.setPromptPaused(sp.prompt); sp.stopLoop(); this.paused_sp = true; }
+        },
+        update: async function (agent) {
+            const bot = agent.bot;
+            if (!nav.isNightTime(bot)) {
+                if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'morning');
+                this.boot_checked = true;
+                return;
+            }
+            if (!this.boot_checked) { this.boot_checked = true; if (agent.self_prompter.isPaused() && !convoManager.inConversation()) this.paused_sp = true; }
+            if (convoManager.inConversation()) return;
+            if (/^mode:(self_preservation|self_defense|cowardice|hunger|unstuck|ranged_threat)$/.test(agent.actions.currentActionLabel || '')) return;
+            const now = Date.now();
+            const day = bot.time?.day;
+            if (this.holding) {
+                this.pauseSelfPrompt(agent); // a chat may have restarted it
+                if (bot.isSleeping) return;
+                if (now < this.next_try) return;
+                if (!agent.isIdle()) return;
+            } else {
+                if (this.done_day === day || now < this.next_try) return;
+                if (nav.homeDistance(bot) > 160) {
+                    if (this.far_logged !== day) console.log(`[ai-player] night: ${Math.round(nav.homeDistance(bot))} blocks from home, too far to go back tonight`);
+                    this.far_logged = day;
+                    return;
+                }
+            }
+            this.next_try = now + 120000;
+            this.tries++;
+            this.pauseSelfPrompt(agent);
+            const from = bot.entity.position.floored();
+            console.log(`[ai-player] night: going home to sleep from ${from} (try ${this.tries}, time=${bot.time.timeOfDay}, label=${agent.actions.currentActionLabel || '-'})`);
+            execute(this, agent, async () => {
+                // [ai-player] item 4: climb out if underground, then walk the recorded route home and through the door
+                const inside = agent.home ? await agent.home.walk({ inside: true, maxMs: 150000 }) : await nav.goHomeInside(bot);
+                if (!inside) {
+                    const at = bot.entity.position.floored();
+                    console.log(`[ai-player] night: could not get inside the house (now at ${at}); retry in ~2 min`);
+                    if (!this.holding && this.paused_sp && agent.self_prompter.isPaused()) { this.paused_sp = false; agent.self_prompter.start(); }
+                    return;
+                }
+                this.holding = true; this.done_day = day;
+                const bed = nav.findHomeBed(bot);
+                if (!bed) { console.log('[ai-player] night: inside, but no bed found near -823 124 568; staying inside'); return; }
+                if (bot.entity.position.distanceTo(bed.position.offset(0.5, 0, 0.5)) > 2)
+                    await nav.gotoWithin(bot, new pf.goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 1), 20000, nav.walkMovements(bot));
+                try {
+                    await bot.sleep(bed);
+                    console.log(`[ai-player] night: in bed at ${bed.position} (${bed.name})`);
+                    skills.log(bot, 'You are in bed for the night.');
+                } catch (e) {
+                    console.log(`[ai-player] night: can't sleep yet (${e.message}); staying inside, retry in ~2 min`);
+                }
+            });
         }
     },
     {
@@ -243,7 +499,7 @@ const modes_list = [
         active: false,
         distance: 0.5,
         update: async function (agent) {
-            const player = world.getNearestEntityWhere(agent.bot, entity => entity.type === 'player', this.distance);
+            const player = world.getNearestEntityWhere(agent.bot, entity => entity.type === 'player' && !isSpectator(agent.bot, entity), this.distance);
             if (player) {
                 execute(this, agent, async () => {
                     // wait a random amount of time to avoid identical movements with other bots
@@ -267,7 +523,7 @@ const modes_list = [
         last_entity: null,
         next_change: 0,
         update: function (agent) {
-            const entity = agent.bot.nearestEntity();
+            const entity = agent.bot.nearestEntity(e => !isSpectator(agent.bot, e));
             let entity_in_view = entity && entity.position.distanceTo(agent.bot.entity.position) < 10 && entity.name !== 'enderman';
             if (entity_in_view && entity !== this.last_entity) {
                 this.staring = true;
@@ -303,18 +559,76 @@ const modes_list = [
     }
 ];
 
-async function execute(mode, agent, func, timeout=-1) {
+// [ai-player] ---- unstuck escalation and hunger helpers ----
+const HOUSE_ENTRANCE = { x: -819.5, y: 124, z: 565.5 };
+const STUCK_BLOCK_MS = 5 * 60e3;
+// never dig through anything that looks built (house, chests, beds, doors) while escaping
+const KEEP_BLOCKS = /planks|_log$|_wood$|door|stairs|slab|glass|carpet|_bed$|chest|furnace|crafting_table|fence|torch|wool|banner|lantern/;
+
+async function escapeStuck(agent, spot, cmds) {
+    // [ai-player] item 3: escalation = climb a staircase out of the cave (escape.js), then (near home, on the surface)
+    // a progress-checked walk to the entrance. Failed routes are blacklisted for 10 min; the model gets a short note.
+    const bot = agent.bot;
+    try { bot.pathfinder.stop(); } catch (e) {}
+    try { bot.pathfinder.setGoal(null); } catch (e) {}
+    try { bot.clearControlStates(); } catch (e) {}
+    agent.actions.cancelResume();
+    cmds = [...new Set(cmds.filter(c => c && c.startsWith('!')))];
+    agent.stuck_guard = { pos: spot.clone(), until: Date.now() + STUCK_BLOCK_MS, cmds };
+    const me = bot.entity.position;
+    const home_d = Math.hypot(me.x - HOUSE_ENTRANCE.x, me.z - HOUSE_ENTRANCE.z);
+    const under = nav.isUnderground(bot);
+    console.log(`[ai-player] unstuck: escalating at ${spot} (underground=${under}, health=${Math.round(bot.health)}); blocking ${cmds.join(' ') || '-'} near there for ${STUCK_BLOCK_MS / 60e3} min`);
+    let where = null, failed = [];
+    if (under && agent.escape?.up) {
+        const r = await agent.escape.up(agent, { reason: 'stuck', maxMs: 60000 });
+        if (r.ok) where = 'open sky (dug a staircase up)'; else failed.push(`climbing out (${r.why})`);
+    }
+    if (!where && home_d < 64 && !nav.isUnderground(bot) && agent.escape?.gotoChecked) {
+        if (agent.home?.walkHome) { const ok = await agent.home.walkHome(agent, { inside: false, maxMs: 60000 }); if (ok) where = 'the house entrance'; else failed.push('walking the home route'); }
+        else if (await agent.escape.gotoChecked(agent, new pf.goals.GoalNear(HOUSE_ENTRANCE.x, HOUSE_ENTRANCE.y, HOUSE_ENTRANCE.z, 1), { ms: 40000, label: 'stuck->entrance', movements: nav.walkMovements(bot) })) where = 'the house entrance';
+        else failed.push('walking to the house entrance');
+    }
+    const at = bot.entity.position.floored();
+    console.log(`[ai-player] unstuck: escalation ${where ? 'reached ' + where : 'failed (' + failed.join('; ') + ')'}; now at ${at}`);
+    const note = `[stuck] You got stuck at ${spot.x} ${spot.y} ${spot.z}${cmds.length ? ' doing ' + cmds.join(', ') : ''}. ${where ? 'You got out to ' + where : 'Getting out failed: ' + failed.join('; ')} (now at ${at.x} ${at.y} ${at.z}). Those commands are blocked near there for ${STUCK_BLOCK_MS / 60e3} minutes; choose a different task or place${bot.food <= 12 ? ', and get food first (!getFood)' : ''}.`;
+    bot.modes.behavior_log += note + '\n';
+    try { await agent.history.add('system', note); } catch (e) {}
+}
+
+const edibleFoods = survival.edibleFoods;
+
+// [ai-player] food helpers moved to library/survival.js (item 2)
+
+async function execute(mode, agent, func, timeout=-1, max_ms=null) {
     if (agent.self_prompter.isActive())
         agent.self_prompter.stopLoop();
     let interrupted_action = agent.actions.currentActionLabel;
     mode.active = true;
-    let code_return = await agent.actions.runAction(`mode:${mode.name}`, async () => {
+    // [ai-player] A mode action may not block forever. While a mode is active no other mode (not even unstuck) runs
+    // and the self-prompt loop cannot restart, so a pathfinder goto that never resolves (e.g. self_preservation's
+    // moveAway(20) when boxed in at low health, 22:08 EDT) wedged Bob. After MODE_ACTION_MAX_MS: stop the action
+    // (interrupt + pathfinder stop; ActionManager abandons it after 10 s more) and clear mode.active.
+    const MODE_ACTION_MAX_MS = max_ms || mode.max_action_ms || 60000;
+    let mode_timer = null;
+    let mode_timed_out = false;
+    const run = agent.actions.runAction(`mode:${mode.name}`, async () => {
         await func();
     }, { timeout });
+    const guard = new Promise(r => { mode_timer = setTimeout(() => { mode_timed_out = true; r(null); }, MODE_ACTION_MAX_MS); });
+    let code_return = await Promise.race([run, guard]);
+    clearTimeout(mode_timer);
+    if (mode_timed_out) {
+        console.warn(`[ai-player] mode ${mode.name} action ran over ${MODE_ACTION_MAX_MS / 1000}s; stopping it so modes and self-prompting can continue`);
+        try { agent.bot.pathfinder.stop(); } catch (_) {}
+        await agent.actions.stop();
+        code_return = { success: false, message: `mode ${mode.name} timed out`, interrupted: true, timedout: true };
+    }
     mode.active = false;
     console.log(`Mode ${mode.name} finished executing, code_return: ${code_return.message}`);
 
     let should_reprompt = 
+        !mode.holding && // [ai-player] night hold: do not ask the model what to do next
         interrupted_action && // it interrupted a previous action
         !agent.actions.resume_func && // there is no resume function
         !agent.self_prompter.isActive() && // self prompting is not on
@@ -405,7 +719,7 @@ class ModeController {
             if (mode.on && !mode.paused && !mode.active && (_agent.isIdle() || interruptible)) {
                 await mode.update(_agent);
             }
-            if (mode.active) break;
+            if (mode.active || mode.holding) break; // [ai-player] night hold keeps idle modes from walking Bob out
         }
     }
 

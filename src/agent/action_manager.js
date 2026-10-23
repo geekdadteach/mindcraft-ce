@@ -9,6 +9,25 @@ export class ActionManager {
         this.resume_name = '';
         this.last_action_time = 0;
         this.recent_action_counter = 0;
+        this.abandoned = 0; // [ai-player] actions that ignored stop() for 10 s and were cut loose
+    }
+
+    // [ai-player] One action at a time: every action gets a generation number on the bot. Long-running skill
+    // loops (attack, defend, avoid, pickup, collect, stay) compare it and quit when a newer action started,
+    // so an abandoned action cannot keep driving pvp/pathfinder/collectblock in the background.
+    _releaseBotPlugins(bot) {
+        try { bot.pvp?.stop(); } catch (e) {}
+        try { bot.pathfinder.stop(); } catch (e) {}
+        try { bot.pathfinder.setGoal(null); } catch (e) {}
+        try { bot.stopDigging(); } catch (e) {}
+        try { bot.clearControlStates(); } catch (e) {}
+        try {
+            // a collectBlock task that never finishes leaves cancelTask() waiters (and their listeners) behind
+            if (bot.collectBlock?.targets && !bot.collectBlock.targets.empty) {
+                bot.collectBlock.targets.clear();
+                bot.emit('collectBlock_finished');
+            }
+        } catch (e) {}
     }
 
     async resumeAction(actionFn, timeout) {
@@ -25,15 +44,24 @@ export class ActionManager {
 
     async stop() {
         if (!this.executing) return;
-        const timeout = setTimeout(() => {
-            this.agent.cleanKill('Code execution refused stop after 10 seconds. Killing process.');
-        }, 10000);
+        // [ai-player] if the action refuses to stop within 10s, force-abandon it
+        // (stop pathfinder/controls, mark not executing) instead of killing the process.
+        const started = Date.now();
         while (this.executing) {
             this.agent.requestInterrupt();
             console.log('waiting for code to finish executing...');
             await new Promise(resolve => setTimeout(resolve, 300));
+            if (this.executing && Date.now() - started > 10000) {
+                this.abandoned++;
+                console.warn(`[ai-player] action "${this.currentActionLabel}" refused stop after 10s; abandoning it (no restart; abandoned=${this.abandoned})`);
+                this.agent.bot._actionGen = (this.agent.bot._actionGen || 0) + 1;
+                this._releaseBotPlugins(this.agent.bot);
+                this.cancelResume();
+                this.executing = false;
+                this.currentActionLabel = '';
+                break;
+            }
         }
-        clearTimeout(timeout);
     } 
 
     cancelResume() {
@@ -93,6 +121,7 @@ export class ActionManager {
             this.agent.clearBotLogs();
 
             this.executing = true;
+            this.agent.bot._actionGen = (this.agent.bot._actionGen || 0) + 1;
             this.currentActionLabel = actionLabel;
             this.currentActionFn = actionFn;
 

@@ -1,6 +1,7 @@
 import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
+import { correctName } from '../library/long_memory.js';
 
 let suppressNoDomainWarning = true;
 
@@ -209,8 +210,68 @@ function numParams(command) {
     return commandParams(command).length;
 }
 
+// [ai-player] stuck-guard (set by the unstuck escalation in modes.js): don't let the model repeat a command near the spot
+// it just got stuck at. collect-guard: when self-prompting and Bob already has 16+ of what a !collectBlocks would give
+// (Oct 20: !collectBlocks("coal_ore") over and over with 37 coal), answer with a short note instead of running it.
+const commandKey = (parsed) => `${parsed.commandName}(${(parsed.args || []).map(a => JSON.stringify(a)).join(',')})`;
+function aiPlayerGuard(agent, parsed) {
+    try {
+        const key = commandKey(parsed);
+        const g = agent.stuck_guard, me = agent.bot?.entity?.position;
+        if (g && Date.now() < g.until && me && g.cmds.includes(key) && me.distanceTo(g.pos) < 32) {
+            const mins = Math.max(1, Math.ceil((g.until - Date.now()) / 60e3));
+            console.log(`[ai-player] stuck-guard: blocked ${key} (stuck at ${g.pos} recently)`);
+            return `${key} is blocked for about ${mins} more min: you got stuck doing it at ${g.pos.x} ${g.pos.y} ${g.pos.z}. Pick a different task or place.`;
+        }
+        // [ai-player] item 5: the same action failed twice here in the last 15 min -> refuse it with the reason
+        if (!/^!(stop|stfu|stay|goToBed|endGoal|restart|clearChat)$/.test(parsed.commandName)) {
+            const f = agent.failures?.blocking(parsed.commandName, parsed.args?.[0] ?? '', me);
+            if (f && isAction(parsed.commandName)) {
+                console.log(`[ai-player] failure-guard: blocked ${key} (failed x${f.count} near ${f.x} ${f.y} ${f.z}: ${f.error})`);
+                return `${key} failed ${f.count} times near ${f.x} ${f.y} ${f.z} recently (${f.error}). Do not repeat it here: choose a different task, target or place.`;
+            }
+        }
+        agent.last_command_key = key;
+        if (parsed.commandName === '!collectBlocks' && agent.self_prompter?.isActive?.()) {
+            const type = String(parsed.args?.[0] || '');
+            const base = type.replace(/^deepslate_/, '').replace(/_ore$/, '');
+            const names = [...new Set([type, base, `raw_${base}`, ...(type === 'stone' ? ['cobblestone'] : []), ...(base === 'lapis' ? ['lapis_lazuli'] : [])])];
+            const counts = {};
+            for (const i of agent.bot.inventory.items()) counts[i.name] = (counts[i.name] || 0) + i.count;
+            const item = names.sort((a, b) => (counts[b] || 0) - (counts[a] || 0))[0];
+            if ((counts[item] || 0) >= 16) {
+                console.log(`[ai-player] collect-guard: skipped ${key}, already have ${counts[item]} ${item}`);
+                return `You already have ${counts[item]} ${item}, which is plenty; no need to collect ${type} now. Use it or do something else (food, crafting, farming).`;
+            }
+        }
+    } catch (e) { console.warn(`[ai-player] command guard failed: ${e.message}`); }
+    return null;
+}
+
 export async function executeCommand(agent, message) {
     let parsed = parseCommandMessage(message);
+    // [ai-player] fix common name mistakes ('log' -> nearest log type, 'iron_ore' smelt -> raw_iron, plurals)
+    let name_note = '';
+    try {
+        const bad = typeof parsed === 'string' && parsed.match(/^Invalid (block|item|block or item) type: (\w+)\.?$/);
+        if (bad) {
+            const fixed = correctName(agent, containsCommand(message), bad[2], bad[1] === 'block' ? 'block' : bad[1] === 'item' ? 'item' : 'any');
+            if (fixed && fixed !== bad[2]) {
+                const reparsed = parseCommandMessage(message.replace(new RegExp(`(["']?)\\b${bad[2]}\\b\\1`), `"${fixed}"`));
+                if (typeof reparsed !== 'string') { parsed = reparsed; name_note = `(Note: "${bad[2]}" is not a valid name; used "${fixed}".) `; }
+            }
+        } else if (typeof parsed !== 'string' && parsed.commandName === '!smeltItem' && /_ore$/.test(parsed.args?.[0] || '')) {
+            const fixed = correctName(agent, '!smeltItem', parsed.args[0], 'item');
+            if (fixed && fixed !== parsed.args[0]) { name_note = `(Note: smelt raw items, not ore blocks; used "${fixed}" instead of "${parsed.args[0]}".) `; parsed.args[0] = fixed; }
+        }
+        if (name_note) console.log(`[ai-player] name-fix: ${name_note}`);
+    } catch (e) { console.warn(`[ai-player] name-fix failed: ${e.message}`); }
+    if (name_note && typeof parsed !== 'string') {
+        const blocked = aiPlayerGuard(agent, parsed);
+        if (blocked) return name_note + blocked;
+        const res = await executeCommand._run(agent, parsed);
+        return name_note + (res ?? '');
+    }
     if (typeof parsed === 'string')
         return parsed; //The command was incorrectly formatted or an invalid input was given.
     else {
@@ -223,11 +284,20 @@ export async function executeCommand(agent, message) {
         if (numArgs !== numParams(command))
             return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
         else {
+            const blocked = aiPlayerGuard(agent, parsed);
+            if (blocked) return blocked;
             const result = await command.perform(agent, ...parsed.args);
             return result;
         }
     }
 }
+executeCommand._run = async (agent, parsed) => {
+    const command = getCommand(parsed.commandName);
+    const numArgs = parsed.args ? parsed.args.length : 0;
+    if (numArgs !== numParams(command))
+        return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
+    return await command.perform(agent, ...parsed.args);
+};
 
 export function getCommandDocs(agent) {
     const typeTranslations = {

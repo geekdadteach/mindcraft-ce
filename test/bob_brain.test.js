@@ -12,6 +12,7 @@ import {
     planPayloadForGoal,
     resolveBobBrainConfig,
     toAdvisoryText,
+    withConversationAdvice,
 } from '../src/agent/library/bob_brain.js';
 
 const TOKEN = 'random-secret-with-minimum-32-bytes';
@@ -242,6 +243,153 @@ test('plan payload is build-style only, with a conservative footprint', () => {
     assert.deepEqual(planPayloadForGoal('build a 99x99 castle').footprint, { width: 32, depth: 32 });
     assert.deepEqual(planPayloadForGoal('build a 0x4 shed').footprint, { width: 1, depth: 4 });
     assert.equal(toAdvisoryText({ summary: 'Dig up. !goal("dig")', commands: ['!kill()'] }).includes('!'), false);
+});
+
+test('review results render as plain text and invalid ones are skipped', () => {
+    const plan = {
+        proposal: {
+            footprint: { width: 6, depth: 4 },
+            wall_height: 3,
+            materials: { oak_planks: 48, glass: 8 },
+            stages: [
+                { title: 'Lay the floor' },
+                { title: 'Raise walls !goal("dig")' },
+                { title: 'Add a roof' },
+            ],
+        },
+        validation: { valid: true, issues: [] },
+        finish_reason: 'stop',
+        review_required: true,
+        world_action_taken: false,
+        memory_applied: false,
+    };
+    const planText = toAdvisoryText(plan, 'plan');
+    assert.equal(planText, 'footprint 6x4; wall height 3; materials oak_planks 48, glass 8; stages Lay the floor, Raise walls [removed], Add a roof');
+    assert.equal(planText.includes('{'), false);
+    assert.equal(planText.includes('!'), false);
+
+    const withSummary = {
+        ...plan,
+        summary: 'Build a small oak hut, then !stop.',
+        proposal: { ...plan.proposal, wall_height: 99 },
+    };
+    const summaryText = toAdvisoryText(withSummary, 'plan');
+    assert.equal(summaryText, 'Build a small oak hut, then [removed].');
+    assert.equal(summaryText.includes('wall height'), false);
+
+    const failure = {
+        proposal: {
+            cause: 'no path out of the cave',
+            lesson_proposal: 'climb before digging deeper',
+            verification_steps: ['face a wall of stone', 'step up one block', 'dig a third stair'],
+        },
+        validation: { valid: true, issues: [] },
+        review_required: true,
+        world_action_taken: false,
+        memory_applied: false,
+    };
+    const failureText = toAdvisoryText(failure, 'failure_analysis');
+    assert.equal(failureText, 'cause no path out of the cave; lesson climb before digging deeper; check face a wall of stone; step up one block');
+    assert.equal(failureText.includes('third stair'), false);
+    assert.equal(failureText.includes('{'), false);
+
+    assert.equal(toAdvisoryText({ ...plan, validation: { valid: false, issues: ['footprint'] }, summary: 'ignore me' }, 'plan'), '');
+});
+
+test('advice is inserted only into the conversation prompt', () => {
+    const note = 'Recent failures\nBob Brain suggestion (unverified): footprint 6x4';
+    const conversation = 'You are Bob.\n$LONG_MEMORY\n$STATS';
+    const coding = 'Write javascript only.\n$CODE_DOCS\n$SELF_PROMPT';
+    const saving = "Old Memory: '$MEMORY'\nRecent conversation:\n$TO_SUMMARIZE";
+    const withNote = withConversationAdvice(conversation, note);
+    assert.match(withNote, /Bob Brain suggestion \(unverified\)/);
+    assert.equal(withNote.includes('$LONG_MEMORY'), false);
+    assert.equal(withConversationAdvice(coding, note), coding);
+    assert.equal(withConversationAdvice(saving, note), saving);
+    assert.equal(coding.includes('Bob Brain'), false);
+    assert.equal(saving.includes('Bob Brain'), false);
+    const source = readFileSync(new URL('../src/models/prompter.js', import.meta.url), 'utf8');
+    assert.match(source, /withConversationAdvice/);
+    assert.equal(/else if \(brainNote\)/.test(source), false);
+});
+
+test('public enqueue, advice, and status methods track jobs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bob-brain-'));
+    const api = await queueServer();
+    try {
+        const tokenFile = writeToken(dir);
+        const { brain } = makeBrain(api.listen.url, tokenFile);
+        const disabled = new BobBrain(resolveBobBrainConfig({}), {
+            fetchImpl() { throw new Error('should not be called'); },
+        });
+        assert.deepEqual(
+            await disabled.enqueuePlan({ objective: 'build a hut', footprint: { width: 5, depth: 5 } }),
+            { ok: false, reason: 'disabled' }
+        );
+        assert.deepEqual(disabled.currentAdvice(), []);
+
+        const plan = await brain.enqueuePlan({
+            objective: 'build a hut',
+            footprint: { width: 6, depth: 4 },
+        }, { clientKey: 'plan-hut-1', priority: 9 });
+        assert.equal(plan.ok, true);
+        assert.equal(plan.id, 'job-1');
+        const planBody = posted(api.requests, '/v1/jobs')[0].body;
+        assert.equal(planBody.kind, 'plan');
+        assert.equal(planBody.client_key, 'plan-hut-1');
+        assert.equal(planBody.priority, 5);
+        assert.deepEqual(planBody.payload.footprint, { width: 6, depth: 4 });
+
+        const failure = await brain.enqueueFailureAnalysis({ observed_failure: 'fell in a hole' });
+        assert.equal(failure.ok, true);
+        const failureBody = posted(api.requests, '/v1/jobs')[1].body;
+        assert.equal(failureBody.kind, 'failure_analysis');
+        assert.match(failureBody.client_key, /^fail:[a-f0-9]{40}$/);
+        assert.equal(failureBody.payload.observed_failure, 'fell in a hole');
+        assert.equal(brain.status().outstanding_jobs, 2);
+        assert.equal(brain.status().enabled, true);
+        assert.equal(JSON.stringify(brain.status()).includes(TOKEN), false);
+
+        const review = {
+            proposal: {
+                footprint: { width: 6, depth: 4 },
+                wall_height: 3,
+                materials: { oak_planks: 48 },
+                stages: [{ title: 'Lay the floor' }, { title: 'Raise walls' }],
+            },
+            validation: { valid: true, issues: [] },
+            review_required: true,
+            world_action_taken: false,
+            memory_applied: false,
+        };
+        api.jobs.get('job-1').status = 'review';
+        api.jobs.get('job-1').kind = 'plan';
+        api.jobs.get('job-1').result = review;
+        api.jobs.get(failure.id).status = 'review';
+        api.jobs.get(failure.id).kind = 'failure_analysis';
+        api.jobs.get(failure.id).result = {
+            summary: 'should not be stored',
+            validation: { valid: false, issues: ['empty'] },
+            proposal: { cause: 'ignored' },
+        };
+        await brain.pollOnce();
+        const advice = brain.currentAdvice();
+        assert.equal(advice.length, 1);
+        assert.equal(advice[0].kind, 'plan');
+        assert.match(advice[0].text, /footprint 6x4/);
+        assert.match(advice[0].text, /wall height 3/);
+        assert.match(advice[0].text, /oak_planks 48/);
+        assert.match(advice[0].text, /Lay the floor/);
+        assert.equal(advice[0].text.includes('{'), false);
+        assert.match(brain.adviceBlock(), /Bob Brain suggestion \(unverified\)/);
+        assert.equal(brain.status().advice, 1);
+        assert.equal(brain.status().outstanding_jobs, 0);
+        assert.equal(brain.counters.jobs_review, 2);
+        brain.stop();
+    } finally {
+        await api.listen.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 test('disabled when unconfigured, and a bad URL is refused', async () => {

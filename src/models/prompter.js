@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { selectAPI, createModel } from './_model_map.js';
 import { logEmbeddingCacheStartupSummary } from '../utils/embedding_cache.js';
+import { withConversationAdvice } from '../agent/library/bob_brain.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -166,14 +167,18 @@ export class Prompter {
         }
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
-        // [bob-brain] unverified advisory note only. It is prompt text, never a command to run.
-        let brainNote = '';
-        try { brainNote = this.agent.bobBrain?.adviceBlock?.() || ''; }
-        catch { brainNote = ''; }
-        if (prompt.includes('$LONG_MEMORY'))
-            prompt = prompt.replaceAll('$LONG_MEMORY', [this.agent.longMemory ? await this.agent.longMemory.promptBlock(messages) : '', this.agent.failures?.promptBlock() || '', brainNote].filter(Boolean).join('\n')); // [ai-player] item 5: + recent failures
-        else if (brainNote)
-            prompt += '\n' + brainNote;
+        // [bob-brain] unverified advisory note only, and only in the conversation prompt ($LONG_MEMORY).
+        if (prompt.includes('$LONG_MEMORY')) {
+            let brainNote = '';
+            try { brainNote = this.agent.bobBrain?.adviceBlock?.() || ''; }
+            catch { brainNote = ''; }
+            const longMemory = [
+                this.agent.longMemory ? await this.agent.longMemory.promptBlock(messages) : '',
+                this.agent.failures?.promptBlock() || '',
+                brainNote,
+            ].filter(Boolean).join('\n'); // [ai-player] item 5: + recent failures
+            prompt = withConversationAdvice(prompt, longMemory);
+        }
         if (prompt.includes('$MEMORY'))
             prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
         if (prompt.includes('$TO_SUMMARIZE'))

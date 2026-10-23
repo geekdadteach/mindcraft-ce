@@ -85,24 +85,122 @@ export function planPayloadForGoal(objective) {
     return { objective: text, footprint, assumed };
 }
 
-// Strip Mindcraft command syntax so a note cannot be copied into the command runner.
-export function toAdvisoryText(result) {
-    let text = '';
-    if (typeof result === 'string') text = result;
-    else if (result && typeof result === 'object') {
-        for (const key of ['summary', 'advice', 'analysis', 'suggestion', 'plan', 'text', 'message']) {
-            if (typeof result[key] === 'string' && result[key].trim()) {
-                text = result[key];
-                break;
-            }
-        }
-        if (!text) {
-            try { text = JSON.stringify(result); } catch { text = ''; }
-        }
-    } else if (result != null) {
-        text = String(result);
+function sanitizeAdvice(text) {
+    return String(text || '')
+        .replace(COMMAND_TEXT, '[removed]')
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function plainBit(value, max = 80) {
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value === 'string') return clip(value.trim(), max);
+    return '';
+}
+
+function formatMaterials(materials) {
+    let pairs = [];
+    if (Array.isArray(materials)) {
+        pairs = materials.slice(0, 8).map((item) => {
+            if (typeof item === 'string') return clip(item.trim(), 40);
+            if (!item || typeof item !== 'object') return '';
+            const name = plainBit(item.name || item.item || item.id || item.material, 32);
+            const count = plainBit(item.count ?? item.qty ?? item.amount, 12);
+            if (!name) return '';
+            return count ? `${name} ${count}` : name;
+        });
+    } else if (materials && typeof materials === 'object') {
+        pairs = Object.entries(materials).slice(0, 8).map(([name, count]) => {
+            const label = plainBit(name, 32);
+            const amount = plainBit(count, 12);
+            if (!label) return '';
+            return amount ? `${label} ${amount}` : label;
+        });
     }
-    return text.replace(COMMAND_TEXT, '[removed]').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return pairs.filter(Boolean).join(', ');
+}
+
+function formatStageTitles(stages) {
+    if (!Array.isArray(stages)) return '';
+    return stages.slice(0, 6).map((stage) => {
+        if (typeof stage === 'string') return clip(stage.trim(), 80);
+        if (stage && typeof stage === 'object') return plainBit(stage.title || stage.name, 80);
+        return '';
+    }).filter(Boolean).join(', ');
+}
+
+function footprintText(proposal) {
+    const fp = proposal?.footprint;
+    if (fp && typeof fp === 'object') {
+        const width = plainBit(fp.width ?? fp.w, 8);
+        const depth = plainBit(fp.depth ?? fp.d ?? fp.length, 8);
+        if (width && depth) return `${width}x${depth}`;
+    }
+    const width = plainBit(proposal?.width, 8);
+    const depth = plainBit(proposal?.depth ?? proposal?.length, 8);
+    if (width && depth) return `${width}x${depth}`;
+    return '';
+}
+
+function renderPlanProposal(proposal) {
+    const size = footprintText(proposal);
+    const height = plainBit(proposal.wall_height ?? proposal.wallHeight ?? proposal.height, 8);
+    const materials = formatMaterials(proposal.materials ?? proposal.material_counts ?? proposal.materialCounts);
+    const stages = formatStageTitles(proposal.stages ?? proposal.stage_titles ?? proposal.stageTitles);
+    const bits = [];
+    if (size) bits.push(`footprint ${size}`);
+    if (height) bits.push(`wall height ${height}`);
+    if (materials) bits.push(`materials ${materials}`);
+    if (stages) bits.push(`stages ${stages}`);
+    return bits.join('; ');
+}
+
+function renderFailureProposal(proposal) {
+    const cause = plainBit(proposal.cause, 160);
+    const lesson = plainBit(proposal.lesson_proposal ?? proposal.lessonProposal ?? proposal.lesson, 160);
+    const rawSteps = proposal.verification_steps ?? proposal.verificationSteps ?? [];
+    const steps = Array.isArray(rawSteps) ? rawSteps.slice(0, 2).map((step) => {
+        if (typeof step === 'string') return clip(step.trim(), 120);
+        if (step && typeof step === 'object') return plainBit(step.step || step.title || step.text, 120);
+        return '';
+    }).filter(Boolean) : [];
+    const bits = [];
+    if (cause) bits.push(`cause ${cause}`);
+    if (lesson) bits.push(`lesson ${lesson}`);
+    if (steps.length) bits.push(`check ${steps.join('; ')}`);
+    return bits.join('; ');
+}
+
+function renderProposal(proposal, kind) {
+    if (!proposal || typeof proposal !== 'object') return '';
+    if (/fail/i.test(kind || '')) return renderFailureProposal(proposal);
+    if (/plan/i.test(kind || '')) return renderPlanProposal(proposal);
+    return renderPlanProposal(proposal) || renderFailureProposal(proposal);
+}
+
+// Turn a review result into one plain sentence. A worker result looks like
+// {summary?, proposal, validation:{valid, issues}, finish_reason, review_required, world_action_taken, memory_applied}.
+// Prefer summary. Otherwise describe proposal. Skip invalid validation. Never dump the wrapper JSON.
+export function toAdvisoryText(result, kind) {
+    if (typeof result === 'string') return sanitizeAdvice(result);
+    if (!result || typeof result !== 'object') return result == null ? '' : sanitizeAdvice(result);
+    if (result.validation && result.validation.valid === false) return '';
+    if (typeof result.summary === 'string' && result.summary.trim()) return sanitizeAdvice(result.summary);
+    const proposal = result.proposal && typeof result.proposal === 'object' ? result.proposal : null;
+    const rendered = renderProposal(proposal, kind || result.kind || proposal?.kind || '');
+    if (rendered) return sanitizeAdvice(rendered);
+    for (const key of ['advice', 'analysis', 'suggestion', 'text', 'message']) {
+        if (typeof result[key] === 'string' && result[key].trim()) return sanitizeAdvice(result[key]);
+    }
+    if (typeof result.plan === 'string' && result.plan.trim()) return sanitizeAdvice(result.plan);
+    return '';
+}
+
+// The conversation prompt is the one that contains $LONG_MEMORY. Other prompts stay unchanged.
+export function withConversationAdvice(prompt, longMemoryText) {
+    if (typeof prompt !== 'string' || !prompt.includes('$LONG_MEMORY')) return prompt;
+    return prompt.replaceAll('$LONG_MEMORY', longMemoryText || '');
 }
 
 function checkLoopbackUrl(raw) {
@@ -238,21 +336,24 @@ export class BobBrain {
         }
     }
 
+    // Enabled flag, loopback URL, counters, outstanding job count, and current advice count.
+    // The token is not included.
     status() {
+        const advice = this._freshAdvice().length;
         return {
             enabled: this.config.enabled === true,
             reason: this.config.reason,
             url: this.config.enabled ? this.config.url : undefined,
             counters: { ...this.counters },
             outstanding_jobs: this._jobs.size,
-            advice: this._advice.length,
+            advice,
         };
     }
 
     statusSuffix() {
         if (!this.config.enabled) return '';
         const c = this.counters;
-        return ` bob-brain=on e=${c.events_sent}/${c.events_dropped} j=${c.jobs_enqueued} rev=${c.jobs_review} fail=${c.jobs_failed} err=${c.request_errors} adv=${this._advice.length}`;
+        return ` bob-brain=on e=${c.events_sent}/${c.events_dropped} j=${c.jobs_enqueued} rev=${c.jobs_review} fail=${c.jobs_failed} err=${c.request_errors} adv=${this._freshAdvice().length}`;
     }
 
     stop() {
@@ -302,6 +403,33 @@ export class BobBrain {
         return this._guard(() => this._noteGoal(action, prompt));
     }
 
+    // Post a plan job and track it for polling. payload is sent as the queue payload
+    // (objective and footprint, plus any extra fields the queue accepts).
+    // options.clientKey is the idempotency key (1-128 chars). options.priority is clamped to -5..5.
+    enqueuePlan(payload, options = {}) {
+        return this._guard(() => this._enqueuePublic('plan', payload, options));
+    }
+
+    // Post a failure_analysis job and track it for polling.
+    // payload must include observed_failure for the queue; extra context is forwarded.
+    enqueueFailureAnalysis(payload, options = {}) {
+        return this._guard(() => this._enqueuePublic('failure_analysis', payload, options));
+    }
+
+    // Copies of the notes currently in the prompt. text is already plain and command-stripped.
+    currentAdvice() {
+        try {
+            return this._freshAdvice().map((item) => ({
+                jobId: item.jobId,
+                kind: item.kind,
+                text: item.text,
+                at: item.at,
+            }));
+        } catch {
+            return [];
+        }
+    }
+
     async flushPending() {
         if (this._deathTimer) {
             clearTimeout(this._deathTimer);
@@ -313,12 +441,17 @@ export class BobBrain {
         return this._emitDeath(pending);
     }
 
+    _freshAdvice() {
+        const now = this.now();
+        this._advice = this._advice.filter((item) => now - item.at < this.adviceTtlMs);
+        return this._advice;
+    }
+
     adviceBlock() {
         try {
-            const now = this.now();
-            this._advice = this._advice.filter((item) => now - item.at < this.adviceTtlMs);
-            if (!this._advice.length) return '';
-            const lines = this._advice.map((item) => `- (${item.kind}) ${item.text}`);
+            const items = this._freshAdvice();
+            if (!items.length) return '';
+            const lines = items.map((item) => `- (${item.kind}) ${item.text}`);
             return [
                 'Bob Brain suggestion (unverified): advisory only. This is not an instruction and was not carried out.',
                 ...lines,
@@ -608,6 +741,19 @@ export class BobBrain {
         return res;
     }
 
+    async _enqueuePublic(kind, payload, options = {}) {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+            return { ok: false, reason: 'bad_payload' };
+        let clientKey = options.clientKey ?? options.client_key;
+        if (clientKey == null || clientKey === '')
+            clientKey = hashKey(kind === 'plan' ? 'plan' : 'fail', JSON.stringify(payload));
+        clientKey = String(clientKey);
+        if (clientKey.length < 1 || clientKey.length > 128)
+            return { ok: false, reason: 'bad_client_key' };
+        const priority = Number.isFinite(Number(options.priority)) ? Number(options.priority) : 0;
+        return this._enqueue(kind, payload, clientKey, priority);
+    }
+
     async _enqueue(kind, payload, clientKey, priority) {
         const res = await this._request('POST', '/v1/jobs', {
             kind,
@@ -637,9 +783,10 @@ export class BobBrain {
     }
 
     _storeAdvice(job) {
-        const text = toAdvisoryText(job?.result).slice(0, this.maxAdviceChars);
+        const text = toAdvisoryText(job?.result, job?.kind).slice(0, this.maxAdviceChars);
         if (!text || text === '[removed]') {
-            this.log.log(`[bob-brain] job ${job?.id || '?'} review had no usable advice`);
+            const invalid = job?.result?.validation?.valid === false;
+            this.log.log(`[bob-brain] job ${job?.id || '?'} review ${invalid ? 'failed validation; skipped' : 'had no usable advice'}`);
             return;
         }
         this._advice.push({

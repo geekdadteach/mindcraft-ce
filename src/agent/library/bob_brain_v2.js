@@ -26,6 +26,8 @@ import {
     fstatSync,
     lstatSync,
     openSync,
+    renameSync,
+    unlinkSync,
     writeSync,
 } from 'node:fs';
 import { isAbsolute } from 'node:path';
@@ -36,6 +38,7 @@ export const V2_SOURCE = 'mindcraft';
 export const MAX_SUMMARY_CHARS = 700;
 export const MAX_LINE_BYTES = 4096;
 export const DEFAULT_MAX_LOG_BYTES = 1024 * 1024;
+export const MAX_RECEIPT_ARCHIVES = 4;
 export const TRACE_ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
 export const EVENT_ID_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
 
@@ -128,7 +131,10 @@ export function resolveV2EventLogConfig(env = process.env) {
         return { enabled: false, rejected: true, reason: 'BOB_BRAIN_V2_EVENT_LOG must be an absolute path' };
     if (!constants.O_NOFOLLOW)
         return { enabled: false, rejected: true, reason: 'BOB_BRAIN_V2_EVENT_LOG requires O_NOFOLLOW' };
-    return { enabled: true, rejected: false, reason: 'enabled', path: raw };
+    return {
+        enabled: true, rejected: false, reason: 'enabled', path: raw,
+        rotateEnabled: String(env?.BOB_BRAIN_V2_ROTATE_LOG ?? '') === '1',
+    };
 }
 
 function safeKind(kind) {
@@ -169,6 +175,7 @@ export class V2EventLog {
     constructor(config, options = {}) {
         this.config = config || { enabled: false, rejected: false, reason: 'BOB_BRAIN_V2_EVENT_LOG is unset' };
         this.maxBytes = options.maxBytes ?? DEFAULT_MAX_LOG_BYTES;
+        this.rotateEnabled = options.rotateEnabled ?? this.config.rotateEnabled ?? false;
         this.log = options.log || defaultLog;
         this.now = options.now || Date.now;
         this.fd = null;
@@ -186,9 +193,12 @@ export class V2EventLog {
             const size = fstatSync(this.fd).size;
             const bytes = Buffer.byteLength(line);
             if (size + bytes > this.maxBytes) {
-                this.full = true;
-                this._warn('v2 receipts stopped: file reached its size cap');
-                return false;
+                if (!this.rotateEnabled || bytes > this.maxBytes) {
+                    this.full = true;
+                    this._warn('v2 receipts stopped: file reached its size cap');
+                    return false;
+                }
+                if (!this._rotateArchive() || !this._open()) return false;
             }
             const started = this.now();
             const written = writeSync(this.fd, line);
@@ -224,6 +234,42 @@ export class V2EventLog {
         this.disabled = true;
         this.close();
         this._warn(message);
+    }
+
+    _rotateArchive() {
+        // Opt-in bounded ring: active -> .1 -> .2 -> .3 -> .4. The oldest
+        // archive may be lost; the reader reports gaps if it fell behind.
+        // All writes/renames are local; never touch Minecraft or the queue.
+        const path = this.config.path;
+        try {
+            const existing = lstatSync(path);
+            if (!existing.isFile() || existing.isSymbolicLink())
+                throw new Error('active receipt file unsafe');
+            const archives = [];
+            for (let n = 1; n <= MAX_RECEIPT_ARCHIVES; n++) {
+                let current = null;
+                try { current = lstatSync(path + '.' + n); }
+                catch (err) {
+                    if (err?.code !== 'ENOENT') throw err;
+                }
+                if (current && (current.isSymbolicLink() || !current.isFile() ||
+                    ![0o600, 0o640].includes(current.mode & 0o777)))
+                    throw new Error('receipt archive unsafe');
+                archives.push(current);
+            }
+            // Close before rename so an append can't continue into old inode.
+            this.close();
+            if (archives[MAX_RECEIPT_ARCHIVES - 1])
+                unlinkSync(path + '.' + MAX_RECEIPT_ARCHIVES);
+            for (let n = MAX_RECEIPT_ARCHIVES - 1; n >= 1; n--) {
+                if (archives[n - 1]) renameSync(path + '.' + n, path + '.' + (n + 1));
+            }
+            renameSync(path, path + '.1');
+            return true;
+        } catch {
+            this._fail('v2 receipts disabled: safe rotation failed');
+            return false;
+        }
     }
 
     _open() {

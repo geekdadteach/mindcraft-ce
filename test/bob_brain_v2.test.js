@@ -436,3 +436,65 @@ test('prompter and command hooks are the real paths, and lessons are not a recei
     assert.equal(receipts.includes("'lesson_outcome'"), false);
     assert.equal(new BobV2Receipts({ env: {} }).config.enabled, false);
 });
+
+
+test('opt-in bounded receipt rotation reopens active log without touching gameplay', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bob-v2-ring-'));
+    const path = join(dir, 'mindcraft.jsonl');
+    const log = makeLog();
+    try {
+        const config = resolveV2EventLogConfig({
+            BOB_BRAIN_V2_EVENT_LOG: path, BOB_BRAIN_V2_ROTATE_LOG: '1',
+        });
+        assert.equal(config.rotateEnabled, true);
+        assert.equal(resolveV2EventLogConfig({ BOB_BRAIN_V2_EVENT_LOG: path }).rotateEnabled, false);
+        const writer = new V2EventLog(config, { maxBytes: 330, log });
+        for (let index = 0; index < 13; index++) {
+            const event = buildV2Event({
+                traceId: 'job-rotation', eventId: 'receipt.' + index,
+                type: 'action_result', summary: 'action returned safely',
+            });
+            assert.equal(writer.append(event), true);
+        }
+        writer.close();
+        assert.equal(existsSync(path), true);
+        for (let index = 1; index <= 4; index++) {
+            const archive = path + '.' + index;
+            assert.equal(existsSync(archive), true);
+            assert.equal((statSync(archive).mode & 0o777), 0o640);
+            assert.ok(readEvents(archive).length >= 1);
+        }
+        assert.ok(readEvents(path).length >= 1);
+        assert.equal(log.warnings.join(' ').includes('size cap'), false);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('opt-in rotation fails safely on symlinked archive', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bob-v2-unsafe-'));
+    const path = join(dir, 'mindcraft.jsonl');
+    const safe = join(dir, 'keep.txt');
+    try {
+        writeFileSync(safe, 'do not change me');
+        symlinkSync(safe, path + '.1');
+        const writer = new V2EventLog(
+            resolveV2EventLogConfig({
+                BOB_BRAIN_V2_EVENT_LOG: path, BOB_BRAIN_V2_ROTATE_LOG: '1',
+            }),
+            { maxBytes: 260, log: makeLog() },
+        );
+        for (let index = 0; index < 5; index++) {
+            const event = buildV2Event({
+                traceId: 'job-unsafe', eventId: 'unsafe.' + index,
+                type: 'action_result', summary: 'safe',
+            });
+            writer.append(event);
+        }
+        assert.equal(writer.disabled, true);
+        assert.equal(readFileSync(safe, 'utf8'), 'do not change me');
+        writer.close();
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

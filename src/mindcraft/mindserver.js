@@ -312,7 +312,7 @@ export function createMindServer(host_public = false, port = 8080) {
     if (host_public) {
         console.log('Public hosting not supported yet. Using localhost.');
     }
-    // [ai-player] Loopback only by default. For LAN access for Randy (ufw allows 8080),
+    // [ai-player] Loopback only by default. For LAN access for Randy (ufw allows 8081, settings.mindserver_port),
     // set MINDCRAFT_BIND_HOST=0.0.0.0 in the systemd unit/env.
     const host = process.env.MINDCRAFT_BIND_HOST || "127.0.0.1";
     server.listen(port, host, () => {

@@ -2,6 +2,7 @@ import { io } from 'socket.io-client';
 import convoManager from './conversation.js';
 import { setSettings } from './settings.js';
 import { getFullState } from './library/full_state.js';
+import { attachBobbotAgentControl } from './bobbot_control.js';
 
 // agent's individual connection to the mindserver
 // always connect to localhost
@@ -68,6 +69,9 @@ class MindServerProxy {
                 console.error('Error: ', JSON.stringify(error, Object.getOwnPropertyNames(error)));
             }
         });
+
+        // The agent accepts these only through its MindServer process socket.
+        attachBobbotAgentControl(this.socket, () => this.agent);
 
         this.socket.on('get-full-state', (callback) => {
             try {

@@ -96,3 +96,40 @@ curl -fsS \
 ```
 
 That lists the latest review jobs on the queue (the worker can take minutes). Bob's own log line `stored unverified advice` means one of his jobs was copied into the prompt.
+
+## V2 receipts
+
+Bob can append BobBot V2 version-1 JSONL receipts for things only this process can see: whether stored advice text was actually in the finished prompt, and what command or action Bob then ran. This is off unless configured. It does not change prompts, commands, or the queue client.
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `BOB_BRAIN_V2_EVENT_LOG` | yes, to enable | Absolute path of a JSONL file Bob appends. Unset means no file and no receipts. |
+
+A relative path, a path with whitespace, a symlink, or anything that is not a regular file is refused. Bob creates a missing file as mode `0640` (owner read/write, group read). An existing file is used only when it is mode `0640` or `0600`; a looser mode is left untouched. Each receipt is one `write` of a single line shorter than 4096 bytes, opened with append and `O_NOFOLLOW`. The file stops growing at 1 MiB (the last line is not written if it would pass the cap). A disk error, a short write, or a write that takes longer than a quarter second disables further receipts. None of those failures change gameplay. Startup logs `[bob-brain] v2 receipts enabled` only when the variable is set to an absolute path. Unset does not add a log line.
+
+Suggested path, next to the file the brain-side sync appender already writes, but not the same file:
+
+```bash
+BOB_BRAIN_V2_EVENT_LOG=/path/to/bob-v2-mindcraft.jsonl
+```
+
+On the deployed host, V2 reads one file (`BOBBOT_V2_BRAIN_LOG`) written by a separate sync appender. Point Bob at a different filename in that directory. Do not point both writers at one path. Bob's own append is atomic for a single short line on Linux, but that does not make sharing safe: Bob's size cap only sees its own stat, and this repo does not assume the other appender uses one append-mode write per line or that it never rewrites the file.
+
+V2 currently takes one `BOBBOT_V2_BRAIN_LOG` path. Pointing that at Bob's file shows Bob's receipts and hides the brain appender. Pointing it at the brain file hides Bob's receipts. Reading both is a gap for V2 (a second path, or something that merges the two files).
+
+### What a line proves
+
+Every line is JSON with `version` 1, `source` `mindcraft`, `trace_id`, `type`, and `summary` (at most 700 characters). `event_id` is included when it fits the identifier rule. `trace_id` and `event_id` are 1–80 and 1–128 characters from `A–Z`, `a–z`, `0–9`, `_`, `.`, `:`, and `-`. Queue job ids this client already accepts are valid trace ids. A Bob-local trace id looks like `bob.` plus 16 hex characters. An event id looks like `bob.{boot}.{trace_id}.{type}.{n}` and stays fixed once written. Summaries are written by this code. They do not contain the prompt, the model reply, chat, or the advice sentence.
+
+The private schema file was not readable from this checkout. The rules above are the ones Bob enforces, sized so a brain event id `brain.{job_id}.a{attempt}.{type}` and a job id of up to 80 characters still fit.
+
+| Type | Proves |
+| --- | --- |
+| `advice_injected` | After the conversation prompt was fully assembled, the exact stored line `- (kind) text` was still in that string, inside the `Bob Brain suggestion (unverified):` block. `trace_id` is the queue job id. `truncated=yes` means only the stored prefix (the existing character cap) was checked, not the worker's full summary. |
+| `advice_rejected` | A review was not stored (validation failed, command text stripped it to nothing, or it had no usable text), an older note was dropped because the list is capped, the 900-character suggestion block cut the line, or the finished conversation prompt did not contain the full line. A prompt with no `$LONG_MEMORY` placeholder emits this once per job (`wrong_prompt` in the summary). That is not deletion: a later conversation prompt can still inject the same note. |
+| `action_started` | `perform` was called for a real command, or an action runtime started outside a command (a mode or similar). A parsed string, a guard refusal, or chat of the command is not a start. |
+| `action_result` | That same `perform` returned or threw, or the action runtime returned. `outcome=finished` means the runtime returned without an exception, interrupt, or timeout. It does not mean the goal succeeded. `outcome=returned` means the command returned text and did not go through the action runtime. The result text is not copied. |
+
+When a model reply runs a command after a conversation prompt that contained one or more injected notes, each note's job id gets its own `action_started` and `action_result`. The summaries share `action_id=aN` and, when there is more than one note, `note=1/2`. That is one command, correlated to each injected job. Any other caller (a player command, BobBot control, a task, a mode) uses a Bob-local trace id. A mode action that runs inside a command does not add a second pair; its runtime flags (`finished`, `failed`, `interrupted`, `timedout`, `threw`) are the command's outcome.
+
+`lesson_applied` and `lesson_outcome` are not written. Lessons are sentences in the conversation prompt, and a new lesson is stored when a command result matches a fixed pattern. Nothing in this repo records that a particular lesson was chosen as the reason for a command, or that a later result confirmed it. Emitting those types would invent a receipt.

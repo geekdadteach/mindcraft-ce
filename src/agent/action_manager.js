@@ -1,3 +1,5 @@
+import { noteRuntimeFinish, noteRuntimeStart } from './library/bob_brain_v2.js';
+
 export class ActionManager {
     constructor(agent) {
         this.agent = agent;
@@ -88,6 +90,7 @@ export class ActionManager {
 
     async _executeAction(actionLabel, actionFn, timeout = 10) {
         let TIMEOUT;
+        let runtimeReceipt = null;
         try {
             if (this.last_action_time > 0) {
                 let time_diff = Date.now() - this.last_action_time;
@@ -131,6 +134,7 @@ export class ActionManager {
             }
 
             // start the action
+            runtimeReceipt = noteRuntimeStart(this.agent, actionLabel);
             await actionFn();
 
             // mark action as finished + cleanup
@@ -144,6 +148,7 @@ export class ActionManager {
             let interrupted = this.agent.bot.interrupt_code;
             let timedout = this.timedout;
             this.agent.clearBotLogs();
+            noteRuntimeFinish(this.agent, runtimeReceipt, { success: true, interrupted, timedout, threw: false });
 
             // if not interrupted and not generating, emit idle event
             if (!interrupted) {
@@ -170,6 +175,7 @@ export class ActionManager {
                 'Stack trace:\n' + err.stack+'\n';
 
             let interrupted = this.agent.bot.interrupt_code;
+            noteRuntimeFinish(this.agent, runtimeReceipt, { success: false, interrupted, timedout: false, threw: true });
             this.agent.clearBotLogs();
             if (!interrupted) {
                 this.agent.bot.emit('idle');

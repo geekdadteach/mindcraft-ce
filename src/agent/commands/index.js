@@ -2,6 +2,7 @@ import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
 import { correctName } from '../library/long_memory.js';
+import { runCommandPerform } from '../library/bob_brain_v2.js';
 
 let suppressNoDomainWarning = true;
 
@@ -286,17 +287,26 @@ export async function executeCommand(agent, message) {
         else {
             const blocked = aiPlayerGuard(agent, parsed);
             if (blocked) return blocked;
-            const result = await command.perform(agent, ...parsed.args);
-            return result;
+            return await performParsed(agent, parsed);
         }
     }
 }
+
+function performParsed(agent, parsed) {
+    const command = getCommand(parsed.commandName);
+    return runCommandPerform(
+        agent,
+        { commandName: parsed.commandName, action: isAction(parsed.commandName) },
+        () => command.perform(agent, ...parsed.args)
+    );
+}
+
 executeCommand._run = async (agent, parsed) => {
     const command = getCommand(parsed.commandName);
     const numArgs = parsed.args ? parsed.args.length : 0;
     if (numArgs !== numParams(command))
         return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
-    return await command.perform(agent, ...parsed.args);
+    return await performParsed(agent, parsed);
 };
 
 export function getCommandDocs(agent) {

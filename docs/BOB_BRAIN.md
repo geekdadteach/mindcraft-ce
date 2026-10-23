@@ -51,11 +51,39 @@ Network calls time out quickly. If the queue is down, returns an error, or sends
 
 ## Advice
 
-Bob polls only the jobs this process enqueued. On `review`, a short note is added to his prompt, including through `$LONG_MEMORY` when that placeholder exists:
+Bob polls only the jobs this process enqueued. On `review`, a short note is added to the conversation prompt, which is the prompt that contains `$LONG_MEMORY`. Memory-saving and coding prompts do not receive it.
 
 `Bob Brain suggestion (unverified): ...`
 
-Notes are capped (3 items, 30 minutes, a few hundred characters). Command text such as `!goal(...)` is stripped before it is shown. Nothing in the note is executed. A `failed` job is logged and not shown.
+A review result from the worker looks like `{summary?, proposal, validation:{valid, issues}, finish_reason, review_required, world_action_taken, memory_applied}`.
+
+- When `summary` is a plain string, that string is the note.
+- Otherwise a plan note lists footprint (`6x4`), wall height, material counts, and stage titles.
+- A failure-analysis note lists cause, lesson, and the first two verification steps.
+- When `validation.valid` is false, the result is skipped.
+- Command text such as `!goal(...)` is stripped. Notes are capped (3 items, 30 minutes, a few hundred characters). Nothing in the note is executed. A `failed` job is logged and not shown.
+
+## Calling it from a script
+
+These methods are public. They post a job and remember it for polling, or they read state. They do not run Minecraft commands.
+
+```javascript
+import { BobBrain, resolveBobBrainConfig } from './src/agent/library/bob_brain.js';
+
+const brain = new BobBrain(resolveBobBrainConfig());
+await brain.enqueuePlan(
+    { objective: 'build a hut', footprint: { width: 6, depth: 4 } },
+    { clientKey: 'plan-hut-1', priority: 0 }
+);
+await brain.enqueueFailureAnalysis(
+    { observed_failure: 'no path out of the cave' }
+);
+brain.status();        // enabled, counters, outstanding_jobs, advice
+brain.currentAdvice(); // [{ jobId, kind, text, at }]
+brain.adviceBlock();   // the conversation-prompt note, or ''
+```
+
+`clientKey` is optional (1–128 characters). When it is omitted, the client sends a stable hash of the payload. `priority` is clamped to -5..5. A disabled client returns `{ok: false, reason: 'disabled'}` and does not open a connection.
 
 ## Check the queue
 

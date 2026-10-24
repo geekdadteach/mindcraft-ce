@@ -1,3 +1,9 @@
+
+## 2026-10-23 — Review proposal to move Mindcraft tests off hosted GitHub Actions
+- `chore/local-tests-newearth-20261023` archives old Bob Brain and MindServer Control workflow YAML, removes active test workflows from the newearth/main review branch, and adds Node 22+ scripts/test-local.sh.
+- Docs deploy action on unrelated develop remains unchanged. Exact tests retained; no live Bob/Minecraft or model runtime touched.
+- Full stop on base newearth/main requires owner-approved PR merge or GitHub Actions repository setting; this source PR does not change running services.
+
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
 **Snapshot:** 2026-10-23. Verify repository and live state before changing anything.

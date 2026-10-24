@@ -41,3 +41,8 @@ Append one dated entry per logical change, newest first. Never erase prior entri
 - **Live state:** Live Bob = `49761ee` content, not run from a git checkout. No service or process change.
 - **Next:** Later, run Bob from a checkout of this fork; minebob records the live commit until then.
 - **Rollback:** Revert this commit.
+
+
+### 2026-10-23 — ChatGPT — Propose local-only Brain and MindServer unit tests
+- Archive two automatic Github-hosted test workflows and add scripts/test-local.sh. No automatic PR/push test execution after approved policy merge; developer testing remains required locally.
+- Docs website publication on develop is NOT a test workflow and is untouched. All live agents and original game controls unaffected. This change is draft/unmerged.

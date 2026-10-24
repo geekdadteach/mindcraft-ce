@@ -8,6 +8,7 @@ import { join } from 'node:path';
 
 import {
     BobBrain,
+    HTTP_ERROR_CLIP,
     attachBobBrain,
     planPayloadForGoal,
     resolveBobBrainConfig,
@@ -55,11 +56,23 @@ function startServer(onRequest) {
     });
 }
 
-function queueServer(token = TOKEN) {
+function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'null';
+}
+
+function queueServer(token = TOKEN, options = {}) {
     const requests = [];
+    const replies = [];
     const jobs = new Map();
+    const jobsByKey = new Map();
+    const strictKeys = options.strictKeys === true;
     const api = {
         requests,
+        replies,
         jobs,
         listen: null,
     };
@@ -86,6 +99,23 @@ function queueServer(token = TOKEN) {
             return;
         }
         if (req.method === 'POST' && url.pathname === '/v1/jobs') {
+            const clientKey = typeof body?.client_key === 'string' ? body.client_key : '';
+            if (strictKeys && clientKey && jobsByKey.has(clientKey)) {
+                const prev = jobsByKey.get(clientKey);
+                const same = prev.kind === body.kind && stableJson(prev.payload) === stableJson(body.payload);
+                if (!same) {
+                    const error = { error: 'client_key already used for different job' };
+                    replies.push({ status: 400, path: url.pathname, body: error });
+                    res.writeHead(400, { 'content-type': 'application/json' });
+                    res.end(JSON.stringify(error));
+                    return;
+                }
+                const replay = { job: prev };
+                replies.push({ status: 200, path: url.pathname, body: replay });
+                res.writeHead(200, { 'content-type': 'application/json' });
+                res.end(JSON.stringify(replay));
+                return;
+            }
             const id = `job-${jobs.size + 1}`;
             const job = {
                 id,
@@ -94,10 +124,14 @@ function queueServer(token = TOKEN) {
                 result: null,
                 error: null,
                 client_key: body.client_key,
+                payload: body.payload,
             };
             jobs.set(id, job);
+            if (clientKey) jobsByKey.set(clientKey, job);
+            const created = { job };
+            replies.push({ status: 201, path: url.pathname, body: created });
             res.writeHead(201, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ job }));
+            res.end(JSON.stringify(created));
             return;
         }
         if (req.method === 'GET' && url.pathname.startsWith('/v1/jobs/')) {
@@ -769,6 +803,221 @@ test('numeric job ids are polled and advice stays capped', async () => {
         assert.match(note, /second note/);
         assert.match(note, /third note/);
         assert.equal(brain.status().advice, 2);
+        brain.stop();
+    } finally {
+        await api.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('client keys are per request, retries match, and a conflicting key does not loop', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bob-brain-'));
+    const api = await queueServer(TOKEN, { strictKeys: true });
+    try {
+        const tokenFile = writeToken(dir);
+        const { brain, opts } = makeBrain(api.listen.url, tokenFile, {
+            keyBucketMs: 1000,
+            deathCooldownMs: 0,
+            planCooldownMs: 1000,
+            failureGapMs: 1000,
+            failureCooldownMs: 1000,
+            httpErrorLogIntervalMs: 60_000,
+            maxTrackedJobs: 20,
+        });
+        const cause = 'MineBobNE fell from a high place';
+        const posA = { x: 10.2, y: 64.4, z: 20.2 };
+        const posB = { x: 14.2, y: 70.2, z: 23.4 };
+
+        await brain.noteDeath({ cause, position: posA, dimension: 'overworld' });
+        const first = await brain.flushPending();
+        await brain.noteDeath({ cause, position: posB, dimension: 'overworld' });
+        const second = await brain.flushPending();
+        assert.equal(first.ok, true);
+        assert.equal(second.ok, true);
+        assert.notEqual(first.id, second.id);
+
+        await brain.noteDeath({ cause, position: posB, dimension: 'overworld' });
+        const retry = await brain.flushPending();
+        assert.equal(retry.ok, true);
+        assert.equal(retry.id, second.id);
+        assert.equal(api.jobs.size, 2);
+
+        const deaths = posted(api.requests, '/v1/jobs').filter((entry) => String(entry.body.client_key).startsWith('death:'));
+        assert.equal(deaths.length, 3);
+        assert.match(deaths[0].body.client_key, /^death:[a-f0-9]{40}$/);
+        assert.equal(deaths[0].body.client_key.length <= 128, true);
+        assert.notEqual(deaths[0].body.client_key, deaths[1].body.client_key);
+        assert.equal(deaths[1].body.client_key, deaths[2].body.client_key);
+        assert.deepEqual(deaths[0].body.payload.position, { x: 10, y: 64, z: 20 });
+        assert.deepEqual(deaths[1].body.payload.position, { x: 14, y: 70, z: 23 });
+        assert.deepEqual(api.replies.slice(0, 3).map((entry) => entry.status), [201, 201, 200]);
+
+        opts.advance(1000);
+        await brain.noteDeath({ cause, position: posB, dimension: 'overworld' });
+        const later = await brain.flushPending();
+        assert.equal(later.ok, true);
+        assert.notEqual(later.id, second.id);
+        const deathKeys = posted(api.requests, '/v1/jobs')
+            .filter((entry) => String(entry.body.client_key).startsWith('death:'))
+            .map((entry) => entry.body.client_key);
+        assert.notEqual(deathKeys[2], deathKeys[3]);
+        assert.equal(api.replies[3].status, 201);
+
+        await brain.noteFailure({ kind: 'collect:stone', observed_failure: 'no stone nearby', position: posA });
+        opts.advance(1000);
+        const fail1 = await brain.noteFailure({ kind: 'collect:stone', observed_failure: 'no stone nearby', position: posA });
+        opts.advance(1000);
+        await brain.noteFailure({ kind: 'collect:stone', observed_failure: 'pickaxe broke', position: posB });
+        opts.advance(1000);
+        const fail2 = await brain.noteFailure({ kind: 'collect:stone', observed_failure: 'pickaxe broke', position: posB });
+        assert.equal(fail1.ok, true);
+        assert.equal(fail2.ok, true);
+        assert.notEqual(fail1.id, fail2.id);
+        const failPosts = posted(api.requests, '/v1/jobs').filter((entry) => entry.body.kind === 'failure_analysis' && entry.body.payload.action === 'collect:stone');
+        assert.equal(failPosts.length, 2);
+        assert.match(failPosts[0].body.client_key, /^fail:[a-f0-9]{40}$/);
+        assert.notEqual(failPosts[0].body.client_key, failPosts[1].body.client_key);
+
+        const hut = await brain.noteGoal('set', 'build a 6x4 hut');
+        const barn = await brain.noteGoal('set', 'build an 8x8 barn');
+        assert.equal(hut.ok, true);
+        assert.equal(barn.ok, true);
+        assert.notEqual(hut.id, barn.id);
+        const goalPlans = posted(api.requests, '/v1/jobs').filter((entry) => entry.body.kind === 'plan' && /hut|barn/.test(entry.body.payload.objective));
+        assert.equal(goalPlans.length, 2);
+        assert.match(goalPlans[0].body.client_key, /^plan:[a-f0-9]{40}$/);
+        assert.notEqual(goalPlans[0].body.client_key, goalPlans[1].body.client_key);
+        assert.equal(api.replies.find((entry) => entry.body?.job?.id === hut.id).status, 201);
+        assert.equal(api.replies.find((entry) => entry.body?.job?.id === barn.id).status, 201);
+
+        const payload = { objective: 'build a hut', footprint: { width: 6, depth: 4 } };
+        const reordered = { footprint: { depth: 4, width: 6 }, objective: 'build a hut' };
+        const plan1 = await brain.enqueuePlan(payload);
+        const plan2 = await brain.enqueuePlan(reordered);
+        assert.equal(plan1.ok, true);
+        assert.equal(plan2.ok, true);
+        assert.equal(plan1.id, plan2.id);
+        const hutPosts = posted(api.requests, '/v1/jobs').filter((entry) => entry.body.payload?.objective === 'build a hut' && entry.body.kind === 'plan');
+        assert.equal(hutPosts.length, 2);
+        assert.equal(hutPosts[0].body.client_key, hutPosts[1].body.client_key);
+        assert.match(hutPosts[0].body.client_key, /^plan:[a-f0-9]{40}$/);
+
+        opts.advance(1000);
+        const plan3 = await brain.enqueuePlan(payload);
+        assert.equal(plan3.ok, true);
+        assert.notEqual(plan3.id, plan1.id);
+        const hutKeys = posted(api.requests, '/v1/jobs')
+            .filter((entry) => entry.body.payload?.objective === 'build a hut' && entry.body.kind === 'plan')
+            .map((entry) => entry.body.client_key);
+        assert.notEqual(hutKeys[1], hutKeys[2]);
+
+        assert.equal(opts.log.warnings.length, 0);
+        const created = await brain.enqueuePlan(
+            { objective: 'build a barn', footprint: { width: 4, depth: 4 } },
+            { clientKey: 'plan-barn' }
+        );
+        assert.equal(created.ok, true);
+        const conflict = await brain.enqueueFailureAnalysis(
+            { observed_failure: 'UNIQUE_PAYLOAD_SENTINEL fell' },
+            { clientKey: 'plan-barn' }
+        );
+        assert.deepEqual(
+            { ok: conflict.ok, reason: conflict.reason, status: conflict.status },
+            { ok: false, reason: 'client_key_conflict', status: 400 }
+        );
+        for (let i = 0; i < 4; i++) {
+            const again = await brain.enqueueFailureAnalysis(
+                { observed_failure: 'UNIQUE_PAYLOAD_SENTINEL fell', n: i },
+                { clientKey: 'plan-barn' }
+            );
+            assert.equal(again.reason, 'client_key_conflict');
+        }
+        const barnPosts = api.requests.filter((entry) => entry.body?.client_key === 'plan-barn');
+        assert.equal(barnPosts.length, 6);
+        assert.equal(opts.log.warnings.length, 1);
+        const line = opts.log.warnings[0];
+        assert.match(line, /\[bob-brain\] HTTP 400 POST \/v1\/jobs: client_key already used for different job \(x1\)/);
+        assert.equal(line.includes('UNIQUE_PAYLOAD_SENTINEL'), false);
+        assert.equal(line.includes(TOKEN), false);
+        assert.equal(line.includes('Authorization'), false);
+        assert.equal(line.includes('payload'), false);
+        assert.equal(brain.counters.client_key_conflicts, 5);
+        assert.equal(brain.status().counters.client_key_conflicts, 5);
+        brain.stop();
+    } finally {
+        await api.listen.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('non-2xx responses log the server error once per text, without the payload', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bob-brain-'));
+    let errorBody = () => ({
+        error: `queue busy \n\t${'B'.repeat(200)}\u0001`,
+        leaked: 'PAYLOAD_SENTINEL',
+        token: TOKEN,
+    });
+    const api = await startServer(({ req, res }) => {
+        if (req.url === '/health') {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+            return;
+        }
+        res.writeHead(503, {
+            'content-type': 'application/json',
+            authorization: req.headers.authorization || '',
+            'x-token': TOKEN,
+        });
+        res.end(JSON.stringify(errorBody()));
+    });
+    try {
+        const tokenFile = writeToken(dir);
+        const { brain, opts } = makeBrain(api.url, tokenFile, { httpErrorLogIntervalMs: 5000 });
+        const send = () => brain._request('POST', '/v1/jobs', {
+            kind: 'plan',
+            payload: { objective: 'PAYLOAD_SENTINEL' },
+            client_key: 'k',
+            priority: 0,
+        });
+        await send();
+        await send();
+        await send();
+        assert.equal(opts.log.warnings.length, 1);
+        const match = opts.log.warnings[0].match(/^\[bob-brain\] HTTP 503 POST \/v1\/jobs: (.*) \(x1\)$/);
+        assert.ok(match);
+        assert.equal(match[1].length, HTTP_ERROR_CLIP);
+        assert.equal(match[1].startsWith('queue busy B'), true);
+        assert.equal(/[\u0000-\u001f\u007f-\u009f]/.test(opts.log.warnings.join('\n')), false);
+        assert.equal(opts.log.warnings[0].includes('PAYLOAD_SENTINEL'), false);
+        assert.equal(opts.log.warnings[0].includes(TOKEN), false);
+        assert.equal(opts.log.warnings[0].includes('Bearer'), false);
+        assert.equal(brain.counters.request_errors, 3);
+        assert.equal(brain.counters.client_key_conflicts, 0);
+
+        errorBody = () => ({ error: `disk ${TOKEN} full`, leaked: 'PAYLOAD_SENTINEL' });
+        await send();
+        assert.equal(opts.log.warnings.length, 2);
+        assert.match(opts.log.warnings[1], /HTTP 503 POST \/v1\/jobs: disk \[redacted\] full \(x1\)/);
+        assert.equal(opts.log.warnings[1].includes(TOKEN), false);
+        assert.equal(opts.log.warnings[1].includes('PAYLOAD_SENTINEL'), false);
+
+        errorBody = () => ({ error: { detail: 'PAYLOAD_SENTINEL' }, request: { secret: 'PAYLOAD_SENTINEL' } });
+        const weird = await send();
+        assert.equal(weird.reason, 'http_error');
+        assert.match(opts.log.warnings[2], /^\[bob-brain\] HTTP 503 POST \/v1\/jobs \(x1\)$/);
+        assert.equal(opts.log.warnings[2].includes('PAYLOAD_SENTINEL'), false);
+
+        errorBody = () => ({
+            error: `queue busy \n\t${'B'.repeat(200)}\u0001`,
+            leaked: 'PAYLOAD_SENTINEL',
+        });
+        opts.advance(5000);
+        await send();
+        assert.equal(opts.log.warnings.length, 4);
+        assert.match(opts.log.warnings[3], /HTTP 503 POST \/v1\/jobs: queue busy B/);
+        assert.match(opts.log.warnings[3], /\(x3\)$/);
+        assert.equal(opts.log.warnings[3].includes('PAYLOAD_SENTINEL'), false);
+        assert.equal(/[\u0000-\u001f\u007f-\u009f]/.test(opts.log.warnings[3]), false);
         brain.stop();
     } finally {
         await api.close();

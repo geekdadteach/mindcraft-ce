@@ -40,14 +40,16 @@ The log should show `[bob-brain] enabled` and `[bob-brain] health ok`. If the fi
 
 ## What it sends
 
-Events go to `POST /v1/events` (`source` is `mindcraft`). Jobs go to `POST /v1/jobs` with a stable `client_key` and a cooldown.
+Events go to `POST /v1/events` (`source` is `mindcraft`). Jobs go to `POST /v1/jobs` with a `client_key` (1–128 characters) and a cooldown.
+
+The key is a hash of the job kind, a coarse label, the exact payload, and a 10-minute time bucket. The coarse label is the death cell and cause, the failure kind and cell, or the plan objective. A retry of that same request inside the bucket reuses the key, so the queue can return the job it already stored. The next bucket is a new job, including another death or failure in the same cell. Cooldowns in this client still decide whether a repeat is sent.
 
 - Death (cause and position) sends an event and a `failure_analysis` job.
 - Stuck or failed actions (the existing failure recorder, including the unstuck mode) and pathfinding failures (`noPath`, `timeout`, pathfinder `stuck`, dig/place errors) send events. The same kind enqueues one `failure_analysis` job after it happens again, then waits out a cooldown.
 - A build-style goal (`!goal` / self-prompt) sends `goal_set` and, when the text looks like building, a `plan` job `{objective, footprint:{width, depth}}`. A size in the text (`6x4`, `3 by 9`, `8 wide ... 10 deep`) is used, clamped to 1..32. If there is no size, the footprint is 5 by 5. Other goals are not planned. `goal_cleared` is an event only.
 - Health from 1 to 6 sends one `low_health` event until health is at least 10 again.
 
-Network calls time out quickly. If the queue is down, returns an error, or sends bad JSON, Bob logs at most one warning per minute and keeps playing.
+Network calls time out quickly. If the queue is down or sends bad JSON, Bob logs at most one warning per minute and keeps playing. For any non-2xx response, the log line includes the JSON `error` string with control characters removed, clipped to 120 characters. The same error text is logged at most once every few minutes, with a count. The request payload, headers, and token are not written to the log. A 400 whose error is `client_key already used for different job` is counted and not retried.
 
 ## Advice
 
@@ -83,7 +85,7 @@ brain.currentAdvice(); // [{ jobId, kind, text, at }]
 brain.adviceBlock();   // the conversation-prompt note, or ''
 ```
 
-`clientKey` is optional (1–128 characters). When it is omitted, the client sends a stable hash of the payload. `priority` is clamped to -5..5. A disabled client returns `{ok: false, reason: 'disabled'}` and does not open a connection.
+`clientKey` is optional (1–128 characters). When it is omitted, the client sends the per-request key above (`plan:` or `fail:` plus a hash). Passing `clientKey` sends that value as-is. `priority` is clamped to -5..5. A disabled client returns `{ok: false, reason: 'disabled'}` and does not open a connection.
 
 ## Check the queue
 

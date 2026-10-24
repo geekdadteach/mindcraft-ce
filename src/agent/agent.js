@@ -401,6 +401,8 @@ export class Agent {
             if (checkInterrupt()) break;
             let history = this.history.getHistory();
             let res = await this.prompter.promptConvo(history);
+            const v2Turn = this._bobV2PromptToken;
+            this._bobV2PromptToken = null;
 
             console.log(`${this.name} full response to ${source}: ""${res}""`);
 
@@ -448,7 +450,13 @@ export class Agent {
                     continue;
                 }
 
-                let execute_res = await executeCommand(this, res);
+                this._bobV2ClaimAdvice = v2Turn;
+                let execute_res;
+                try {
+                    execute_res = await executeCommand(this, res);
+                } finally {
+                    this._bobV2ClaimAdvice = false;
+                }
 
                 console.log('Agent executed:', command_name, 'and got:', execute_res);
                 this.longMemory?.observeCommand(res, execute_res);

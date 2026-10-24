@@ -137,6 +137,8 @@ export class Prompter {
     }
 
     async replaceStrings(prompt, messages, examples=null, to_summarize=[], last_goals=null) {
+        const v2ConversationPrompt = typeof prompt === 'string' && prompt.includes('$LONG_MEMORY');
+        this._v2TurnToken = null;
         prompt = prompt.replaceAll('$NAME', this.agent.name);
 
         if (prompt.includes('$STATS')) {
@@ -215,6 +217,16 @@ export class Prompter {
         if (remaining !== null) {
             console.warn('Unknown prompt placeholders:', remaining.join(', '));
         }
+        // [bob-brain] Receipts look at the finished prompt. A note counts as
+        // injected only when its stored line is still in this string.
+        try {
+            this._v2TurnToken = this.agent.bobBrain?.observeAssembledPrompt?.(prompt, {
+                conversationPrompt: v2ConversationPrompt,
+                armAction: this._v2ArmAction === true,
+            }) ?? null;
+        } catch {
+            this._v2TurnToken = null;
+        }
         return prompt;
     }
 
@@ -231,13 +243,21 @@ export class Prompter {
         let current_msg_time = this.most_recent_msg_time;
 
         for (let i = 0; i < 3; i++) { // try 3 times to avoid hallucinations
+            try { this.agent.bobBrain?.supersedeTurn?.(); } catch { /* receipts must not affect chat */ }
             await this.checkCooldown();
             if (current_msg_time !== this.most_recent_msg_time) {
                 return '';
             }
 
             let prompt = this.profile.conversing;
-            prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+            let turnToken = null;
+            this._v2ArmAction = true;
+            try {
+                prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+                turnToken = this._v2TurnToken ?? null;
+            } finally {
+                this._v2ArmAction = false;
+            }
             let generation;
 
             try {
@@ -270,6 +290,10 @@ export class Prompter {
                 generation = afterThink
             }
 
+            let committed = false;
+            try { committed = this.agent.bobBrain?.commitPromptTurn?.(turnToken) === true; }
+            catch { committed = false; }
+            if (committed) this.agent._bobV2PromptToken = turnToken;
             return generation;
         }
 

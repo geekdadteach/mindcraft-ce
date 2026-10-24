@@ -11,6 +11,7 @@ Append one dated entry per logical change, newest first. Never erase prior entri
 - **Deploy status:** none.
 - **Rollback:** revert the PR.
 - **Remaining work:** Deploying `79e8f2b` needs Randy's OK (via the private ops repo). Branches of closed PRs #6, #7, #9 are kept for Randy to decide.
+- **Update ~12:25 PM ET:** With Randy's authorization, merged PR branches `cursor/bob-brain-client-key-391b` (`0ac8c7e`), `newearth/port-minebob-2026-10-23` (`f256c80`), `newearth/secure-mindserver-2026-10-23` (`dcc4d7f`), and `newearth/prismarine-chunk-guard-2026-10-23` (`4270f1e`) were deleted ~12:12 PM ET; the branch list now marks them deleted. Their commits remain in `newearth/main`.
 
 ### 2026-10-24 — MineBob — Longer Bob Brain advice, rebased receipts (proposed)
 - **Why:** Stored advice was cut at 280 characters, so live notes stopped mid-sentence (often at `Check:`). The suggestion block was also hard-sliced at 900 characters, which dropped the newest lines first. A summary that already ended in `.` could show `..`. The handoff still said live was `dddbaf4` and that PR #10 was unmerged.

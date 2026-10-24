@@ -10,6 +10,8 @@ Optional advisory link from Bob to a Bob Brain job queue on the same machine. It
 | --- | --- | --- |
 | `BOB_BRAIN_TOKEN_FILE` | yes, to enable | Path to a private token file. Unset disables the client. |
 | `BOB_BRAIN_URL` | no | Queue base URL. Default `http://127.0.0.1:8765`. Must be loopback (`127.0.0.1`, `localhost`, or `::1`) with no path, query, or credentials. |
+| `BOB_BRAIN_MAX_ADVICE_CHARS` | no | Characters kept from one note. Default `900`. Values outside 32–4000 are ignored. |
+| `BOB_BRAIN_MAX_ADVICE_BLOCK_CHARS` | no | Characters of the suggestion block placed in `$LONG_MEMORY`, newest notes first. Default `2500`. Values outside 80–8000 are ignored. |
 
 The token file must be a regular file (not a symlink), mode `600` (no group or world bits), and the token must be 32–512 characters with no whitespace. A bad file disables the client and logs a warning. The token is never logged.
 
@@ -63,7 +65,7 @@ A review result from the worker looks like `{summary?, proposal, validation:{val
 - Otherwise a plan note lists footprint (`6x4`), wall height, material counts, and stage titles.
 - A failure-analysis note lists cause, lesson, and the first two verification steps.
 - When `validation.valid` is false, the result is skipped.
-- Command text such as `!goal(...)` is stripped. Notes are capped (3 items, 30 minutes, a few hundred characters). Nothing in the note is executed. A `failed` job is logged and not shown.
+- Command text such as `!goal(...)` is stripped. Up to 3 notes are kept for 30 minutes. Each note is at most 900 characters (`BOB_BRAIN_MAX_ADVICE_CHARS`), cut at a sentence or line ending, or at a word if the note has no sentence yet. The cut ends with `…`. A note is never cut mid-word. A summary that already ends in `.` is not given a second period. The block pasted into the prompt is at most 2500 characters (`BOB_BRAIN_MAX_ADVICE_BLOCK_CHARS`) and keeps the newest notes that fit as whole lines. The header stays `Bob Brain suggestion (unverified):`. Nothing in the note is executed. A `failed` job is logged and not shown.
 
 ## Calling it from a script
 
@@ -125,8 +127,8 @@ The private schema file was not readable from this checkout. The rules above are
 
 | Type | Proves |
 | --- | --- |
-| `advice_injected` | After the conversation prompt was fully assembled, the exact stored line `- (kind) text` was still in that string, inside the `Bob Brain suggestion (unverified):` block. `trace_id` is the queue job id. `truncated=yes` means only the stored prefix (the existing character cap) was checked, not the worker's full summary. |
-| `advice_rejected` | A review was not stored (validation failed, command text stripped it to nothing, or it had no usable text), an older note was dropped because the list is capped, the 900-character suggestion block cut the line, or the finished conversation prompt did not contain the full line. A prompt with no `$LONG_MEMORY` placeholder emits this once per job (`wrong_prompt` in the summary). That is not deletion: a later conversation prompt can still inject the same note. |
+| `advice_injected` | After the conversation prompt was fully assembled, the exact stored line `- (kind) text` was still in that string, inside the `Bob Brain suggestion (unverified):` block. `trace_id` is the queue job id. `truncated=yes` means the stored note was shortened to the character cap at a sentence, line, or word boundary. The check is still the stored line, not the worker's full summary. |
+| `advice_rejected` | A review was not stored (validation failed, command text stripped it to nothing, or it had no usable text), an older note was dropped because the list is capped, the suggestion block (default 2500 characters) left the line out, or the finished conversation prompt did not contain the full line. A prompt with no `$LONG_MEMORY` placeholder emits this once per job (`wrong_prompt` in the summary). That is not deletion: a later conversation prompt can still inject the same note. |
 | `action_started` | `perform` was called for a real command, or an action runtime started outside a command (a mode or similar). A parsed string, a guard refusal, or chat of the command is not a start. |
 | `action_result` | That same `perform` returned or threw, or the action runtime returned. `outcome=finished` means the runtime returned without an exception, interrupt, or timeout. It does not mean the goal succeeded. `outcome=returned` means the command returned text and did not go through the action runtime. The result text is not copied. |
 

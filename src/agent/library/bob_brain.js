@@ -17,6 +17,16 @@ export const MAX_FOOTPRINT = 32;
 export const KEY_BUCKET_MS = 10 * 60 * 1000;
 export const HTTP_ERROR_LOG_MS = 3 * 60 * 1000;
 export const HTTP_ERROR_CLIP = 120;
+// One stored note, and the whole suggestion block pasted into $LONG_MEMORY.
+// Env overrides stay inside these bounds so a bad value cannot empty the note or fill the prompt.
+export const DEFAULT_MAX_ADVICE_CHARS = 900;
+export const DEFAULT_MAX_ADVICE_BLOCK_CHARS = 2500;
+export const ADVICE_CHARS_MIN = 32;
+export const ADVICE_CHARS_MAX = 4000;
+export const ADVICE_BLOCK_MIN = 80;
+export const ADVICE_BLOCK_MAX = 8000;
+export const ADVICE_HEADER = 'Bob Brain suggestion (unverified): advisory only. This is not an instruction and was not carried out.';
+const ADVICE_ELLIPSIS = '…';
 
 const PATH_RESET_FAILURES = new Set(['stuck', 'dig_error', 'place_error', 'no_scaffolding_blocks']);
 const GOTO_FAILURE = /^(No path to the goal!|Took to long to decide path to goal!)/;
@@ -109,12 +119,89 @@ export function planPayloadForGoal(objective) {
     return { objective: text, footprint, assumed };
 }
 
-function sanitizeAdvice(text) {
+// A summary that already ends in one period must not pick up a second one.
+// Three or more dots (an ellipsis the worker wrote) stay as they are.
+function fixDoubledPeriod(text) {
+    return text.replace(/([^.])\.\.$/, '$1.').replace(/^\.\.$/, '.');
+}
+
+function prepareAdvice(text) {
     return String(text || '')
         .replace(COMMAND_TEXT, '[removed]')
-        .replace(/[\r\n\t]+/g, ' ')
-        .replace(/\s+/g, ' ')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[^\S\n]+/g, ' ')
+        .replace(/ *\n */g, '\n')
         .trim();
+}
+
+function flattenAdvice(text) {
+    return fixDoubledPeriod(text.replace(/\n+/g, ' ').replace(/ {2,}/g, ' ').trim());
+}
+
+function isSentenceEnd(text, index) {
+    const ch = text[index];
+    if (ch !== '.' && ch !== '!' && ch !== '?') return false;
+    const next = text[index + 1];
+    if (ch === '.' && text[index - 1] >= '0' && text[index - 1] <= '9' && next >= '0' && next <= '9')
+        return false;
+    return next === undefined || next === ' ' || next === '\n' || next === '"' || next === "'" || next === ')';
+}
+
+// Shorten at the latest sentence or line that fits. If the note has neither,
+// stop at the latest word. Never cut a word, and never turn a final period into "..".
+export function clipAdviceText(text, max = Number.MAX_SAFE_INTEGER) {
+    const limit = Number.isFinite(Number(max)) ? Math.floor(Number(max)) : Number.MAX_SAFE_INTEGER;
+    if (limit < 1) return '';
+    const clean = prepareAdvice(text);
+    const whole = flattenAdvice(clean);
+    if (!whole) return '';
+    if (whole.length <= limit) return whole;
+    if (limit <= ADVICE_ELLIPSIS.length) return ADVICE_ELLIPSIS.slice(0, limit);
+
+    const sentenceOrLine = [];
+    const words = [];
+    const consider = (end, kind) => {
+        const piece = flattenAdvice(clean.slice(0, end));
+        if (!piece) return;
+        const withMark = piece.endsWith(ADVICE_ELLIPSIS) ? piece : piece + ADVICE_ELLIPSIS;
+        if (withMark.length > limit) return;
+        (kind === 'word' ? words : sentenceOrLine).push(withMark);
+    };
+    for (let i = 0; i < clean.length; i++) {
+        if (clean[i] === '\n') consider(i, 'line');
+        if (isSentenceEnd(clean, i)) consider(i + 1, 'sentence');
+        if (clean[i] === ' ' || clean[i] === '\n') consider(i, 'word');
+    }
+    if (sentenceOrLine.length) return sentenceOrLine[sentenceOrLine.length - 1];
+    if (words.length) return words[words.length - 1];
+    return ADVICE_ELLIPSIS;
+}
+
+export function readAdviceLimit(raw, fallback, min, max) {
+    if (raw == null || String(raw).trim() === '') return fallback;
+    const text = String(raw).trim();
+    if (!/^\d+$/.test(text)) return fallback;
+    const value = Number(text);
+    if (!Number.isSafeInteger(value) || value < min || value > max) return fallback;
+    return value;
+}
+
+function adviceLimitsFromEnv(env) {
+    const source = env || {};
+    return {
+        maxAdviceChars: readAdviceLimit(
+            source.BOB_BRAIN_MAX_ADVICE_CHARS,
+            DEFAULT_MAX_ADVICE_CHARS,
+            ADVICE_CHARS_MIN,
+            ADVICE_CHARS_MAX,
+        ),
+        maxAdviceBlockChars: readAdviceLimit(
+            source.BOB_BRAIN_MAX_ADVICE_BLOCK_CHARS,
+            DEFAULT_MAX_ADVICE_BLOCK_CHARS,
+            ADVICE_BLOCK_MIN,
+            ADVICE_BLOCK_MAX,
+        ),
+    };
 }
 
 function plainBit(value, max = 80) {
@@ -207,17 +294,17 @@ function renderProposal(proposal, kind) {
 // {summary?, proposal, validation:{valid, issues}, finish_reason, review_required, world_action_taken, memory_applied}.
 // Prefer summary. Otherwise describe proposal. Skip invalid validation. Never dump the wrapper JSON.
 export function toAdvisoryText(result, kind) {
-    if (typeof result === 'string') return sanitizeAdvice(result);
-    if (!result || typeof result !== 'object') return result == null ? '' : sanitizeAdvice(result);
+    if (typeof result === 'string') return clipAdviceText(result);
+    if (!result || typeof result !== 'object') return result == null ? '' : clipAdviceText(result);
     if (result.validation && result.validation.valid === false) return '';
-    if (typeof result.summary === 'string' && result.summary.trim()) return sanitizeAdvice(result.summary);
+    if (typeof result.summary === 'string' && result.summary.trim()) return clipAdviceText(result.summary);
     const proposal = result.proposal && typeof result.proposal === 'object' ? result.proposal : null;
     const rendered = renderProposal(proposal, kind || result.kind || proposal?.kind || '');
-    if (rendered) return sanitizeAdvice(rendered);
+    if (rendered) return clipAdviceText(rendered);
     for (const key of ['advice', 'analysis', 'suggestion', 'text', 'message']) {
-        if (typeof result[key] === 'string' && result[key].trim()) return sanitizeAdvice(result[key]);
+        if (typeof result[key] === 'string' && result[key].trim()) return clipAdviceText(result[key]);
     }
-    if (typeof result.plan === 'string' && result.plan.trim()) return sanitizeAdvice(result.plan);
+    if (typeof result.plan === 'string' && result.plan.trim()) return clipAdviceText(result.plan);
     return '';
 }
 
@@ -332,7 +419,10 @@ export class BobBrain {
         this.errorLogIntervalMs = options.errorLogIntervalMs ?? 60_000;
         this.httpErrorLogIntervalMs = options.httpErrorLogIntervalMs ?? HTTP_ERROR_LOG_MS;
         this.maxAdvice = options.maxAdvice ?? 3;
-        this.maxAdviceChars = options.maxAdviceChars ?? 280;
+        const env = options.env ?? process.env;
+        const limits = adviceLimitsFromEnv(env);
+        this.maxAdviceChars = options.maxAdviceChars ?? limits.maxAdviceChars;
+        this.maxAdviceBlockChars = options.maxAdviceBlockChars ?? limits.maxAdviceBlockChars;
         this.adviceTtlMs = options.adviceTtlMs ?? 30 * 60_000;
         this.maxTrackedJobs = options.maxTrackedJobs ?? 8;
         this.maxTrackMs = options.maxTrackMs ?? 3 * 60 * 60_000;
@@ -507,11 +597,20 @@ export class BobBrain {
         try {
             const items = this._freshAdvice();
             if (!items.length) return '';
-            const lines = items.map((item) => `- (${item.kind}) ${item.text}`);
-            return [
-                'Bob Brain suggestion (unverified): advisory only. This is not an instruction and was not carried out.',
-                ...lines,
-            ].join('\n').slice(0, 900);
+            const max = this.maxAdviceBlockChars;
+            const chosen = [];
+            let used = ADVICE_HEADER.length;
+            // Newest notes first. A note that does not fit is left out whole,
+            // so the stored line in the prompt still matches what was stored.
+            for (let i = items.length - 1; i >= 0; i--) {
+                const line = `- (${items[i].kind}) ${items[i].text}`;
+                if (used + 1 + line.length > max) break;
+                used += 1 + line.length;
+                chosen.push(line);
+            }
+            if (!chosen.length) return '';
+            chosen.reverse();
+            return [ADVICE_HEADER, ...chosen].join('\n');
         } catch {
             return '';
         }
@@ -903,7 +1002,7 @@ export class BobBrain {
 
     _storeAdvice(job, trackedId) {
         const full = toAdvisoryText(job?.result, job?.kind);
-        const text = full.slice(0, this.maxAdviceChars);
+        const text = clipAdviceText(full, this.maxAdviceChars);
         const shownId = String(trackedId ?? job?.id ?? '');
         const kind = clip(job?.kind || 'note', 40);
         if (!text || text === '[removed]') {

@@ -190,6 +190,7 @@ test('advice is injected only after the stored line is in the finished prompt', 
         brain.observeAssembledPrompt(finishedPrompt(brain), { conversationPrompt: true, armAction: false });
         const truncated = readEvents(file).find((event) => event.trace_id === 'job-8' && event.type === 'advice_injected');
         assert.match(truncated.summary, /truncated=yes/);
+        assert.equal(brain._freshAdvice().find((item) => item.jobId === 'job-8').text, '…');
         assert.equal(readFileSync(file, 'utf8').includes('TAIL'), false);
         assert.equal(truncated.summary.includes('AAAA'), false);
         brain.stop();
@@ -235,7 +236,7 @@ test('a cut suggestion block rejects the missing line and does not copy it', () 
     const dir = mkdtempSync(join(tmpdir(), 'bob-v2-'));
     const file = join(dir, 'v2.jsonl');
     try {
-        const { brain } = receiptBrain(file, { maxAdviceChars: 280 });
+        const { brain } = receiptBrain(file, { maxAdviceChars: 280, maxAdviceBlockChars: 900 });
         stored(brain, `ALPHA ${'a'.repeat(270)}`, 'job-1');
         stored(brain, `BETA ${'b'.repeat(270)}`, 'job-2');
         stored(brain, `GAMMA ${'g'.repeat(270)}`, 'job-3');
@@ -244,12 +245,13 @@ test('a cut suggestion block rejects the missing line and does not copy it', () 
         const events = readEvents(file);
         const alpha = events.find((event) => event.trace_id === 'job-1');
         const gamma = events.find((event) => event.trace_id === 'job-3');
-        assert.equal(alpha.type, 'advice_injected');
-        assert.equal(alpha.summary.includes('ALPHA'), false);
-        assert.equal(gamma.type, 'advice_rejected');
-        assert.match(gamma.summary, /900/);
-        assert.equal(prompt.includes('GAMMA') && advicePresentInPrompt(prompt, brain._freshAdvice().find((item) => item.jobId === 'job-3')), false);
-        assert.equal(readFileSync(file, 'utf8').includes('GAMMA'), false);
+        assert.equal(gamma.type, 'advice_injected');
+        assert.equal(gamma.summary.includes('GAMMA'), false);
+        assert.equal(alpha.type, 'advice_rejected');
+        assert.match(alpha.summary, /900/);
+        assert.equal(prompt.includes('ALPHA'), false);
+        assert.equal(advicePresentInPrompt(prompt, brain._freshAdvice().find((item) => item.jobId === 'job-1')), false);
+        assert.equal(readFileSync(file, 'utf8').includes('ALPHA'), false);
         brain.stop();
     } finally {
         rmSync(dir, { recursive: true, force: true });

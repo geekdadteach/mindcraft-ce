@@ -50,7 +50,7 @@ const DROP_SUMMARY = {
     stripped: 'Review result not stored because command text stripped it to nothing.',
     empty: 'Review result not stored because it had no usable advice text.',
     cap: 'Stored advice dropped because the note list is capped.',
-    block_cap: 'Stored advice was cut from the suggestion block because that block is capped at 900 characters.',
+    block_cap: 'Stored advice was cut from the suggestion block because that block is capped.',
     not_in_prompt: 'Stored advice was not fully present in the assembled conversation prompt.',
     wrong_prompt: 'Advice not inserted because the prompt template has no $LONG_MEMORY placeholder.',
     bad_job_id: 'Stored advice was not given a brain trace id because the queue job id is not a valid trace id.',
@@ -63,6 +63,11 @@ const defaultLog = {
 
 export function adviceLine(item) {
     return `- (${item.kind}) ${item.text}`;
+}
+
+function suggestionBlockCap(brain) {
+    const n = Number(brain?.maxAdviceBlockChars);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 2500;
 }
 
 // True only when the exact stored line sits in the suggestion block and is
@@ -418,9 +423,14 @@ export class BobV2Receipts {
                     this._emit(used, 'advice_injected', injectedSummary(item, !trace));
                     if (trace) injected.push(trace);
                 } else {
-                    const capped = block.length >= 900 && !block.includes(adviceLine(item));
+                    const line = adviceLine(item);
+                    const capped = !block.includes(line);
+                    const cap = suggestionBlockCap(brain);
                     const used = trace || this.newLocalTrace();
-                    this._emit(used, 'advice_rejected', DROP_SUMMARY[capped ? 'block_cap' : 'not_in_prompt']);
+                    const summary = capped
+                        ? `Stored advice was cut from the suggestion block because that block is capped at ${cap} characters.`
+                        : DROP_SUMMARY.not_in_prompt;
+                    this._emit(used, 'advice_rejected', summary);
                 }
             }
             if (opts.armAction === true && conversation) {

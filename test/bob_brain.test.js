@@ -8,8 +8,11 @@ import { join } from 'node:path';
 
 import {
     BobBrain,
+    DEFAULT_MAX_ADVICE_BLOCK_CHARS,
+    DEFAULT_MAX_ADVICE_CHARS,
     HTTP_ERROR_CLIP,
     attachBobBrain,
+    clipAdviceText,
     planPayloadForGoal,
     resolveBobBrainConfig,
     toAdvisoryText,
@@ -328,6 +331,58 @@ test('review results render as plain text and invalid ones are skipped', () => {
     assert.equal(failureText.includes('{'), false);
 
     assert.equal(toAdvisoryText({ ...plan, validation: { valid: false, issues: ['footprint'] }, summary: 'ignore me' }, 'plan'), '');
+});
+
+test('advice ends on a sentence or word and does not double a period', () => {
+    assert.equal(toAdvisoryText({ summary: 'Stay on the bank.' }), 'Stay on the bank.');
+    assert.equal(toAdvisoryText({ summary: 'Stay on the bank..' }), 'Stay on the bank.');
+    assert.equal(toAdvisoryText({ summary: 'Wait...' }), 'Wait...');
+    const summary = 'Stay on the bank. The water is deep. Check: look down and step back onto stone before you swim.';
+    const clipped = clipAdviceText(summary, 50);
+    assert.equal(clipped, 'Stay on the bank. The water is deep.…');
+    assert.equal(/\.\.(?!\.)/.test(clipped), false);
+    assert.equal(clipped.includes('Check'), false);
+    const words = clipAdviceText('Climb one block then wait for a clear path along the ridge', 24);
+    assert.equal(words, 'Climb one block then…');
+    assert.equal(/\.\.(?!\.)/.test(words), false);
+    assert.equal(clipAdviceText('Supercalifragilistic', 8), '…');
+    const lined = clipAdviceText('First line stays.\nCheck: this second line is long and should not be cut in half', 40);
+    assert.equal(lined, 'First line stays.…');
+});
+
+test('advice caps are configurable and the block keeps the newest notes', () => {
+    const tuned = new BobBrain({ enabled: false }, {
+        env: { BOB_BRAIN_MAX_ADVICE_CHARS: '1200', BOB_BRAIN_MAX_ADVICE_BLOCK_CHARS: '3000' },
+    });
+    assert.equal(tuned.maxAdviceChars, 1200);
+    assert.equal(tuned.maxAdviceBlockChars, 3000);
+    const ignored = new BobBrain({ enabled: false }, {
+        env: { BOB_BRAIN_MAX_ADVICE_CHARS: 'nope', BOB_BRAIN_MAX_ADVICE_BLOCK_CHARS: '10' },
+    });
+    assert.equal(ignored.maxAdviceChars, DEFAULT_MAX_ADVICE_CHARS);
+    assert.equal(ignored.maxAdviceBlockChars, DEFAULT_MAX_ADVICE_BLOCK_CHARS);
+    assert.equal(DEFAULT_MAX_ADVICE_CHARS, 900);
+    assert.equal(DEFAULT_MAX_ADVICE_BLOCK_CHARS, 2500);
+    const explicit = new BobBrain({ enabled: false }, {
+        maxAdviceChars: 80,
+        env: { BOB_BRAIN_MAX_ADVICE_CHARS: '1200' },
+    });
+    assert.equal(explicit.maxAdviceChars, 80);
+
+    const brain = new BobBrain({ enabled: false }, {
+        env: {},
+        maxAdvice: 3,
+        maxAdviceBlockChars: 220,
+    });
+    brain._storeAdvice({ id: 'job-1', kind: 'plan', result: { summary: `OLD ${'o'.repeat(40)}` } });
+    brain._storeAdvice({ id: 'job-2', kind: 'plan', result: { summary: `MID ${'m'.repeat(40)}` } });
+    brain._storeAdvice({ id: 'job-3', kind: 'plan', result: { summary: `NEW ${'n'.repeat(40)}` } });
+    const block = brain.adviceBlock();
+    assert.match(block, /Bob Brain suggestion \(unverified\)/);
+    assert.equal(block.includes('NEW'), true);
+    assert.equal(block.includes('OLD'), false);
+    assert.equal(block.length <= 220, true);
+    assert.equal(block.endsWith('…'), false);
 });
 
 test('advice is inserted only into the conversation prompt', () => {

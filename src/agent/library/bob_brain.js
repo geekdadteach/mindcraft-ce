@@ -11,6 +11,11 @@ export const LOW_HEALTH_RECOVER = 10;
 export const MAX_BODY_BYTES = 120 * 1024;
 export const DEFAULT_FOOTPRINT = Object.freeze({ width: 5, depth: 5 });
 export const MAX_FOOTPRINT = 32;
+// The queue keeps client_key forever. A repeat inside this bucket is the same
+// request. A later bucket is a new job. Default cooldowns are at least this long.
+export const KEY_BUCKET_MS = 10 * 60 * 1000;
+export const HTTP_ERROR_LOG_MS = 3 * 60 * 1000;
+export const HTTP_ERROR_CLIP = 120;
 
 const PATH_RESET_FAILURES = new Set(['stuck', 'dig_error', 'place_error', 'no_scaffolding_blocks']);
 const GOTO_FAILURE = /^(No path to the goal!|Took to long to decide path to goal!)/;
@@ -30,6 +35,24 @@ function clip(value, max) {
 function hashKey(prefix, material) {
     const digest = createHash('sha256').update(String(material)).digest('hex').slice(0, 40);
     return `${prefix}:${digest}`.slice(0, 128);
+}
+
+// JSON.stringify drops undefined object fields and turns an undefined array
+// entry into null. Match that, with object keys sorted, so a retry hashes and
+// sends the same payload even if the caller built the object in another order.
+function sortedPayload(value) {
+    if (Array.isArray(value))
+        return value.map((item) => (item === undefined ? null : sortedPayload(item)));
+    if (!value || typeof value !== 'object') return value;
+    const out = {};
+    for (const key of Object.keys(value).sort()) {
+        if (value[key] !== undefined) out[key] = sortedPayload(value[key]);
+    }
+    return out;
+}
+
+function canonicalJson(value) {
+    return JSON.stringify(sortedPayload(value));
 }
 
 export function normalizePosition(position) {
@@ -300,7 +323,9 @@ export class BobBrain {
         this.planCooldownMs = options.planCooldownMs ?? 30 * 60_000;
         this.repeatThreshold = options.repeatThreshold ?? 2;
         this.deathCoalesceMs = options.deathCoalesceMs ?? 400;
+        this.keyBucketMs = options.keyBucketMs ?? KEY_BUCKET_MS;
         this.errorLogIntervalMs = options.errorLogIntervalMs ?? 60_000;
+        this.httpErrorLogIntervalMs = options.httpErrorLogIntervalMs ?? HTTP_ERROR_LOG_MS;
         this.maxAdvice = options.maxAdvice ?? 3;
         this.maxAdviceChars = options.maxAdviceChars ?? 280;
         this.adviceTtlMs = options.adviceTtlMs ?? 30 * 60_000;
@@ -315,6 +340,7 @@ export class BobBrain {
             jobs_review: 0,
             jobs_failed: 0,
             request_errors: 0,
+            client_key_conflicts: 0,
             advice: 0,
             health_ok: 0,
         };
@@ -324,6 +350,7 @@ export class BobBrain {
         this._cooldowns = new Map();
         this._jobs = new Map();
         this._advice = [];
+        this._httpErrors = new Map();
         this._lastErrorLog = null;
         this._lowLatched = false;
         this._lastGoal = '';
@@ -519,6 +546,46 @@ export class BobBrain {
         this.log.warn(`[bob-brain] ${clip(this._redact(message), 300)}`);
     }
 
+    // Kind, coarse label, canonical payload, and time bucket. The same inputs
+    // inside one bucket reuse the key, which is what makes a retry idempotent.
+    _clientKey(prefix, kind, coarse, payload) {
+        const bucketMs = this.keyBucketMs > 0 ? this.keyBucketMs : 1;
+        const bucket = Math.floor(this.now() / bucketMs);
+        return hashKey(prefix, `${kind}|${coarse}|${canonicalJson(payload)}|${bucket}`);
+    }
+
+    // Only the server's error string. Never the payload, headers, or token.
+    _formatHttpError(json) {
+        if (!json || typeof json.error !== 'string') return '';
+        const cleaned = this._redact(json.error).replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
+        return clip(cleaned, HTTP_ERROR_CLIP);
+    }
+
+    _noteHttpError(status, method, path, errorText) {
+        this.counters.request_errors++;
+        const signature = errorText || `HTTP ${status} ${method} ${path}`;
+        const now = this.now();
+        let rec = this._httpErrors.get(signature);
+        if (!rec) {
+            if (this._httpErrors.size >= 30)
+                this._httpErrors.delete(this._httpErrors.keys().next().value);
+            rec = { count: 0, lastAt: 0 };
+        }
+        rec.count += 1;
+        const windowMs = this.httpErrorLogIntervalMs > 0 ? this.httpErrorLogIntervalMs : 0;
+        const due = rec.lastAt === 0 || now - rec.lastAt >= windowMs;
+        if (!due) {
+            this._httpErrors.set(signature, rec);
+            return;
+        }
+        const times = rec.count;
+        rec.count = 0;
+        rec.lastAt = now;
+        this._httpErrors.set(signature, rec);
+        const detail = errorText ? `: ${errorText}` : '';
+        this.log.warn(`[bob-brain] HTTP ${status} ${method} ${path}${detail} (x${times})`);
+    }
+
     async _request(method, path, body) {
         const raw = body === undefined ? null : JSON.stringify(body);
         if (raw && Buffer.byteLength(raw) > MAX_BODY_BYTES) {
@@ -550,8 +617,17 @@ export class BobBrain {
                 }
             }
             if (!res.ok) {
-                this._noteError(`HTTP ${res.status} ${method} ${path}`);
-                return { ok: false, status: res.status, json };
+                const errorText = this._formatHttpError(json);
+                if (json && json.error === 'client_key already used for different job')
+                    this.counters.client_key_conflicts++;
+                this._noteHttpError(res.status, method, path, errorText);
+                const conflict = json?.error === 'client_key already used for different job';
+                return {
+                    ok: false,
+                    status: res.status,
+                    json,
+                    reason: conflict ? 'client_key_conflict' : 'http_error',
+                };
             }
             return { ok: true, status: res.status, json };
         } catch (err) {
@@ -589,16 +665,21 @@ export class BobBrain {
         const cause = clip(info.cause || 'unknown', 300);
         const dimension = clip(info.dimension || '', 64);
         await this._reportEvent('death', { cause, position, dimension }, `death:${cellOf(position)}:${cause}`);
-        const clientKey = hashKey('death', `${cellOf(position)}|${cause.toLowerCase()}`);
-        if (!this._cooldownOk(clientKey, this.deathCooldownMs))
-            return { ok: false, reason: 'cooldown' };
-        const sent = await this._enqueue('failure_analysis', {
+        const payload = {
             observed_failure: clip(`Died${dimension ? ` in ${dimension}` : ''}: ${cause}`, 1000),
             cause,
             position,
             dimension: dimension || undefined,
-        }, clientKey, 1);
-        if (sent?.ok) this._rememberCooldown(clientKey, this.deathCooldownMs);
+        };
+        // Cooldown stays on the cell and cause. The posted key also includes the
+        // exact payload, so a later death in that cell is a new job.
+        const coarse = `${cellOf(position)}|${cause.toLowerCase()}`;
+        const cooldownKey = hashKey('death', coarse);
+        if (!this._cooldownOk(cooldownKey, this.deathCooldownMs))
+            return { ok: false, reason: 'cooldown' };
+        const clientKey = this._clientKey('death', 'failure_analysis', coarse, payload);
+        const sent = await this._enqueue('failure_analysis', payload, clientKey, 1);
+        if (sent?.ok) this._rememberCooldown(cooldownKey, this.deathCooldownMs);
         return sent;
     }
 
@@ -668,7 +749,7 @@ export class BobBrain {
         this._kinds.set(kind, rec);
         if (rec.count < this.repeatThreshold) return { ok: false, reason: 'below_threshold', count: rec.count };
         if (rec.lastJobAt && now - rec.lastJobAt < this.failureCooldownMs) return { ok: false, reason: 'cooldown', count: rec.count };
-        const clientKey = hashKey('fail', `${kind}|${cellOf(position)}`);
+        const clientKey = this._clientKey('fail', 'failure_analysis', `${kind}|${cellOf(position)}`, payload);
         const sent = await this._enqueue('failure_analysis', payload, clientKey, 0);
         if (sent?.ok) {
             rec.count = 0;
@@ -689,15 +770,18 @@ export class BobBrain {
         const event = await this._reportEvent('goal_set', { prompt: text }, `goal_set:${text}`);
         const plan = planPayloadForGoal(text);
         if (!plan) return event;
-        const clientKey = hashKey('plan', plan.objective.toLowerCase());
-        if (!this._cooldownOk(clientKey, this.planCooldownMs))
-            return { ok: true, reason: 'plan_cooldown', event };
-        this.log.log(`[bob-brain] plan footprint ${plan.footprint.width}x${plan.footprint.depth}${plan.assumed ? ' (default)' : ''}`);
-        const sent = await this._enqueue('plan', {
+        const payload = {
             objective: plan.objective,
             footprint: { width: plan.footprint.width, depth: plan.footprint.depth },
-        }, clientKey, 0);
-        if (sent?.ok) this._rememberCooldown(clientKey, this.planCooldownMs);
+        };
+        const coarse = plan.objective.toLowerCase();
+        const cooldownKey = hashKey('plan', coarse);
+        if (!this._cooldownOk(cooldownKey, this.planCooldownMs))
+            return { ok: true, reason: 'plan_cooldown', event };
+        this.log.log(`[bob-brain] plan footprint ${plan.footprint.width}x${plan.footprint.depth}${plan.assumed ? ' (default)' : ''}`);
+        const clientKey = this._clientKey('plan', 'plan', coarse, payload);
+        const sent = await this._enqueue('plan', payload, clientKey, 0);
+        if (sent?.ok) this._rememberCooldown(cooldownKey, this.planCooldownMs);
         return sent;
     }
 
@@ -745,8 +829,13 @@ export class BobBrain {
         if (!payload || typeof payload !== 'object' || Array.isArray(payload))
             return { ok: false, reason: 'bad_payload' };
         let clientKey = options.clientKey ?? options.client_key;
-        if (clientKey == null || clientKey === '')
-            clientKey = hashKey(kind === 'plan' ? 'plan' : 'fail', JSON.stringify(payload));
+        if (clientKey == null || clientKey === '') {
+            const prefix = kind === 'plan' ? 'plan' : 'fail';
+            const coarse = kind === 'plan'
+                ? clip(payload.objective || '', 500).toLowerCase()
+                : clip(payload.observed_failure || payload.action || kind, 1000).toLowerCase();
+            clientKey = this._clientKey(prefix, kind, coarse, payload);
+        }
         clientKey = String(clientKey);
         if (clientKey.length < 1 || clientKey.length > 128)
             return { ok: false, reason: 'bad_client_key' };
@@ -757,10 +846,11 @@ export class BobBrain {
     async _enqueue(kind, payload, clientKey, priority) {
         const res = await this._request('POST', '/v1/jobs', {
             kind,
-            payload,
+            payload: sortedPayload(payload),
             client_key: clientKey,
             priority: Math.max(-5, Math.min(5, priority | 0)),
         });
+        // One attempt. A client_key conflict is a 400, not a reason to post again.
         if (!res?.ok) return res;
         const id = asJobId(res.json?.job?.id);
         if (!id) {

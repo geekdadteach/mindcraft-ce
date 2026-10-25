@@ -1,4 +1,4 @@
-// [ai-player] Ordered LM Studio endpoints (e.g. .143 Ethernet first, .144 Wi-Fi second).
+// [ai-player] Ordered LM Studio endpoints (e.g. .144 Wi-Fi first, .143 Ethernet second).
 // pickLmUrl(): first URL whose host:port accepts TCP within connectMs. A URL that fails is skipped for downMs,
 // so a dead primary costs at most one quick probe per window. Same server behind both IPs => same model IDs/vectors.
 import net from 'net';

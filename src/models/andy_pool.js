@@ -40,7 +40,7 @@ export class AndyPool {
         const p = params || {};
         this.model_name = model_name || 'auto';
         this.lm_url = url || 'http://192.168.1.20:1234/v1';
-        // [ai-player] Ordered endpoints: profile url first, then params.lmstudio_fallback_urls (.143 then .144).
+        // [ai-player] Ordered endpoints: profile url first, then params.lmstudio_fallback_urls (e.g. .144 then .143).
         this.lm_urls = lmUrlList(this.lm_url, p.lmstudio_fallback_urls);
         this.lm_connect_ms = Number(p.lmstudio_connect_timeout_ms) || 1500;
         this.lm_model = p.lmstudio_model || 'andy-4.2';

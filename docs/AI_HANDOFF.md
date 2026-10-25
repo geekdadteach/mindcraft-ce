@@ -1,10 +1,16 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
-**Snapshot:** 2026-10-25 ~12:30 PM ET (LM Studio .143 → .144 fallback, branch `feature/lm-fallback-144-20261025`). Verify repository and live state before changing anything.
+**Snapshot:** 2026-10-25 ~12:40 PM ET (LM Studio `.144` is now the default with `.143` as fallback; branch `feature/lm-fallback-144-20261025`). Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
 
-## 2026-10-25 — LM Studio endpoint fallback .143 → .144 (Deployed, Live-verified; PR open, not merged)
+## 2026-10-25 12:30 PM ET — `.144` is the default LM Studio endpoint, `.143` the fallback (Deployed, Live-verified; PR open, not merged)
+- Why: Randy asked at 12:28 PM ET to make `.144` (Wi-Fi) the default while `.143` (Ethernet) stays down. With `.143` first, every start printed about 85 probe warnings and one call per 30 s paid a failed 1.5 s probe.
+- Profiles only (no code change): `andy-api-lite.json` chat `url` and embedding `url` are `.144`, with `lmstudio_fallback_urls` / `params.fallback_urls` `[.143]`. `andy-api.json` chat is the same. Its Ollama `.143:11434` entries are unchanged. Comments in `settings.js`, `lm_endpoints.js` and `andy_pool.js` were updated to match.
+- Checked 12:30:22–12:36:37 PM ET after the LITE restart: 16 chat calls, all on `.144` (median 24.7 s), 0 probes or warnings for `.143` (the startup burst is gone), 3 `embed=ok`, 0 embedding errors, 0 Andy API calls, no crashes.
+- To go back to Ethernet-first once `.143` is reachable again, swap the two URLs back in the profiles. That needs a restart.
+
+## 2026-10-25 — LM Studio endpoint fallback .143 → .144 (Deployed, Live-verified; PR open, not merged; order swapped at 12:30 PM ET, see above)
 - Why: the living-room Mac's Ethernet address `192.168.1.143` went unreachable around 9:34 PM ET Oct 24. Every LM Studio chat and embedding call failed, chat fell back to the Andy API (rate-limited overnight), and embeddings fell back to word overlap. The same Mac and the same LM Studio are reachable over Wi-Fi at `192.168.1.144`.
 - `src/utils/lm_endpoints.js` (new): ordered endpoint list, a TCP connect probe (`connectMs`, default 1500), and a 30 s skip window for an endpoint that does not connect. Returns `null` when none connects.
 - `andy_pool` (`lmstudio_primary`): profile `url` first, then `params.lmstudio_fallback_urls`; `params.lmstudio_connect_timeout_ms` (default 1500). One OpenAI client per URL. An `APIConnectionError` (not a timeout) marks that URL down for 30 s. A slow-model timeout does not switch URLs (same server). If no URL connects, the existing LM Studio pause and Andy API fallback apply unchanged. The pool log line now starts with `lm_url=<url>`.
@@ -40,7 +46,7 @@ Status words, never conflated: **Proposed** → **Coded** → **Tested** → **M
 - `newearth/port-minebob-2026-10-23` — PR #1 (branch deleted Oct 24 12:12 PM ET, head `f256c80`), merged into `newearth/main` as `e923683` (deployed as part of `dddbaf4`), from `5d8be33`: pathfinder door/gate patch from minebob `73f7378` (matches live `node_modules`), `full_state.js` goal block.
 
 ## What is live
-- Since Oct 25 ~12:16 PM ET (LITE mode): `newearth/main` `79e8f2b` code (deployed Oct 24 12:24 PM ET) plus this branch's LM Studio fallback (`feature/lm-fallback-144-20261025`, code files byte-identical to live). The private ops repo records the deploy, PIDs and rollback.
+- Since Oct 25 ~12:30 PM ET (LITE mode): `newearth/main` `79e8f2b` code (deployed Oct 24 12:24 PM ET) plus this branch's LM Studio fallback with `.144` first (`feature/lm-fallback-144-20261025` head; profiles, `settings.js` and code files byte-identical to live). From ~12:16 PM ET until then, the same code ran with `.143` first. The private ops repo records the deploy, PIDs and rollback.
 - Before that: `79e8f2b` from Oct 24 12:24 PM ET, with profiles switched from `.20` to `.143` at 3:58 PM ET Oct 24 (recorded in minebob, not in this fork until this branch). The earlier "live is `4398d7a`" note is stale.
 - The prismarine-chunk guard from PR #3 (`b940ba3`) is in the live tree.
 - Older rollback tree: `49761ee` content from 2026-10-23.

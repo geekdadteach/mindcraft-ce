@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { BobAIReceipts } from '../src/agent/library/bob_ai_v2.js';
 import { BobV2Receipts } from '../src/agent/library/bob_brain_v2.js';
 
-function withFile(fn) {
+async function withFile(fn) {
     const dir = mkdtempSync(join(tmpdir(), 'bob-ai-v2-'));
-    try { return fn(join(dir, 'ai.jsonl')); }
+    try { return await fn(join(dir, 'ai.jsonl')); }
     finally { rmSync(dir, { recursive: true, force: true }); }
 }
 

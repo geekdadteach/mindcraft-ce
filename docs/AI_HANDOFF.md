@@ -1,8 +1,17 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
-**Snapshot:** 2026-10-24 ~12:10 PM ET (GitHub bot docs refresh). Verify repository and live state before changing anything.
+**Snapshot:** 2026-10-25 ~12:30 PM ET (LM Studio .143 → .144 fallback, branch `feature/lm-fallback-144-20261025`). Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
+
+## 2026-10-25 — LM Studio endpoint fallback .143 → .144 (Deployed, Live-verified; PR open, not merged)
+- Why: the living-room Mac's Ethernet address `192.168.1.143` went unreachable around 9:34 PM ET Oct 24. Every LM Studio chat and embedding call failed, chat fell back to the Andy API (rate-limited overnight), and embeddings fell back to word overlap. The same Mac and the same LM Studio are reachable over Wi-Fi at `192.168.1.144`.
+- `src/utils/lm_endpoints.js` (new): ordered endpoint list, a TCP connect probe (`connectMs`, default 1500), and a 30 s skip window for an endpoint that does not connect. Returns `null` when none connects.
+- `andy_pool` (`lmstudio_primary`): profile `url` first, then `params.lmstudio_fallback_urls`; `params.lmstudio_connect_timeout_ms` (default 1500). One OpenAI client per URL. An `APIConnectionError` (not a timeout) marks that URL down for 30 s. A slow-model timeout does not switch URLs (same server). If no URL connects, the existing LM Studio pause and Andy API fallback apply unchanged. The pool log line now starts with `lm_url=<url>`.
+- `lmstudio` embeddings: `embedding.params.fallback_urls`, `connect_timeout_ms`, optional `embed_timeout_ms` (default 15000). These keys are removed from the params spread into chat requests.
+- Profiles: `andy-api-lite.json` and `andy-api.json` chat URL `.143` with `.144` fallback; lite embeddings `text-embedding-nomic-embed-text-v1.5@q8_0` on `.143` with `.144` fallback. (The fork still had `.20` before this branch; live moved to `.143` on Oct 24.) Normal mode's embedding/code/vision models still point at Ollama `.143:11434`, with no fallback.
+- Known noise: at startup, the burst of example embeddings probes `.143` in parallel before the first failure is recorded, so about 85 "unreachable" warnings print once. After that it is at most one probe per 30 s. Coalescing concurrent probes is a possible follow-up (needs a restart).
+- Deployed to LinuxGrok Oct 25 ~12:16 PM ET (LITE restart). The private ops repo `geekdadteach/minebob` records the deploy and rollback.
 
 ## 2026-10-24 — Receipts, rotation, and longer advice (Merged, not deployed)
 - PR #8 **Merged** into `newearth/main` at 12:03 PM ET Oct 24 as `79e8f2b`. Both GitHub Actions workflows (Bob Brain client tests, BobBot MindServer control tests) passed on `79e8f2b`.
@@ -31,9 +40,9 @@ Status words, never conflated: **Proposed** → **Coded** → **Tested** → **M
 - `newearth/port-minebob-2026-10-23` — PR #1 (branch deleted Oct 24 12:12 PM ET, head `f256c80`), merged into `newearth/main` as `e923683` (deployed as part of `dddbaf4`), from `5d8be33`: pathfinder door/gate patch from minebob `73f7378` (matches live `node_modules`), `full_state.js` goal block.
 
 ## What is live
-- Reported by MineBobNE 60, Oct 24: Bob is running `4398d7a` (PR #10, idempotent client keys) in LITE mode, live since about 11:11–11:12 AM ET Oct 24. The private ops repo records the deploy. Receipts, bounded rotation, and the longer advice caps are not in that process; they are Merged in `79e8f2b` and not deployed.
-- Previous live tree was `newearth/main` `dddbaf4`, deployed 2026-10-23. That “live is `dddbaf4`” note is stale.
-- The prismarine-chunk guard from PR #3 (`b940ba3`) is in `4398d7a`. A checkout of this commit includes that patch file.
+- Since Oct 25 ~12:16 PM ET (LITE mode): `newearth/main` `79e8f2b` code (deployed Oct 24 12:24 PM ET) plus this branch's LM Studio fallback (`feature/lm-fallback-144-20261025`, code files byte-identical to live). The private ops repo records the deploy, PIDs and rollback.
+- Before that: `79e8f2b` from Oct 24 12:24 PM ET, with profiles switched from `.20` to `.143` at 3:58 PM ET Oct 24 (recorded in minebob, not in this fork until this branch). The earlier "live is `4398d7a`" note is stale.
+- The prismarine-chunk guard from PR #3 (`b940ba3`) is in the live tree.
 - Older rollback tree: `49761ee` content from 2026-10-23.
 - Planned, not done: run Bob straight from a checkout of this fork so live == GitHub.
 

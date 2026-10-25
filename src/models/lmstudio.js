@@ -1,11 +1,17 @@
 import OpenAIApi from 'openai';
 import { strictFormat } from '../utils/text.js';
+import { lmUrlList, pickLmUrl, markLmUrlDown } from '../utils/lm_endpoints.js';
 
 export class LMStudio {
     static prefix = 'lmstudio';
     constructor(model_name, url, params) {
         this.model_name = model_name;
-        this.params = params;
+        // [ai-player] fallback_urls / connect_timeout_ms / embed_timeout_ms are ours, not OpenAI request fields (sendRequest spreads params).
+        const { fallback_urls, connect_timeout_ms, embed_timeout_ms, ...rest } = params || {};
+        this.params = rest;
+        this.urls = lmUrlList(url || 'http://localhost:1234/v1', fallback_urls);
+        this.connect_ms = Number(connect_timeout_ms) || 1500;
+        this.embed_clients = new Map(this.urls.map(u => [u, new OpenAIApi({ baseURL: u, apiKey: 'lm-studio', timeout: Number(embed_timeout_ms) || 15000, maxRetries: 0 })]));
         this.openai = new OpenAIApi({
             baseURL: url || 'http://localhost:1234/v1',
             apiKey: 'lm-studio', // LM Studio ignores this but the client requires a non-empty value
@@ -64,11 +70,20 @@ export class LMStudio {
     async embed(text) {
         if (text.length > 8191)
             text = text.slice(0, 8191);
-        const embedding = await this.openai.embeddings.create({
-            model: this.model_name || 'text-embedding-nomic-embed-text-v1.5',
-            input: text,
-            encoding_format: 'float',
-        });
+        const url = await pickLmUrl(this.urls, { connectMs: this.connect_ms });
+        if (!url) throw new Error(`Connection error. (no LM Studio endpoint reachable: ${this.urls.join(' ')})`);
+        let embedding;
+        try {
+            embedding = await this.embed_clients.get(url).embeddings.create({
+                model: this.model_name || 'text-embedding-nomic-embed-text-v1.5',
+                input: text,
+                encoding_format: 'float',
+            });
+        } catch (err) {
+            // [ai-player] Connect failure: skip this endpoint for 30 s. Callers already fall back to word overlap / keywords.
+            if (err instanceof OpenAIApi.APIConnectionError && !(err instanceof OpenAIApi.APIConnectionTimeoutError)) markLmUrlDown(url);
+            throw err;
+        }
         return embedding.data[0].embedding;
     }
 }

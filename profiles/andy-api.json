@@ -3,11 +3,13 @@
     "model": {
         "api": "andy_pool",
         "model": "auto",
-        "url": "http://192.168.1.20:1234/v1",
+        "url": "http://192.168.1.143:1234/v1",
         "params": {
             "mode": "lmstudio_primary",
             "lmstudio_model": "andy-4.2",
-            "lmstudio_timeout_ms": 90000
+            "lmstudio_timeout_ms": 90000,
+            "lmstudio_fallback_urls": ["http://192.168.1.144:1234/v1"],
+            "lmstudio_connect_timeout_ms": 1500
         }
     },
     "embedding": {

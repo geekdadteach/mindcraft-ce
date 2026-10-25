@@ -14,6 +14,7 @@ import { Andy } from './andy.js';
 import { LMStudio } from './lmstudio.js';
 import { MODEL_ERROR_REPLIES } from '../utils/model_errors.js';
 import { strictFormat } from '../utils/text.js';
+import { lmUrlList, pickLmUrl, markLmUrlDown } from '../utils/lm_endpoints.js';
 
 // [ai-player] mode "lmstudio_primary" (params.mode): LM Studio takes every thinking call; the Andy API is backup only.
 //   - LM Studio busy (its one slot is in use by another call) -> wait for it.
@@ -39,19 +40,23 @@ export class AndyPool {
         const p = params || {};
         this.model_name = model_name || 'auto';
         this.lm_url = url || 'http://192.168.1.20:1234/v1';
+        // [ai-player] Ordered endpoints: profile url first, then params.lmstudio_fallback_urls (.143 then .144).
+        this.lm_urls = lmUrlList(this.lm_url, p.lmstudio_fallback_urls);
+        this.lm_connect_ms = Number(p.lmstudio_connect_timeout_ms) || 1500;
         this.lm_model = p.lmstudio_model || 'andy-4.2';
         this.lm_timeout_ms = Number(p.lmstudio_timeout_ms) || 150000;
         this.max_attempts = Number(p.max_attempts) || 6;
         this.mode = p.mode || 'share';
         this.andy = new Andy(this.model_name, p.andy_url || undefined, undefined);
         this.lm = new LMStudio(this.lm_model, this.lm_url, undefined);
-        // Same client as lmstudio.js but with a hard timeout and no silent SDK retries.
-        this.lm.openai = new OpenAIApi({
-            baseURL: this.lm_url,
+        // Same client as lmstudio.js but with a hard timeout and no silent SDK retries; one per endpoint.
+        this.lm_clients = new Map(this.lm_urls.map(u => [u, new OpenAIApi({
+            baseURL: u,
             apiKey: 'lm-studio',
             timeout: this.lm_timeout_ms,
             maxRetries: 0,
-        });
+        })]));
+        this.lm.openai = this.lm_clients.get(this.lm_url);
     }
 
     static _notifyLmIdle() {
@@ -119,8 +124,11 @@ export class AndyPool {
         let timer = null;
         let call;
         try {
+            const lmUrl = await pickLmUrl(this.lm_urls, { connectMs: this.lm_connect_ms });
+            if (!lmUrl) return { ok: false, reason: 'error', detail: `no LM Studio endpoint reachable (${this.lm_urls.join(' ')})`, info };
+            info.lm_url = lmUrl;
             // reasoning_effort "none": request-side backup for the server-side enableThinking=false on Randy's Mac.
-            call = this.lm.openai.chat.completions.create({ model: this.lm_model, messages, stop: '***', reasoning_effort: 'none' });
+            call = this.lm_clients.get(lmUrl).chat.completions.create({ model: this.lm_model, messages, stop: '***', reasoning_effort: 'none' });
             const guard = new Promise(r => { timer = setTimeout(() => r({ __timeout: true }), this.lm_timeout_ms + 5000); });
             const completion = await Promise.race([call, guard]);
             if (completion && completion.__timeout) return { ok: false, reason: 'timeout', info };
@@ -139,6 +147,8 @@ export class AndyPool {
             return { ok: true, res, info };
         } catch (err) {
             const status = err?.status;
+            // Connect failure (not a slow-model timeout): skip this endpoint for 30 s so the next call uses the other one.
+            if (info.lm_url && err instanceof OpenAIApi.APIConnectionError && !(err instanceof OpenAIApi.APIConnectionTimeoutError)) markLmUrlDown(info.lm_url);
             const msg = String(err?.message || err).slice(0, 160).replace(/\s+/g, ' ');
             if (status === 400) return { ok: false, reason: 'http400', detail: msg, info };
             if (err?.name === 'APIConnectionTimeoutError' || /timed? ?out/i.test(msg)) return { ok: false, reason: 'timeout', detail: msg, info };
@@ -159,7 +169,7 @@ export class AndyPool {
         let lastRes = 'My brain disconnected, try again.';
         const path = [];
         let lastInfo = null;
-        const extra = () => lastInfo ? ` prompt_chars=${lastInfo.prompt_chars} prompt_tokens=${lastInfo.prompt_tokens ?? 'n/a'} completion_tokens=${lastInfo.completion_tokens ?? 'n/a'} reasoning_tokens=${lastInfo.reasoning_tokens ?? 'n/a'} reasoning_chars=${lastInfo.reasoning_chars ?? 'n/a'}` : '';
+        const extra = () => lastInfo ? `${lastInfo.lm_url ? ' lm_url=' + lastInfo.lm_url : ''} prompt_chars=${lastInfo.prompt_chars} prompt_tokens=${lastInfo.prompt_tokens ?? 'n/a'} completion_tokens=${lastInfo.completion_tokens ?? 'n/a'} reasoning_tokens=${lastInfo.reasoning_tokens ?? 'n/a'} reasoning_chars=${lastInfo.reasoning_chars ?? 'n/a'}` : '';
 
         while (attempts < this.max_attempts) {
             const now = Date.now();

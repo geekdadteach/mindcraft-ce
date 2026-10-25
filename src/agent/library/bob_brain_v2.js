@@ -386,6 +386,13 @@ export class BobV2Receipts {
         return true;
     }
 
+    // Observe the matching conversation turn without consuming its action link.
+    modelTraceIds(token) {
+        if (typeof token !== 'number' || !this._turn || this._turn.id !== token)
+            return [];
+        return this._turn.traces.slice();
+    }
+
     takeTraces(token) {
         if (typeof token !== 'number' || !this._turn) return null;
         if (this._turn.id !== token || this._turn.ready !== true) return null;

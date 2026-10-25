@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { selectAPI, createModel } from './_model_map.js';
 import { logEmbeddingCacheStartupSummary } from '../utils/embedding_cache.js';
 import { withConversationAdvice } from '../agent/library/bob_brain.js';
+import { BobAIReceipts } from '../agent/library/bob_ai_v2.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +20,7 @@ export class Prompter {
     constructor(agent, profile) {
         this.agent = agent;
         this.profile = profile;
+        this.aiReceipts = new BobAIReceipts();
         let default_profile = JSON.parse(readFileSync('./profiles/defaults/_default.json', 'utf8'));
         let base_fp = '';
         if (settings.base_profile.includes('survival')) {
@@ -230,6 +232,18 @@ export class Prompter {
         return prompt;
     }
 
+    // Read-only observation of the actual model call. The original model method
+    // runs exactly once; instrumentation cannot change its inputs or outputs.
+    async _sendObservedModel(lane, model, method, args, turnToken = null) {
+        let traces = [];
+        try {
+            traces = this.agent?.bobBrain?.receipts?.modelTraceIds?.(turnToken) || [];
+        } catch { /* no guessed correlation when Brain is unavailable */ }
+        return await this.aiReceipts.observe(
+            lane, () => model[method](...args), traces
+        );
+    }
+
     async checkCooldown() {
         let elapsed = Date.now() - this.last_prompt_time;
         if (elapsed < this.cooldown && this.cooldown > 0) {
@@ -261,7 +275,9 @@ export class Prompter {
             let generation;
 
             try {
-                generation = await this.chat_model.sendRequest(messages, prompt);
+                generation = await this._sendObservedModel(
+                    'conversation', this.chat_model, 'sendRequest', [messages, prompt], turnToken
+                );
                 if (typeof generation !== 'string') {
                     console.error('Error: Generated response is not a string', generation);
                     throw new Error('Generated response is not a string');
@@ -310,7 +326,9 @@ export class Prompter {
         let prompt = this.profile.coding;
         prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
 
-        let resp = await this.code_model.sendRequest(messages, prompt);
+        let resp = await this._sendObservedModel(
+            'coding', this.code_model, 'sendRequest', [messages, prompt]
+        );
         this.awaiting_coding = false;
         await this._saveLog(prompt, messages, resp, 'coding');
         return resp;
@@ -320,7 +338,9 @@ export class Prompter {
         await this.checkCooldown();
         let prompt = this.profile.saving_memory;
         prompt = await this.replaceStrings(prompt, null, null, to_summarize);
-        let resp = await this.chat_model.sendRequest([], prompt);
+        let resp = await this._sendObservedModel(
+            'memory', this.chat_model, 'sendRequest', [[], prompt]
+        );
         await this._saveLog(prompt, to_summarize, resp, 'memSaving');
         if (resp?.includes('</think>')) {
             const [_, afterThink] = resp.split('</think>')
@@ -335,7 +355,9 @@ export class Prompter {
         let messages = this.agent.history.getHistory();
         messages.push({role: 'user', content: new_message});
         prompt = await this.replaceStrings(prompt, null, null, messages);
-        let res = await this.chat_model.sendRequest([], prompt);
+        let res = await this._sendObservedModel(
+            'responder', this.chat_model, 'sendRequest', [[], prompt]
+        );
         return res.trim().toLowerCase() === 'respond';
     }
 
@@ -343,7 +365,9 @@ export class Prompter {
         await this.checkCooldown();
         let prompt = this.profile.image_analysis;
         prompt = await this.replaceStrings(prompt, messages, null, null, null);
-        return await this.vision_model.sendVisionRequest(messages, prompt, imageBuffer);
+        return await this._sendObservedModel(
+            'vision', this.vision_model, 'sendVisionRequest', [messages, prompt, imageBuffer]
+        );
     }
 
     async promptGoalSetting(messages, last_goals) {
@@ -356,7 +380,9 @@ export class Prompter {
         user_message = await this.replaceStrings(user_message, messages, null, null, last_goals);
         let user_messages = [{role: 'user', content: user_message}];
 
-        let res = await this.chat_model.sendRequest(user_messages, system_message);
+        let res = await this._sendObservedModel(
+            'goal', this.chat_model, 'sendRequest', [user_messages, system_message]
+        );
 
         let goal = null;
         try {

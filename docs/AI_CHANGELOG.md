@@ -2,6 +2,26 @@
 
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
+### 2026-10-25 12:40 PM ET — Grok Bot — Make LM Studio `.144` the default, `.143` the fallback (deployed)
+- **Goal:** Randy at 12:28 PM ET Oct 25: "Let's just change it for now make 144 his default". `.143` (Ethernet) is still down, so putting it first only added probe warnings and probe delays.
+- **Files:** `profiles/andy-api-lite.json` (chat and embedding `url` → `.144`, fallbacks → `[.143]`), `profiles/andy-api.json` (chat `url` → `.144`, `lmstudio_fallback_urls` → `[.143]`; Ollama entries unchanged), comments only in `settings.js`, `src/utils/lm_endpoints.js` and `src/models/andy_pool.js`, plus `docs/AI_HANDOFF.md` and `docs/AI_CHANGELOG.md`.
+- **Summary:** This only swaps the order. The fallback logic from the previous entry is unchanged: if `.144` stops connecting, chat and embeddings try `.143`, then the Andy API or word overlap.
+- **Decisions:** Done in the profiles, not in code, so going back to Ethernet-first is a two-line profile swap plus a restart.
+- **Tests:** Profiles parse as JSON; `node --check` on `settings.js` and the two JS files. After the LITE restart at 12:30:22 PM ET, watched until 12:36:37 PM ET: 16 chat calls, all `lm_url=.144` with `attempts=1` (10.2 / 24.7 / 26.4 s min/median/max), 0 `.143` probes or warnings, 3 `embed=ok` (31–45 ms), 0 embedding errors, 0 Andy API calls, 0 connection errors, 0 429s, no crashes, `:8081` returned 200. Secret scan of the diff: clean.
+- **Deploy status:** Deployed and live-verified on LinuxGrok (LITE). The live profiles, `settings.js` and code files are byte-identical to this commit. The private ops repo records the deploy and rollback.
+- **Rollback:** revert this commit (back to `.143` first); on the host, the private ops repo's backup `rollback.sh` restores the previous files and restarts LITE.
+- **Remaining work:** Swap back to `.143` first if Randy wants Ethernet once `.143` is reachable. Normal-mode Ollama models are still `.143:11434` only.
+
+### 2026-10-25 12:30 PM ET — Grok Bot — LM Studio endpoint fallback .143 → .144 (PR open, deployed)
+- **Goal:** Randy approved at 12:13 PM ET Oct 25: "Make the .143→.144 fallback change, record it in a minebob/fork PR, and restart Bob." `.143` (Ethernet) has been unreachable since about 9:34 PM ET Oct 24; the same LM Studio answers on `.144` (Wi-Fi).
+- **Files:** `src/utils/lm_endpoints.js` (new), `src/models/andy_pool.js`, `src/models/lmstudio.js`, `profiles/andy-api-lite.json`, `profiles/andy-api.json`, `settings.js` (comment only), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Summary:** Chat (`andy_pool` `lmstudio_primary`) and LM Studio embeddings try the profile URL, then `lmstudio_fallback_urls` / `embedding.params.fallback_urls`, choosing the first that accepts TCP within 1500 ms. A URL that fails to connect is skipped for 30 s. Connection errors (not timeouts) mark a URL down. If nothing connects, the existing pause plus Andy API fallback applies. The pool log shows `lm_url=`. The fork's profiles move from the stale `.20` to `.143` with `.144` fallback (embedding model `@q8_0`, matching live).
+- **Decisions:** A timeout does not switch URLs because both IPs are the same server. No new runtime dependency. The code files are copied byte-for-byte from the live tree so live == this commit.
+- **Tests:** `node --check` on changed JS; profiles parse as JSON; local probe test (closed port skipped, open port chosen, skip window honored, all-down returns null). On LinuxGrok before restart: real embed via `.144` after the `.143` probe failed (1712 ms, then 37 ms; 768 dims) and a real chat via `_callLmDirect` (`lm_url=.144`, 919 ms). After restart: chat calls on `.144` (13–24 s each), no embedding connection errors. Secret scan of the diff: clean.
+- **Deploy status:** Deployed and live-verified on LinuxGrok, LITE restart Oct 25 ~12:16 PM ET. Record and rollback are in the private ops repo.
+- **Rollback:** revert this PR; on the host, the private ops repo's backup `rollback.sh` restores the previous files and restarts LITE.
+- **Remaining work:** Coalesce concurrent startup probes (about 85 warnings once per start). Normal-mode Ollama models are still `.143:11434` only.
+
 ### 2026-10-24 12:10 PM ET — GitHub bot — Refresh AI handoff and changelog to current state
 - **Goal:** Record that PR #8 merged into `newearth/main` as `79e8f2b` (12:03 PM ET), that PRs #6, #7, and #9 were closed unmerged, and keep live vs merged clear. Randy authorized docs refresh PRs at 12:01 PM ET.
 - **Files:** `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md` (this entry). `AGENTS.md` unchanged (still accurate).

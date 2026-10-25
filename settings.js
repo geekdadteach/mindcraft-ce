@@ -1,9 +1,11 @@
 // [ai-player] Bob mode switch (2026-10-21). Mode comes from $BOB_MODE if set, else from the persistent file
 // /home/dad/ai-player/run/bob-mode.env (BOB_MODE=lite|normal, written by ~/ai-player/bin/bob-mode.sh). Anything other
 // than "lite" (missing file, typo) = normal = the setup below, unchanged.
-// LITE: profile ./profiles/andy-api-lite.json (thinking: Andy-4.2 on LM Studio 192.168.1.20 + Andy API fallback;
-// embeddings: LM Studio on .20, word-overlap if that fails; no code_model / vision_model), no coding
-// (allow_insecure_coding false + "!newAction" blocked), no vision. Lite makes no calls to the living-room mini (.143).
+// LITE: profile ./profiles/andy-api-lite.json (thinking: Andy-4.2 on LM Studio 192.168.1.144 (Wi-Fi, default since
+// 2026-10-25), then .143 (same Mac, Ethernet) if .144 does not connect, then Andy API fallback; embeddings: LM Studio
+// .144 -> .143, word-overlap if both
+// fail; no code_model / vision_model), no coding (allow_insecure_coding false + "!newAction" blocked), no vision.
+// Lite uses only LM Studio (:1234) on the living-room Mac, never its Ollama (:11434).
 import { readFileSync, writeFileSync, renameSync } from 'fs';
 const BOB_MODE_FILE = process.env.BOB_MODE_FILE || '/home/dad/ai-player/run/bob-mode.env';
 function readBobMode() {

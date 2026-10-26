@@ -19,6 +19,7 @@ jobs:
         run: |
           node --check src/agent/library/bob_nav_memory.js
           node --check src/agent/library/bob_enclosure.js
+          node --check src/agent/library/house_bounds.js
           node --check src/agent/library/protected_area.js
           node --check src/agent/library/bob_goal_circuit.js
           node --check src/agent/library/failures.js

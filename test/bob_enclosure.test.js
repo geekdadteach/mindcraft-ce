@@ -14,7 +14,7 @@ import {
     isInsideHouseArea,
     isWalkingLane,
     protectedAreaAt
-} from '../src/agent/library/protected_area.js';
+} from '../src/agent/library/house_bounds.js';
 
 const inside = { x: -821, y: 124, z: 568 };
 const outsideA = { x: -800, y: 70, z: 500 };

@@ -2,7 +2,7 @@
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import * as skills from './skills.js';
-import { isInsideHouseArea } from './protected_area.js';
+import { isInsideHouseArea } from './house_bounds.js';
 import { EXIT_WAYPOINT } from './bob_enclosure.js';
 import { navConsole } from './bob_nav_memory.js';
 

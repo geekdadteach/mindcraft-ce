@@ -1,0 +1,27 @@
+name: Bob hybrid routines
+
+on:
+  push:
+    branches:
+      - feature/bob-hybrid-routines-20261026
+  pull_request:
+    paths:
+      - 'src/agent/library/bob_routines.js'
+      - 'src/agent/commands/actions.js'
+      - 'test/bob_routines.test.js'
+      - '.github/workflows/bob-routines.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: |
+          node --check src/agent/library/bob_routines.js
+          node --check src/agent/commands/actions.js
+      - name: Routine tests (no Minecraft server needed)
+        run: node --test test/bob_routines.test.js

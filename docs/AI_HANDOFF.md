@@ -1,8 +1,17 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
-**Snapshot:** 2026-10-25 ~12:40 PM ET (LM Studio `.144` is now the default with `.143` as fallback; branch `feature/lm-fallback-144-20261025`). Verify repository and live state before changing anything.
+**Snapshot:** 2026-10-26 10:20 ET — branch `m4-runtime-20261026` records the live M4 runtime on Randy's Mac mini `.20` (`~/BobRuntime/cutover/mindcraft-m4`). Record only; no logic rewrite. Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
+
+## 2026-10-26 10:20 ET — Record M4 (.20) live runtime snapshot (Coded; record only, no PR)
+- Why: Randy asked to record the exact code now running on the Mac mini `.20` M4 runtime so a later PR can build on it. This branch is a record only. No logic was rewritten here, no PR, no merge, no history rewrite.
+- Base: `feature/lm-fallback-144-20261025` commit `f86efea`. Overlay from the runtime working-tree tarball (sha256 `b3a5d240965fe9219c95664a36ec99c613362285496c8357cc67ff7695121f67`). Snapshot commit `e061d87`.
+- Path/time: `~/BobRuntime/cutover/mindcraft-m4` as of 2026-10-26 10:20 ET.
+- Includes the long-memory patch applied at 09:56 ET: `src/models/prompter.js` (`ensureLongMemoryPlaceholder` inserts `$LONG_MEMORY` into conversation prompts that lack it) and `src/agent/library/bob_brain_v2.js` (lane-aware advice receipts: skip "no `$LONG_MEMORY` placeholder" on non-conversation lanes; `modelTraceIds`).
+- Also includes previously uncommitted M4 files: `bob_path_retry.js`, `bob_path_escalation.js`, `bob_goal_circuit.js`, `bob_ai_v2.js`, `bob_runtime_paths.js`, plus modified `skills.js`, `self_prompter.js`, `failures.js`, and `bob_brain*.js`. Other overlay diffs: `settings.js` (uses `bobRuntimePath`), `vision_interpreter.js`, `mindserver.js`, `agent_process.js`, `embedding_cache.js`, and the matching tests. `keys.json` was intentionally not included.
+- Deleted under `src/`, `profiles/`, `test/`, `services/`, `patches/`: none (those trees already matched the tarball; AppleDouble `._*` metadata from the Mac archive was not committed).
+- Secret scan: only test fixtures (`valid-token`, `PAYLOAD_SENTINEL`, `sk-proj-this-should-never-appear`). No real credentials.
 
 ## 2026-10-25 12:30 PM ET — `.144` is the default LM Studio endpoint, `.143` the fallback (Deployed, Live-verified; PR open, not merged)
 - Why: Randy asked at 12:28 PM ET to make `.144` (Wi-Fi) the default while `.143` (Ethernet) stays down. With `.143` first, every start printed about 85 probe warnings and one call per 30 s paid a failed 1.5 s probe.
@@ -30,6 +39,8 @@ Status words, never conflated: **Proposed** → **Coded** → **Tested** → **M
 - The private repo `geekdadteach/minebob` holds ops (scripts, Discord control bot, reset-watcher, systemd units, polkit, Bob Brain queue source), config/profiles, docs, AI handoff rules, and the record of **which commit of this fork is live**.
 
 ## Branches
+- `m4-runtime-20261026` — record-only snapshot of the Mac mini `.20` M4 runtime at `~/BobRuntime/cutover/mindcraft-m4` as of 2026-10-26 10:20 ET, branched from `f86efea` (`feature/lm-fallback-144-20261025`). Snapshot commit `e061d87`. Not a PR. Later work may build on it.
+- `feature/lm-fallback-144-20261025` — LM Studio `.144` first, `.143` fallback. Head `f86efea`. Parent of `m4-runtime-20261026`. LinuxGrok LITE used this tree on Oct 25.
 - `develop` — fork default branch, as inherited from upstream. Do not change it or the default-branch setting without Randy's OK.
 - `newearth/live-2026-10-23` — exact live tree from LinuxGrok on 2026-10-23:
   - `80045e6` — exact live snapshot of `~/ai-player/mindcraft-ce-stable-42da10d` (upstream stable `42da10d` + working tree), unchanged.
@@ -46,7 +57,8 @@ Status words, never conflated: **Proposed** → **Coded** → **Tested** → **M
 - `newearth/port-minebob-2026-10-23` — PR #1 (branch deleted Oct 24 12:12 PM ET, head `f256c80`), merged into `newearth/main` as `e923683` (deployed as part of `dddbaf4`), from `5d8be33`: pathfinder door/gate patch from minebob `73f7378` (matches live `node_modules`), `full_state.js` goal block.
 
 ## What is live
-- Since Oct 25 ~12:30 PM ET (LITE mode): `newearth/main` `79e8f2b` code (deployed Oct 24 12:24 PM ET) plus this branch's LM Studio fallback with `.144` first (`feature/lm-fallback-144-20261025` head; profiles, `settings.js` and code files byte-identical to live). From ~12:16 PM ET until then, the same code ran with `.143` first. The private ops repo records the deploy, PIDs and rollback.
+- Mac mini `.20` M4 runtime (2026-10-26 10:20 ET): branch `m4-runtime-20261026` commit `e061d87`, recorded from `~/BobRuntime/cutover/mindcraft-m4`. This is the snapshot of that host. It is not merged and is not a PR.
+- LinuxGrok since Oct 25 ~12:30 PM ET (LITE mode): `newearth/main` `79e8f2b` code (deployed Oct 24 12:24 PM ET) plus `feature/lm-fallback-144-20261025` (`f86efea`) LM Studio fallback with `.144` first. From ~12:16 PM ET until then, the same code ran with `.143` first. The private ops repo records the deploy, PIDs and rollback.
 - Before that: `79e8f2b` from Oct 24 12:24 PM ET, with profiles switched from `.20` to `.143` at 3:58 PM ET Oct 24 (recorded in minebob, not in this fork until this branch). The earlier "live is `4398d7a`" note is stale.
 - The prismarine-chunk guard from PR #3 (`b940ba3`) is in the live tree.
 - Older rollback tree: `49761ee` content from 2026-10-23.

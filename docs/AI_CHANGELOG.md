@@ -2,6 +2,16 @@
 
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
+### 2026-10-26 10:20 ET — Grok Bot — Record M4 (.20) live runtime snapshot (no logic changes)
+- **Goal:** Randy authorized a record-only branch of the exact code running on the Mac mini `.20` M4 runtime, so a later PR can build on it. No logic rewrite, no PR, no merge, no history rewrite.
+- **Files:** Overlay of `src/`, `profiles/`, `settings.js`, `main.js`, `package.json`, `package-lock.json`, `test/`, `services/`, `patches/` from `~/BobRuntime/cutover/mindcraft-m4` (tarball sha256 `b3a5d240965fe9219c95664a36ec99c613362285496c8357cc67ff7695121f67`), plus this handoff/changelog. Snapshot commit `e061d87` (24 files, +1647/−71). Docs commit follows.
+- **Summary:** Branch `m4-runtime-20261026` from `f86efea`. Includes the long-memory patch applied at 09:56 ET (`src/models/prompter.js` `$LONG_MEMORY` fallback; `src/agent/library/bob_brain_v2.js` lane-aware advice receipts) and the previously uncommitted M4 files (`bob_path_retry.js`, `bob_path_escalation.js`, `bob_goal_circuit.js`, `bob_ai_v2.js`, `bob_runtime_paths.js`, plus modified `skills.js`, `self_prompter.js`, `failures.js`, `bob_brain*.js`). `keys.json` was not included. No files were deleted under `src/`, `profiles/`, `test/`, `services/`, or `patches/`.
+- **Decisions:** Record the live tree as-is. AppleDouble `._*` files from the Mac archive were omitted (Finder metadata, not running code).
+- **Tests:** Secret scan of the overlay: only test fixtures (`valid-token`, `PAYLOAD_SENTINEL`, `sk-proj-this-should-never-appear`). No real credentials. Byte-compare of overlay paths to the tarball: identical after omitting `._*`.
+- **Deploy status:** Already running on `.20` at snapshot time. This branch only records that tree. Not a PR.
+- **Rollback:** delete the branch; live `.20` is unchanged by this record.
+- **Remaining work:** a later PR may build on `m4-runtime-20261026`.
+
 ### 2026-10-25 12:40 PM ET — Grok Bot — Make LM Studio `.144` the default, `.143` the fallback (deployed)
 - **Goal:** Randy at 12:28 PM ET Oct 25: "Let's just change it for now make 144 his default". `.143` (Ethernet) is still down, so putting it first only added probe warnings and probe delays.
 - **Files:** `profiles/andy-api-lite.json` (chat and embedding `url` → `.144`, fallbacks → `[.143]`), `profiles/andy-api.json` (chat `url` → `.144`, `lmstudio_fallback_urls` → `[.143]`; Ollama entries unchanged), comments only in `settings.js`, `src/utils/lm_endpoints.js` and `src/models/andy_pool.js`, plus `docs/AI_HANDOFF.md` and `docs/AI_CHANGELOG.md`.

@@ -2,6 +2,7 @@ import { Vec3 } from 'vec3';
 import { Camera } from "./camera.js";
 import fs from 'fs';
 import path from 'path';
+import { bobRuntimePath } from '../../utils/bob_runtime_paths.js';
 
 export class VisionInterpreter {
     constructor(agent, allow_vision) {
@@ -19,7 +20,7 @@ export class VisionInterpreter {
     // Bob's eye toward the target WITHOUT turning his head, running a command or touching his action/history.
     // The image + a result JSON go to run/; the request file is removed. One render at a time.
     _startSnapshotRequests() {
-        const dir = '/home/dad/ai-player/run';
+        const dir = bobRuntimePath('run');
         const req = path.join(dir, 'snapshot-request.json');
         if (this._snapTimer) return;
         this._snapTimer = setInterval(async () => {
@@ -62,7 +63,7 @@ export class VisionInterpreter {
         let filename;
         try { await camera.readyPromise; filename = await camera.capture({ yaw, pitch, pos: pose }); }
         finally { camera.destroy(); }
-        const src = `${this.fp}/${filename}.jpg`, dst = `/home/dad/ai-player/run/snapshot-${r.id || 'x'}.jpg`;
+        const src = `${this.fp}/${filename}.jpg`, dst = bobRuntimePath('run', `snapshot-${r.id || 'x'}.jpg`);
         fs.copyFileSync(src, dst);
         let analysis = null;
         if (r.analyze && this.agent.prompter?.vision_model?.sendVisionRequest) {

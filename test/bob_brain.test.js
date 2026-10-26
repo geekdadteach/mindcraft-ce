@@ -181,6 +181,7 @@ function brainOptions(url, extra = {}) {
         eventDedupeMs: 500,
         failureGapMs: 1000,
         failureCooldownMs: 10_000,
+        failureSignatureMs: 0,
         deathCooldownMs: 10_000,
         planCooldownMs: 10_000,
         deathCoalesceMs: 30_000,
@@ -684,6 +685,7 @@ test('advice never executes a command, including through the live hooks', async 
             eventDedupeMs: 500,
             failureGapMs: 1000,
             failureCooldownMs: 10_000,
+            failureSignatureMs: 0,
             planCooldownMs: 10_000,
             timeoutMs: 1000,
             now: brainOptions(api.listen.url).now,
@@ -710,12 +712,40 @@ test('advice never executes a command, including through the live hooks', async 
         await brain.flushPending();
         assert.equal(posted(api.requests, '/v1/events').filter((entry) => entry.body.type === 'death').length, 1);
 
+        // Raw path updates must not produce Brain jobs.
         agent.bot.emit('path_reset', 'goal_updated');
         agent.bot.emit('path_reset', 'stuck');
-        await waitFor(() => posted(api.requests, '/v1/events').some((entry) => entry.body.type === 'pathfinding_failed' && entry.body.payload.reason === 'stuck'));
+        agent.bot.emit('path_update', { status: 'noPath' });
 
-        await assert.rejects(() => agent.bot.pathfinder.goto({}), /No path to the goal!/);
-        await waitFor(() => posted(api.requests, '/v1/events').some((entry) => entry.body.payload?.reason === 'noPath'));
+        const pathEvents = () => posted(
+            api.requests, '/v1/events'
+        ).filter(entry =>
+            entry.body.type === 'pathfinding_failed'
+        );
+
+        const goalA = { x: 10, y: 64, z: 20 };
+        const goalB = { x: 30, y: 64, z: 20 };
+
+        await assert.rejects(
+            () => agent.bot.pathfinder.goto(goalA),
+            /No path to the goal!/
+        );
+        assert.equal(pathEvents().length, 0);
+
+        await assert.rejects(
+            () => agent.bot.pathfinder.goto(goalA),
+            /No path to the goal!/
+        );
+        assert.equal(pathEvents().length, 0);
+
+        await assert.rejects(
+            () => agent.bot.pathfinder.goto(goalB),
+            /No path to the goal!/
+        );
+
+        await waitFor(() => pathEvents().some(
+            entry => entry.body.payload.reason === 'noPath'
+        ));
 
         const before = posted(api.requests, '/v1/events').length;
         agent.bot.gotoError = Object.assign(

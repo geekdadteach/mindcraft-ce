@@ -386,6 +386,13 @@ export class BobV2Receipts {
         return true;
     }
 
+    // Observe the matching conversation turn without consuming its action link.
+    modelTraceIds(token) {
+        if (typeof token !== 'number' || !this._turn || this._turn.id !== token)
+            return [];
+        return this._turn.traces.slice();
+    }
+
     takeTraces(token) {
         if (typeof token !== 'number' || !this._turn) return null;
         if (this._turn.id !== token || this._turn.ready !== true) return null;
@@ -409,6 +416,12 @@ export class BobV2Receipts {
         try {
             const items = freshItems(brain);
             const conversation = opts.conversationPrompt === true;
+            // [long-memory-20261026] Memory-saving, coding, responder and vision prompts never carry
+            // Brain advice by design (docs/BOB_BRAIN.md:58). When the prompter names such a lane,
+            // say nothing; "no $LONG_MEMORY placeholder" is reserved for a conversation prompt
+            // (or a legacy caller that does not pass a lane).
+            const otherLane = typeof opts.lane === 'string' && opts.lane !== 'conversation';
+            if (!conversation && otherLane) return null;
             const injected = [];
             let block = '';
             try { block = brain?.adviceBlock?.() || ''; } catch { block = ''; }

@@ -7,7 +7,8 @@
 // fail; no code_model / vision_model), no coding (allow_insecure_coding false + "!newAction" blocked), no vision.
 // Lite uses only LM Studio (:1234) on the living-room Mac, never its Ollama (:11434).
 import { readFileSync, writeFileSync, renameSync } from 'fs';
-const BOB_MODE_FILE = process.env.BOB_MODE_FILE || '/home/dad/ai-player/run/bob-mode.env';
+import { bobRuntimePath } from './src/utils/bob_runtime_paths.js';
+const BOB_MODE_FILE = process.env.BOB_MODE_FILE || bobRuntimePath('run', 'bob-mode.env');
 function readBobMode() {
     let m = process.env.BOB_MODE;
     if (!m) {
@@ -95,7 +96,7 @@ if (bob_mode === 'lite') {
 if (/(^|[\/\\])main\.js$/.test(process.argv[1] || '')) {
     console.log(`[ai-player] Bob mode: ${bob_mode} profiles=${JSON.stringify(settings.profiles)} allow_insecure_coding=${settings.allow_insecure_coding} allow_vision=${settings.allow_vision} blocked_actions=${JSON.stringify(settings.blocked_actions)}`);
     try {
-        const f = '/home/dad/ai-player/run/bob-mode.active';
+        const f = process.env.BOB_MODE_ACTIVE_FILE || bobRuntimePath('run', 'bob-mode.active');
         writeFileSync(f + '.tmp', JSON.stringify({ mode: bob_mode, pid: process.pid, started: new Date().toISOString(), profiles: settings.profiles }) + '\n');
         renameSync(f + '.tmp', f);
     } catch (e) { console.warn('[ai-player] could not write bob-mode.active:', e?.message || e); }

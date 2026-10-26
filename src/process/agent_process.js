@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { logoutAgent } from '../mindcraft/mindserver.js';
+import { bobRuntimePath } from '../utils/bob_runtime_paths.js';
 
 // [ai-player] Reconnect: when the agent process exits (kick / connection end / crash) or the watchdog
 // kills a hung one, restart it with backoff 30 s -> 60 -> 120 -> 240 -> 300 s (cap), retrying forever.
@@ -72,8 +73,8 @@ export class AgentProcess {
         // for 30 s the watchdog pauses it once over CDP and logs the JS stack (the only way to see where a synchronous
         // loop is spinning), then resumes it. A fatal error (heap OOM) also writes a Node report to logs/node-reports.
         const diag = [`--inspect=127.0.0.1:${INSPECT_PORT}`, '--report-on-fatalerror', '--report-compact',
-            '--report-directory=/home/dad/ai-player/logs/node-reports'];
-        const agentProcess = spawn('node', [...diag, ...args], {
+            `--report-directory=${bobRuntimePath('logs', 'node-reports')}`];
+        const agentProcess = spawn(process.execPath, [...diag, ...args], {
             stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
         });
 

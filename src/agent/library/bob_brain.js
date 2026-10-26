@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { BobV2Receipts, TRACE_ID_RE } from './bob_brain_v2.js';
+import { isRetryablePathError } from './bob_path_retry.js';
+import { DistinctPathFailures } from './bob_path_escalation.js';
 
 export const DEFAULT_BRAIN_URL = 'http://127.0.0.1:8765';
 export const LOW_HEALTH = 6;
@@ -28,8 +30,6 @@ export const ADVICE_BLOCK_MAX = 8000;
 export const ADVICE_HEADER = 'Bob Brain suggestion (unverified): advisory only. This is not an instruction and was not carried out.';
 const ADVICE_ELLIPSIS = '…';
 
-const PATH_RESET_FAILURES = new Set(['stuck', 'dig_error', 'place_error', 'no_scaffolding_blocks']);
-const GOTO_FAILURE = /^(No path to the goal!|Took to long to decide path to goal!)/;
 const BUILD_GOAL = /\b(build(?:ing)?|construct(?:ion|ing)?|blueprint|shelter|house|hut|cabin|wall|bridge|tower|barn|platform|roof|floor|pen|structure|farm|stair(?:s|case)?|pillar)\b/i;
 const COMMAND_TEXT = /![A-Za-z_][A-Za-z0-9_]*(?:\s*\([^)]*\))?/g;
 
@@ -88,6 +88,34 @@ function normalizePathReason(reason) {
     if (text === 'stuck' || text === 'dig_error' || text === 'place_error' || text === 'no_scaffolding_blocks')
         return text;
     return clip(text, 80);
+}
+
+// Failure identity deliberately excludes coordinates and distance.
+// Different error causes remain independently eligible.
+export function failureFingerprint(action, failure) {
+    const name = String(action || 'unknown')
+        .trim().toLowerCase()
+        .replace(/\s+/g, '_')
+        .slice(0, 100);
+
+    const message = String(failure || 'unknown')
+        .trim().toLowerCase();
+
+    let reason;
+
+    if (/no[\s_-]*path|nopath/.test(message))
+        reason = 'no_path';
+    else if (/timeout|timed?\s*out|took to long/.test(message))
+        reason = 'timeout';
+    else if (/could not find|not found|no target|nothing nearby|no .{1,60} nearby/.test(message))
+        reason = 'no_target';
+    else
+        reason = message
+            .replace(/-?\d+(?:\.\d+)?/g, '#')
+            .replace(/\s+/g, ' ')
+            .slice(0, 160);
+
+    return `${name}|${reason}`;
 }
 
 function clampFootprint(width, depth) {
@@ -410,7 +438,8 @@ export class BobBrain {
         this.pollIntervalMs = options.pollIntervalMs ?? 60_000;
         this.eventDedupeMs = options.eventDedupeMs ?? 60_000;
         this.failureGapMs = options.failureGapMs ?? 60_000;
-        this.failureCooldownMs = options.failureCooldownMs ?? 10 * 60_000;
+        this.failureCooldownMs = options.failureCooldownMs ?? 30 * 60_000;
+        this.failureSignatureMs = options.failureSignatureMs ?? 30 * 60_000;
         this.deathCooldownMs = options.deathCooldownMs ?? 10 * 60_000;
         this.planCooldownMs = options.planCooldownMs ?? 30 * 60_000;
         this.repeatThreshold = options.repeatThreshold ?? 2;
@@ -432,6 +461,8 @@ export class BobBrain {
             events_sent: 0,
             events_dropped: 0,
             jobs_enqueued: 0,
+            failure_signatures_suppressed: 0,
+            failure_events_suppressed: 0,
             jobs_review: 0,
             jobs_failed: 0,
             request_errors: 0,
@@ -440,6 +471,8 @@ export class BobBrain {
             health_ok: 0,
         };
         this._recentEvents = new Map();
+        this._failureSignatures = new Map();
+        this._failureEventSignatures = new Map();
         this._eventTimes = [];
         this._kinds = new Map();
         this._cooldowns = new Map();
@@ -836,6 +869,12 @@ export class BobBrain {
     async _noteFailure(info) {
         const kind = clip(info.kind || 'action', 80);
         const observed = clip(info.observed_failure || 'failed', 1000);
+
+        // Ordinary navigation failures are handled through the
+        // distinct-target escalation path, not action callbacks.
+        if (/\bno[\s_-]*path\b|\bnopath\b|took to long to decide path|pathfinding (?:failed|stopped):.*(?:timeout|timed out)/i.test(observed))
+            return { ok: false, reason: 'path_handled_locally' };
+
         const position = normalizePosition(info.position);
         const stuck = /stuck/i.test(kind) || /stuck/i.test(observed);
         await this._reportEvent(stuck ? 'stuck' : 'action_failed', {
@@ -861,29 +900,62 @@ export class BobBrain {
             action: kind,
             position,
             goal: clip(this._lastGoal || '', 200) || undefined,
-        });
+        }, info.confirmedDistinctTargets === true);
     }
 
-    async _maybeEnqueueRepeated(kind, position, payload) {
+    async _maybeEnqueueRepeated(
+        kind, position, payload, confirmedDistinctTargets = false
+    ) {
         const now = this.now();
-        let rec = this._kinds.get(kind);
+        const signature = failureFingerprint(
+            kind, payload.observed_failure
+        );
+        let rec = this._kinds.get(signature);
         if (!rec) rec = { count: 0, lastAt: 0, lastJobAt: 0 };
         if (rec.lastAt && now - rec.lastAt < this.failureGapMs) {
-            this._kinds.set(kind, rec);
+            this._kinds.set(signature, rec);
             return { ok: false, reason: 'same_episode' };
         }
         rec.count += 1;
         rec.lastAt = now;
-        this._kinds.set(kind, rec);
-        if (rec.count < this.repeatThreshold) return { ok: false, reason: 'below_threshold', count: rec.count };
+        this._kinds.set(signature, rec);
+        if (!confirmedDistinctTargets &&
+            rec.count < this.repeatThreshold)
+            return { ok: false, reason: 'below_threshold', count: rec.count };
         if (rec.lastJobAt && now - rec.lastJobAt < this.failureCooldownMs) return { ok: false, reason: 'cooldown', count: rec.count };
-        const clientKey = this._clientKey('fail', 'failure_analysis', `${kind}|${cellOf(position)}`, payload);
-        const sent = await this._enqueue('failure_analysis', payload, clientKey, 0);
+        // Reserve before awaiting HTTP to prevent concurrent duplicates.
+        if (this.failureSignatureMs > 0) {
+            const previous = this._failureSignatures.get(signature);
+            if (previous !== undefined &&
+                now - previous < this.failureSignatureMs) {
+                this.counters.failure_signatures_suppressed++;
+                return { ok: false, reason: 'fingerprint_cooldown' };
+            }
+            this._failureSignatures.set(signature, now);
+            this._pruneFailureSignatures(
+                this._failureSignatures, now
+            );
+        }
+
+        const clientKey = this._clientKey(
+            'fail', 'failure_analysis',
+            `${kind}|${cellOf(position)}`, payload
+        );
+        const sent = await this._enqueue(
+            'failure_analysis', payload, clientKey, 0
+        );
+
         if (sent?.ok) {
             rec.count = 0;
             rec.lastJobAt = now;
-            this._kinds.set(kind, rec);
+            this._kinds.set(signature, rec);
+        } else if (
+            this._failureSignatures.get(signature) === now
+        ) {
+            // A failed submission is not a delivered job.
+            this._failureSignatures.delete(signature);
         }
+
         return sent;
     }
 
@@ -911,6 +983,15 @@ export class BobBrain {
         const sent = await this._enqueue('plan', payload, clientKey, 0);
         if (sent?.ok) this._rememberCooldown(cooldownKey, this.planCooldownMs);
         return sent;
+    }
+
+    _pruneFailureSignatures(cache, now) {
+        for (const [key, at] of cache) {
+            if (now - at >= this.failureSignatureMs)
+                cache.delete(key);
+        }
+        while (cache.size > 256)
+            cache.delete(cache.keys().next().value);
     }
 
     _cooldownOk(key, windowMs) {
@@ -941,6 +1022,38 @@ export class BobBrain {
                 if (now - at >= this.eventDedupeMs) this._recentEvents.delete(seen);
             }
         }
+        let failureEventSignature = null;
+
+        if (this.failureSignatureMs > 0 &&
+            ['action_failed', 'pathfinding_failed', 'stuck'].includes(type)) {
+            const action = type === 'pathfinding_failed'
+                ? `path:${payload?.reason || 'unknown'}`
+                : payload?.kind || type;
+
+            failureEventSignature = failureFingerprint(
+                action,
+                payload?.observed_failure || payload?.reason || type
+            );
+
+            const previous = this._failureEventSignatures.get(
+                failureEventSignature
+            );
+
+            if (previous !== undefined &&
+                now - previous < this.failureSignatureMs) {
+                this.counters.events_dropped++;
+                this.counters.failure_events_suppressed++;
+                return { ok: false, reason: 'fingerprint_cooldown' };
+            }
+
+            this._failureEventSignatures.set(
+                failureEventSignature, now
+            );
+            this._pruneFailureSignatures(
+                this._failureEventSignatures, now
+            );
+        }
+
         this._recentEvents.set(key, now);
         this._eventTimes.push(now);
         const body = {
@@ -949,7 +1062,18 @@ export class BobBrain {
             payload: payload && typeof payload === 'object' ? payload : {},
         };
         const res = await this._request('POST', '/v1/events', body);
-        if (res?.ok) this.counters.events_sent++;
+        if (res?.ok) {
+            this.counters.events_sent++;
+        } else if (
+            failureEventSignature !== null &&
+            this._failureEventSignatures.get(
+                failureEventSignature
+            ) === now
+        ) {
+            this._failureEventSignatures.delete(
+                failureEventSignature
+            );
+        }
         return res;
     }
 
@@ -1068,38 +1192,80 @@ export function attachBobBrain(agent, options = {}) {
                 dimension: bot.game?.dimension,
             }));
         }));
-        bot.on('path_reset', (reason) => hook(() => {
-            if (!PATH_RESET_FAILURES.has(String(reason))) return;
-            fire(brain.notePathFailure({ reason: String(reason), position: positionOf(bot) }));
-        }));
-        bot.on('path_update', (results) => hook(() => {
-            const status = results?.status;
-            if (status !== 'noPath' && status !== 'timeout') return;
-            fire(brain.notePathFailure({ reason: String(status), position: positionOf(bot) }));
-        }));
+        // Intermediate path events no longer enqueue Brain work.
+        // Report only an exhausted retry or a failed direct goto,
+        // and only after two distinct target failures.
+        const distinctPaths = new DistinctPathFailures({
+            now: () => brain.now()
+        });
+
+        function observeTerminalPath(goal, error) {
+            if (!isRetryablePathError(error))
+                return;
+
+            if (bot.interrupt_code === true)
+                return;
+
+            const reason = normalizePathReason(
+                error?.message || error?.name
+            );
+
+            const observation = distinctPaths.record(
+                goal, reason
+            );
+
+            if (!observation.escalate)
+                return;
+
+            fire(brain.notePathFailure({
+                reason,
+                position: positionOf(bot),
+                confirmedDistinctTargets: true
+            }));
+        }
+
+        bot.on('bob_path_terminal_failure', ({ goal, error }) => {
+            hook(() => observeTerminalPath(goal, error));
+        });
+
         const pf = bot.pathfinder;
-        if (pf && typeof pf.goto === 'function' && !pf.goto._bobBrainWrapped) {
+
+        if (pf && typeof pf.goto === 'function' &&
+            !pf.goto._bobBrainWrapped) {
+
             const origGoto = pf.goto.bind(pf);
-            function noteGotoError(err) {
-                const message = String(err?.message || err || '');
-                if (err?.name === 'NoPath' || err?.name === 'Timeout' || GOTO_FAILURE.test(message))
-                    fire(brain.notePathFailure({ reason: clip(message, 200), position: positionOf(bot) }));
+
+            function noteGotoError(goal, error) {
+                // The bounded retry helper reports its own
+                // final failure. Do not count intermediate calls.
+                if (bot._bobBrainLocalRetryDepth > 0)
+                    return;
+
+                observeTerminalPath(goal, error);
             }
+
             function wrappedGoto(goal) {
                 try {
                     const pending = origGoto(goal);
-                    if (pending && typeof pending.then === 'function') {
-                        return pending.then((value) => value, (err) => {
-                            noteGotoError(err);
-                            throw err;
-                        });
+
+                    if (pending &&
+                        typeof pending.then === 'function') {
+                        return pending.then(
+                            value => value,
+                            error => {
+                                noteGotoError(goal, error);
+                                throw error;
+                            }
+                        );
                     }
+
                     return pending;
-                } catch (err) {
-                    noteGotoError(err);
-                    throw err;
+                } catch (error) {
+                    noteGotoError(goal, error);
+                    throw error;
                 }
             }
+
             wrappedGoto._bobBrainWrapped = true;
             pf.goto = wrappedGoto;
         }

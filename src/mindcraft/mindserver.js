@@ -3,6 +3,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { bobRuntimePath } from '../utils/bob_runtime_paths.js';
 import * as mindcraft from './mindcraft.js';
 import { createControlRelay, loadControlSecret } from './bobbot_control.js';
 import { readFileSync, watchFile, unwatchFile, openSync, readSync, closeSync, fstatSync } from 'fs';
@@ -49,7 +50,7 @@ export function logoutAgent(agentName) {
 
 
 // [ai-player] READ-ONLY live agent log panel (tails mindcraft.log; no command execution)
-const AGENT_LOG_PATH = '/home/dad/ai-player/logs/mindcraft.log';
+const AGENT_LOG_PATH = bobRuntimePath('logs', 'mindcraft.log');
 const AGENT_LOG_MAX = 500;
 const agentLogBuffer = [];
 let agentLogWatchStarted = false;

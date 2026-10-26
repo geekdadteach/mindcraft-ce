@@ -2,6 +2,7 @@ import * as mc from "../../utils/mcdata.js";
 import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
+import { retryPathfinding } from './bob_path_retry.js';
 import settings from "../../../settings.js";
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
@@ -1113,14 +1114,23 @@ export async function goToGoal(bot, goal) {
     const doorCheckInterval = final_movements.canOpenDoors ? null : startDoorInterval(bot);
 
     bot.pathfinder.setMovements(final_movements);
+
     try {
-        await bot.pathfinder.goto(goal);
+        return await retryPathfinding(
+            bot,
+            () => bot.pathfinder.goto(goal),
+            {
+                maxAttempts: 2,
+                targetGoal: goal,
+                onRetry: () => log(
+                    bot,
+                    'Navigation path unavailable; retrying locally once.'
+                )
+            }
+        );
+    } finally {
+        // Release the door helper on success, error or interruption.
         clearInterval(doorCheckInterval);
-        return true;
-    } catch (err) {
-        clearInterval(doorCheckInterval);
-        // we need to catch so we can clean up the door check interval, then rethrow the error
-        throw err;
     }
 }
 
@@ -1280,8 +1290,13 @@ export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64
         return false;
     }
     log(bot, `Found ${blockType} at ${block.position}. Navigating...`);
-    await goToPosition(bot, block.position.x, block.position.y, block.position.z, min_distance);
-    return true;
+    return await goToPosition(
+        bot,
+        block.position.x,
+        block.position.y,
+        block.position.z,
+        min_distance
+    );
 }
 
 export async function goToNearestEntity(bot, entityType, min_distance=2, range=64) {
@@ -1300,8 +1315,13 @@ export async function goToNearestEntity(bot, entityType, min_distance=2, range=6
     }
     let distance = bot.entity.position.distanceTo(entity.position);
     log(bot, `Found ${entityType} ${distance} blocks away.`);
-    await goToPosition(bot, entity.position.x, entity.position.y, entity.position.z, min_distance);
-    return true;
+    return await goToPosition(
+        bot,
+        entity.position.x,
+        entity.position.y,
+        entity.position.z,
+        min_distance
+    );
 }
 
 export async function goToPlayer(bot, username, distance=3) {

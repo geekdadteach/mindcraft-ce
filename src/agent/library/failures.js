@@ -57,6 +57,11 @@ export class Failures {
             else { f = { key, cmd, shown, target, ...(p || {}), error: String(error).slice(0, 120), count: 1, first: now, last: now, recent: [now] }; this.data.failures.push(f); }
             console.log(`[ai-player] failure recorded: ${cmd} ${target} at ${p ? `${p.x} ${p.y} ${p.z}` : '-'}: ${f.error} (x${f.count})`);
             this.decay(); this.save();
+            try {
+                this.agent.self_prompter?.noteFailure?.(
+                    cmd, target, error
+                );
+            } catch (_) { /* goal guard never affects gameplay */ }
             return f;
         } catch (e) { console.warn(`[ai-player] failures.record: ${e.message}`); return null; }
     }
@@ -65,6 +70,11 @@ export class Failures {
         cmd = norm(cmd).split('(')[0]; target = norm(target);
         for (const f of this.data.failures) if (f.cmd === cmd && f.target === target && (!pos || f.x == null || Math.hypot(f.x - pos.x, f.z - pos.z) < BLOCK_RADIUS)) f.recent = [];
         this.save();
+        try {
+            this.agent.self_prompter?.noteSuccess?.(
+                cmd, target
+            );
+        } catch (_) { /* goal guard never affects gameplay */ }
     }
     blocking(cmd, target, pos) {
         const now = Date.now();

@@ -6,8 +6,9 @@
 import { createHash } from 'crypto';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname } from 'path';
+import { bobRuntimePath } from './bob_runtime_paths.js';
 
-const CACHE_PATH = '/home/dad/ai-player/cache/embeddings.json';
+const CACHE_PATH = bobRuntimePath('cache', 'embeddings.json');
 
 let store = null; // { version, entries: { key: number[] } }
 let dirty = false;

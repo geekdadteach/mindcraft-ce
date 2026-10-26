@@ -11,14 +11,34 @@ import { fileURLToPath } from 'url';
 import { selectAPI, createModel } from './_model_map.js';
 import { logEmbeddingCacheStartupSummary } from '../utils/embedding_cache.js';
 import { withConversationAdvice } from '../agent/library/bob_brain.js';
+import { BobAIReceipts } from '../agent/library/bob_ai_v2.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// [long-memory-20261026] The conversation prompt must carry $LONG_MEMORY (lessons, places,
+// recent failures, Bob Brain advice). A profile whose `conversing` lacks it (e.g. any profile
+// inheriting profiles/defaults/_default.json) silently lost all of that. Insert it before
+// $STATS (else before "Conversation Begin:", else at the end). Other lanes are left alone.
+let _warnedMissingLongMemory = false;
+export function ensureLongMemoryPlaceholder(template) {
+    if (typeof template !== 'string' || template.includes('$LONG_MEMORY')) return template;
+    if (!_warnedMissingLongMemory) {
+        _warnedMissingLongMemory = true;
+        console.warn('[long-memory] conversing prompt has no $LONG_MEMORY; inserting it');
+    }
+    for (const anchor of ['$STATS', 'Conversation Begin:']) {
+        const at = template.indexOf(anchor);
+        if (at >= 0) return template.slice(0, at) + '$LONG_MEMORY\n' + template.slice(at);
+    }
+    return template + '\n$LONG_MEMORY';
+}
 
 export class Prompter {
     constructor(agent, profile) {
         this.agent = agent;
         this.profile = profile;
+        this.aiReceipts = new BobAIReceipts();
         let default_profile = JSON.parse(readFileSync('./profiles/defaults/_default.json', 'utf8'));
         let base_fp = '';
         if (settings.base_profile.includes('survival')) {
@@ -136,8 +156,11 @@ export class Prompter {
         }
     }
 
-    async replaceStrings(prompt, messages, examples=null, to_summarize=[], last_goals=null) {
-        const v2ConversationPrompt = typeof prompt === 'string' && prompt.includes('$LONG_MEMORY');
+    // lane: 'conversation' | 'coding' | 'memory' | 'responder' | 'vision' | 'goal' (null = legacy detection).
+    async replaceStrings(prompt, messages, examples=null, to_summarize=[], last_goals=null, lane=null) {
+        const v2ConversationPrompt = lane
+            ? lane === 'conversation'
+            : (typeof prompt === 'string' && prompt.includes('$LONG_MEMORY'));
         this._v2TurnToken = null;
         prompt = prompt.replaceAll('$NAME', this.agent.name);
 
@@ -223,11 +246,24 @@ export class Prompter {
             this._v2TurnToken = this.agent.bobBrain?.observeAssembledPrompt?.(prompt, {
                 conversationPrompt: v2ConversationPrompt,
                 armAction: this._v2ArmAction === true,
+                lane,
             }) ?? null;
         } catch {
             this._v2TurnToken = null;
         }
         return prompt;
+    }
+
+    // Read-only observation of the actual model call. The original model method
+    // runs exactly once; instrumentation cannot change its inputs or outputs.
+    async _sendObservedModel(lane, model, method, args, turnToken = null) {
+        let traces = [];
+        try {
+            traces = this.agent?.bobBrain?.receipts?.modelTraceIds?.(turnToken) || [];
+        } catch { /* no guessed correlation when Brain is unavailable */ }
+        return await this.aiReceipts.observe(
+            lane, () => model[method](...args), traces
+        );
     }
 
     async checkCooldown() {
@@ -249,11 +285,11 @@ export class Prompter {
                 return '';
             }
 
-            let prompt = this.profile.conversing;
+            let prompt = ensureLongMemoryPlaceholder(this.profile.conversing);
             let turnToken = null;
             this._v2ArmAction = true;
             try {
-                prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+                prompt = await this.replaceStrings(prompt, messages, this.convo_examples, [], null, 'conversation');
                 turnToken = this._v2TurnToken ?? null;
             } finally {
                 this._v2ArmAction = false;
@@ -261,7 +297,9 @@ export class Prompter {
             let generation;
 
             try {
-                generation = await this.chat_model.sendRequest(messages, prompt);
+                generation = await this._sendObservedModel(
+                    'conversation', this.chat_model, 'sendRequest', [messages, prompt], turnToken
+                );
                 if (typeof generation !== 'string') {
                     console.error('Error: Generated response is not a string', generation);
                     throw new Error('Generated response is not a string');
@@ -308,9 +346,11 @@ export class Prompter {
         this.awaiting_coding = true;
         await this.checkCooldown();
         let prompt = this.profile.coding;
-        prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
+        prompt = await this.replaceStrings(prompt, messages, this.coding_examples, [], null, 'coding');
 
-        let resp = await this.code_model.sendRequest(messages, prompt);
+        let resp = await this._sendObservedModel(
+            'coding', this.code_model, 'sendRequest', [messages, prompt]
+        );
         this.awaiting_coding = false;
         await this._saveLog(prompt, messages, resp, 'coding');
         return resp;
@@ -319,8 +359,10 @@ export class Prompter {
     async promptMemSaving(to_summarize) {
         await this.checkCooldown();
         let prompt = this.profile.saving_memory;
-        prompt = await this.replaceStrings(prompt, null, null, to_summarize);
-        let resp = await this.chat_model.sendRequest([], prompt);
+        prompt = await this.replaceStrings(prompt, null, null, to_summarize, null, 'memory');
+        let resp = await this._sendObservedModel(
+            'memory', this.chat_model, 'sendRequest', [[], prompt]
+        );
         await this._saveLog(prompt, to_summarize, resp, 'memSaving');
         if (resp?.includes('</think>')) {
             const [_, afterThink] = resp.split('</think>')
@@ -334,16 +376,20 @@ export class Prompter {
         let prompt = this.profile.bot_responder;
         let messages = this.agent.history.getHistory();
         messages.push({role: 'user', content: new_message});
-        prompt = await this.replaceStrings(prompt, null, null, messages);
-        let res = await this.chat_model.sendRequest([], prompt);
+        prompt = await this.replaceStrings(prompt, null, null, messages, null, 'responder');
+        let res = await this._sendObservedModel(
+            'responder', this.chat_model, 'sendRequest', [[], prompt]
+        );
         return res.trim().toLowerCase() === 'respond';
     }
 
     async promptVision(messages, imageBuffer) {
         await this.checkCooldown();
         let prompt = this.profile.image_analysis;
-        prompt = await this.replaceStrings(prompt, messages, null, null, null);
-        return await this.vision_model.sendVisionRequest(messages, prompt, imageBuffer);
+        prompt = await this.replaceStrings(prompt, messages, null, null, null, 'vision');
+        return await this._sendObservedModel(
+            'vision', this.vision_model, 'sendVisionRequest', [messages, prompt, imageBuffer]
+        );
     }
 
     async promptGoalSetting(messages, last_goals) {
@@ -356,7 +402,9 @@ export class Prompter {
         user_message = await this.replaceStrings(user_message, messages, null, null, last_goals);
         let user_messages = [{role: 'user', content: user_message}];
 
-        let res = await this.chat_model.sendRequest(user_messages, system_message);
+        let res = await this._sendObservedModel(
+            'goal', this.chat_model, 'sendRequest', [user_messages, system_message]
+        );
 
         let goal = null;
         try {

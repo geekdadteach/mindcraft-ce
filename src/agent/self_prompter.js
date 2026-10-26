@@ -1,3 +1,5 @@
+import { GoalFailureCircuit } from './library/bob_goal_circuit.js';
+
 const STOPPED = 0
 const ACTIVE = 1
 const PAUSED = 2
@@ -10,6 +12,8 @@ export class SelfPrompter {
         this.prompt = '';
         this.idle_time = 0;
         this.cooldown = 2000;
+        this.goalCircuit = new GoalFailureCircuit();
+        this._selfPromptIteration = false;
     }
 
     start(prompt) {
@@ -21,6 +25,7 @@ export class SelfPrompter {
         }
         this.state = ACTIVE;
         this.prompt = prompt;
+        this.goalCircuit.reset(prompt);
         this.startLoop();
     }
 
@@ -50,7 +55,19 @@ export class SelfPrompter {
 
     setPromptPaused(prompt) {
         this.prompt = prompt;
+        this.goalCircuit.reset(prompt);
         this.state = PAUSED;
+    }
+
+    noteFailure(action, target, error) {
+        if (!this.isActive() || !this._selfPromptIteration)
+            return null;
+        return this.goalCircuit.record(action, target, error);
+    }
+
+    noteSuccess(action, target) {
+        if (this._selfPromptIteration)
+            this.goalCircuit.success(action, target);
     }
 
     async startLoop() {
@@ -67,7 +84,68 @@ export class SelfPrompter {
             const msg = `You are self-prompting with the goal: '${this.prompt}'. Your next response MUST contain a command with this syntax: !commandName. Respond:`;
             
             this.agent.last_reply_was_model_error = false;
-            let used_command = await this.agent.handleMessage('system', msg, -1);
+            let used_command;
+            this._selfPromptIteration = true;
+            try {
+                used_command = await this.agent.handleMessage(
+                    'system', msg, -1
+                );
+            } finally {
+                this._selfPromptIteration = false;
+            }
+
+            if (this.goalCircuit.tripped &&
+                this.state === ACTIVE &&
+                !this.interrupt) {
+
+                const incident = this.goalCircuit.tripped;
+                const alternative =
+                    this.goalCircuit.nextAutonomousGoal();
+
+                if (alternative) {
+                    console.warn(
+                        '[ai-player] Repeated goal failure (' +
+                        incident.count +
+                        ' attempts). Switching autonomous objective.'
+                    );
+
+                    // No new self-prompt loop is started.
+                    // The existing loop continues with a new goal.
+                    this.prompt = alternative;
+                    this.goalCircuit.reset(alternative);
+                    no_command_count = 0;
+                    continue;
+                }
+
+                // All safe alternatives have recently failed.
+                // Do not hammer the model or queue indefinitely.
+                // Keep autonomy enabled and resume after recovery.
+                console.warn(
+                    '[ai-player] All fallback goals exhausted. ' +
+                    'Entering 30-minute autonomous recovery.'
+                );
+
+                const oldGoal = this.prompt;
+                const until = Date.now() + 30 * 60_000;
+
+                while (!this.interrupt &&
+                    this.state === ACTIVE &&
+                    this.prompt === oldGoal &&
+                    Date.now() < until) {
+                    await new Promise(
+                        resolve => setTimeout(resolve, 1000)
+                    );
+                }
+
+                if (this.interrupt ||
+                    this.state !== ACTIVE)
+                    break;
+
+                this.goalCircuit.reset(this.prompt);
+                no_command_count = 0;
+                continue;
+            }
+
             if (!used_command) {
                 // [ai-player] API placeholder replies ("No response data." etc.) are not the model ignoring
                 // the goal, so they do not count toward MAX_NO_COMMAND.

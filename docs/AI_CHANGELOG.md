@@ -2,6 +2,16 @@
 
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
+### 2026-10-26 — Grok Bot — Navigation unreachable handling (PR, not deployed)
+- **Goal:** Stop Bob retrying impossible paths as the normal response to a sealed house exit. Resets stay last resort. Built on the recorded M4 runtime (`m4-runtime-20261026` `c3c963b`).
+- **Files:** `src/agent/library/bob_nav_memory.js` (new), `src/agent/library/bob_enclosure.js` (new), `src/agent/library/house_bounds.js` (new), `src/agent/library/protected_area.js`, `src/agent/library/skills.js`, `src/agent/library/ai_player_nav.js`, `src/agent/library/bob_goal_circuit.js`, `src/agent/library/failures.js`, `src/agent/self_prompter.js`, `test/bob_nav_memory.test.js`, `test/bob_enclosure.test.js`, `test/bob_goal_circuit.test.js`, `.github/workflows/bob-nav.yml`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Summary:** Unreachable block positions and coordinate cells are remembered for 15 minutes. `collectBlock` / `goToNearestBlock` / `goToCoordinates` skip them. Double `noPath` probes fail fast with no "attempt anyway" goto and no extra retry. The house walking lane in front of the door is no longer unbreakable; walls, roof and door stay protected and aligned with the claim. Three distinct outside NoPaths from inside the house log the blocking exit cells, try one scripted door exit to a north waypoint, then stop retrying. The goal circuit keeps counts across self-prompt restarts of the same objective and buckets nearby coordinates. Nav logs include an ISO timestamp and pathfinder `status` / `visitedNodes` on noPath.
+- **Decisions:** TTL 15 minutes (inside the 10–30 minute request). Enclosure threshold is 3 distinct outside cells in 8 minutes. Reset is only logged after a failed scripted exit; this repo does not teleport or restart Bob. Door handling in the pathfinder patch is untouched.
+- **Tests:** New unit tests for blacklist/TTL, collectBlock skip, fail-fast, enclosure, protected walking lane, and the circuit across restarts. `node --test test/*.js` — 79/79 passed after `npm ci`.
+- **Deploy status:** none. PR against `m4-runtime-20261026`. Do not merge or deploy without Randy.
+- **Rollback:** close or revert the PR; live `.20` stays on the snapshot branch.
+- **Remaining work:** live verify after a player clears or after deploy: Bob should report enclosure, try the door once, and stop the 40+ identical `!goToCoordinates` loop.
+
 ### 2026-10-26 10:20 ET — Grok Bot — Record M4 (.20) live runtime snapshot (no logic changes)
 - **Goal:** Randy authorized a record-only branch of the exact code running on the Mac mini `.20` M4 runtime, so a later PR can build on it. No logic rewrite, no PR, no merge, no history rewrite.
 - **Files:** Overlay of `src/`, `profiles/`, `settings.js`, `main.js`, `package.json`, `package-lock.json`, `test/`, `services/`, `patches/` from `~/BobRuntime/cutover/mindcraft-m4` (tarball sha256 `b3a5d240965fe9219c95664a36ec99c613362285496c8357cc67ff7695121f67`), plus this handoff/changelog. Snapshot commit `e061d87` (24 files, +1647/−71). Docs commit follows.

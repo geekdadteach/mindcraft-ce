@@ -2,10 +2,14 @@
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import * as skills from './skills.js';
+import { isInsideHouseArea } from './house_bounds.js';
+import { EXIT_WAYPOINT } from './bob_enclosure.js';
+import { navConsole } from './bob_nav_memory.js';
 
 export const HOUSE_ENTRANCE = { x: -819.5, y: 124, z: 565.5 }; // on the outside plate, north of the door
 export const HOUSE_INSIDE = { x: -819.5, y: 124, z: 567.5 };   // on the inside plate, south of the door
 export const HOUSE_BED_HINT = { x: -823, y: 124, z: 568 };
+export { EXIT_WAYPOINT, isInsideHouseArea };
 // never dig through anything that looks built (house, chests, beds, doors)
 export const KEEP_BLOCKS = /planks|_log$|_wood$|door|stairs|slab|glass|carpet|_bed$|chest|furnace|crafting_table|fence|torch|wool|banner|lantern|pressure_plate/;
 const SEE_THROUGH = /^(air|cave_air|void_air|water|lava)$|leaves|vine|glass|torch|_carpet$|^short_grass$|^tall_grass$|^snow$|moss_carpet|glow_lichen|spore_blossom|azalea|dripleaf|cave_vines|hanging_roots/;
@@ -33,7 +37,7 @@ export async function gotoWithin(bot, goal, ms, movements = null) {
     bot.pathfinder.setMovements(movements || escapeMovements(bot));
     let timer;
     const ok = await Promise.race([
-        bot.pathfinder.goto(goal).then(() => true, (e) => { console.log(`[ai-player] nav path: ${e.message}`); return false; }),
+        bot.pathfinder.goto(goal).then(() => true, (e) => { navConsole(`path: ${e.message}`); return false; }),
         new Promise(r => { timer = setTimeout(() => r(false), ms); }),
     ]);
     clearTimeout(timer);
@@ -150,4 +154,61 @@ export async function goHomeInside(bot) {
     if (bot.interrupt_code) return false;
     await gotoWithin(bot, new pf.goals.GoalBlock(Math.floor(I.x), I.y, Math.floor(I.z)), 20000, walkMovements(bot));
     return isInsideHouse(bot);
+}
+
+// One scripted walk through the door to a waypoint a few blocks north of the porch.
+// Walking first (doors already work); if the porch is sealed, one destructive attempt
+// that can dig the walking lane but not walls, roof or the door.
+export async function tryScriptedHouseExit(bot) {
+    const from = bot?.entity?.position;
+    if (!from) return { ok: false, reason: 'no_position' };
+    if (!isInsideHouseArea(from) && !isInsideHouse(bot))
+        return { ok: true, reason: 'already_outside' };
+
+    navConsole(`enclosure: scripted exit through the door toward ${EXIT_WAYPOINT.x} ${EXIT_WAYPOINT.y} ${EXIT_WAYPOINT.z}`);
+    skills.log(bot, `Trying a scripted exit through the front door to ${EXIT_WAYPOINT.x} ${EXIT_WAYPOINT.y} ${EXIT_WAYPOINT.z}.`);
+
+    const E = HOUSE_ENTRANCE, I = HOUSE_INSIDE, W = EXIT_WAYPOINT;
+    if (bot.interrupt_code) return { ok: false, reason: 'interrupted' };
+
+    await gotoWithin(
+        bot,
+        new pf.goals.GoalNear(I.x, I.y, I.z, 1),
+        15000,
+        walkMovements(bot)
+    );
+    if (bot.interrupt_code) return { ok: false, reason: 'interrupted' };
+
+    let ok = await gotoWithin(
+        bot,
+        new pf.goals.GoalNear(E.x, E.y, E.z, 1),
+        20000,
+        walkMovements(bot)
+    );
+    if (!ok && !bot.interrupt_code) {
+        ok = await gotoWithin(
+            bot,
+            new pf.goals.GoalNear(W.x, W.y, W.z, 1),
+            25000,
+            escapeMovements(bot)
+        );
+    }
+    if ((ok || bot.entity.position.distanceTo(new Vec3(E.x, E.y, E.z)) <= 2) && !bot.interrupt_code) {
+        ok = await gotoWithin(
+            bot,
+            new pf.goals.GoalNear(W.x, W.y, W.z, 1),
+            15000,
+            walkMovements(bot)
+        ) || ok;
+    }
+
+    const outside = !isInsideHouse(bot) && !isInsideHouseArea(bot.entity.position);
+    if (outside) {
+        navConsole(`enclosure: scripted exit reached ${bot.entity.position.floored()}`);
+        skills.log(bot, `Exited through the door to ${Math.floor(bot.entity.position.x)} ${Math.floor(bot.entity.position.y)} ${Math.floor(bot.entity.position.z)}. Do not retry the original unreachable target.`);
+        return { ok: true, reason: 'exited' };
+    }
+    navConsole('enclosure: scripted exit failed; still inside. reset is last resort only');
+    skills.log(bot, 'Scripted house exit failed. Do not keep retrying outside coordinates. A reset is last resort if a player cannot clear the exit.');
+    return { ok: false, reason: 'blocked' };
 }

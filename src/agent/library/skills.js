@@ -3,6 +3,24 @@ import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import { retryPathfinding } from './bob_path_retry.js';
+import {
+    chooseCollectTarget,
+    createUnreachableError,
+    decidePathStrategy,
+    formatProbeTelemetry,
+    isNoPathError,
+    navConsole,
+    navMemory,
+    tryCollectCandidates
+} from './bob_nav_memory.js';
+import {
+    describeEnclosure,
+    enclosureWatch,
+    formatBlockers,
+    inspectExitBlockers,
+    logEnclosure,
+    shouldRefuseOutsideGoal
+} from './bob_enclosure.js';
 import settings from "../../../settings.js";
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
@@ -477,58 +495,69 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
             }
             
             return movements.safeToBreak(block) || unsafeBlocks.includes(block.name);
-        }, 64, 1);
+        }, 64, 16);
 
-        if (blocks.length === 0) {
+        const memory = navMemory(bot);
+        if (chooseCollectTarget(blocks, memory) === null) {
             if (collected === 0)
                 log(bot, `No ${blockType} nearby to collect.`);
             else
                 log(bot, `No more ${blockType} nearby to collect.`);
             break;
         }
-        const block = blocks[0];
-        await bot.tool.equipForBlock(block);
-        if (isLiquid) {
-            const bucket = bot.inventory.findInventoryItem('bucket');
-            if (!bucket) {
-                log(bot, `Don't have bucket to harvest ${blockType}.`);
-                return false;
-            }
-            await bot.equip(bucket, 'hand');
-        }
-        const itemId = bot.heldItem ? bot.heldItem.type : null
-        if (!block.canHarvest(itemId)) {
-            log(bot, `Don't have right tools to harvest ${blockType}.`);
-            return false;
-        }
-        try {
-            let success = false;
+
+        const result = await tryCollectCandidates(blocks, async (block) => {
+            await bot.tool.equipForBlock(block);
             if (isLiquid) {
-                success = await useToolOnBlock(bot, 'bucket', block);
+                const bucket = bot.inventory.findInventoryItem('bucket');
+                if (!bucket) {
+                    log(bot, `Don't have bucket to harvest ${blockType}.`);
+                    throw Object.assign(new Error(`Don't have bucket to harvest ${blockType}.`), { name: 'NoBucket' });
+                }
+                await bot.equip(bucket, 'hand');
+            }
+            const itemId = bot.heldItem ? bot.heldItem.type : null
+            if (!block.canHarvest(itemId)) {
+                log(bot, `Don't have right tools to harvest ${blockType}.`);
+                throw Object.assign(new Error(`Don't have right tools to harvest ${blockType}.`), { name: 'NoTool' });
+            }
+            if (isLiquid) {
+                const ok = await useToolOnBlock(bot, 'bucket', block);
+                if (!ok) throw new Error(`Failed to bucket ${blockType}.`);
             }
             else if (mc.mustCollectManually(blockType)) {
-                await goToPosition(bot, block.position.x, block.position.y, block.position.z, 2);
+                const reached = await goToPosition(bot, block.position.x, block.position.y, block.position.z, 2);
+                if (!reached) {
+                    throw createUnreachableError(`${blockType} at ${block.position.x} ${block.position.y} ${block.position.z}`);
+                }
                 await bot.dig(block);
                 await pickupNearbyItems(bot);
-                success = true;
             }
             else {
                 await bot.collectBlock.collect(block);
-                success = true;
             }
-            if (success)
-                collected++;
+            if (exclude) exclude.push(block.position);
+        }, memory);
+
+        if (result.ok) {
+            collected++;
             await autoLight(bot);
-        }
-        catch (err) {
-            if (err.name === 'NoChests') {
-                log(bot, `Failed to collect ${blockType}: Inventory full, no place to deposit.`);
-                break;
-            }
-            else {
-                log(bot, `Failed to collect ${blockType}: ${err}.`);
-                continue;
-            }
+        } else if (result.error?.name === 'NoChests') {
+            log(bot, `Failed to collect ${blockType}: Inventory full, no place to deposit.`);
+            break;
+        } else if (result.error?.name === 'NoBucket' || result.error?.name === 'NoTool') {
+            break;
+        } else if (result.exhausted) {
+            if (result.skipped?.length)
+                log(bot, `Failed to collect ${blockType}: nearest blocks were unreachable.`);
+            else if (collected === 0)
+                log(bot, `No ${blockType} nearby to collect.`);
+            else
+                log(bot, `No more ${blockType} nearby to collect.`);
+            break;
+        } else if (result.error) {
+            log(bot, `Failed to collect ${blockType}: ${result.error}.`);
+            continue;
         }
         
         if (bot.interrupt_code || superseded(bot, gen))
@@ -1078,12 +1107,73 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
     return false;
 }
 
+async function readPathProbe(bot, movements, goal, timeout) {
+    const raw = bot.pathfinder.getPathTo(movements, goal, timeout);
+    const path = (raw && typeof raw.then === 'function') ? await raw : raw;
+    return {
+        status: path?.status || 'noPath',
+        visitedNodes: path?.visitedNodes ?? path?.visited ?? 0,
+        generatedNodes: path?.generatedNodes ?? 0
+    };
+}
+
+async function handleHouseEnclosure(bot, goal) {
+    const watch = enclosureWatch(bot);
+    const event = watch.record(bot.entity?.position, goal);
+    if (!event.enclosed)
+        return '';
+
+    const getBlock = typeof bot.blockAt === 'function'
+        ? (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+        : null;
+    const blockers = inspectExitBlockers(getBlock);
+    watch.lastBlockers = blockers;
+    logEnclosure(blockers, `distinct=${event.distinctTargets}`);
+    log(bot, describeEnclosure(blockers));
+
+    if (watch.exitAttempted) {
+        if (watch.frozen) {
+            return 'still enclosed, not retrying outside targets';
+        }
+        return 'enclosure already handled';
+    }
+
+    watch.markExitAttempted();
+    const { tryScriptedHouseExit } = await import('./ai_player_nav.js');
+    const exit = await tryScriptedHouseExit(bot);
+    if (exit.ok) {
+        watch.clear();
+        navConsole('enclosure: scripted exit succeeded; original target still treated as unreachable');
+        return 'scripted exit succeeded; stopped retrying the original target';
+    }
+    watch.freeze();
+    navConsole('enclosure: scripted exit failed; last-resort reset may be needed if a player cannot clear the exit');
+    return `scripted exit failed (${exit.reason}); last-resort reset may be needed if a player cannot clear the exit. blockers=${formatBlockers(blockers)}`;
+}
+
 export async function goToGoal(bot, goal) {
     /**
      * Navigate to the given goal. Use doors and attempt minimally destructive movements.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
      * @param {pf.goals.Goal} goal, the goal to navigate to.
      **/
+
+    const memory = navMemory(bot);
+    const dest = goal && (goal.x != null || goal.pos || goal.entity)
+        ? { x: goal.x ?? goal.pos?.x ?? goal.entity?.position?.x, y: goal.y ?? goal.pos?.y ?? goal.entity?.position?.y, z: goal.z ?? goal.pos?.z ?? goal.entity?.position?.z }
+        : null;
+
+    if (shouldRefuseOutsideGoal(bot, goal)) {
+        const blockers = enclosureWatch(bot).lastBlockers || [];
+        const detail = `house exit is blocked (enclosed); ${formatBlockers(blockers)}`;
+        navConsole(detail);
+        throw createUnreachableError(detail);
+    }
+    if (dest && memory.isUnreachableGoal(dest.x, dest.y, dest.z)) {
+        const detail = `${dest.x} ${dest.y} ${dest.z} was recently unreachable`;
+        navConsole(detail);
+        throw createUnreachableError(detail);
+    }
 
     const nonDestructiveMovements = new pf.Movements(bot);
     const dontBreakBlocks = ['glass', 'glass_pane'];
@@ -1095,19 +1185,37 @@ export async function goToGoal(bot, goal) {
 
     const destructiveMovements = new pf.Movements(bot);
 
-    let final_movements = destructiveMovements;
-
     const pathfind_timeout = 1000;
-    if (await bot.pathfinder.getPathTo(nonDestructiveMovements, goal, pathfind_timeout).status === 'success') {
-        final_movements = nonDestructiveMovements;
+    const nonDestructive = await readPathProbe(bot, nonDestructiveMovements, goal, pathfind_timeout);
+    const destructive = nonDestructive.status === 'success'
+        ? null
+        : await readPathProbe(bot, destructiveMovements, goal, pathfind_timeout);
+    const strategy = decidePathStrategy(nonDestructive, destructive);
+    const probes = formatProbeTelemetry(nonDestructive, destructive);
+
+    if (strategy.action === 'fail') {
+        memory.rememberGoal(dest || goal);
+        const enclosure = await handleHouseEnclosure(bot, goal);
+        const detail = `no path to the goal (${probes})${enclosure ? `; ${enclosure}` : ''}`;
+        navConsole(`noPath ${detail}`);
+        log(bot, `unreachable: ${detail}. Do not retry this target for a while.`);
+        const error = createUnreachableError(detail);
+        if (typeof bot.emit === 'function') {
+            try { bot.emit('bob_path_terminal_failure', { goal, error }); }
+            catch (_) { /* reporting never changes gameplay */ }
+        }
+        throw error;
+    }
+
+    const final_movements = strategy.movements === 'nonDestructive'
+        ? nonDestructiveMovements
+        : destructiveMovements;
+    if (strategy.movements === 'nonDestructive')
         log(bot, `Found non-destructive path.`);
-    }
-    else if (await bot.pathfinder.getPathTo(destructiveMovements, goal, pathfind_timeout).status === 'success') {
+    else if (destructive?.status === 'success')
         log(bot, `Found destructive path.`);
-    }
-    else {
-        log(bot, `Path not found, but attempting to navigate anyway using destructive movements.`);
-    }
+    else
+        navConsole(`probe inconclusive (${probes}); one destructive attempt, no extra retry`);
 
     // [ai-player] The patched pathfinder opens doors itself (canOpenDoors); this helper then toggled the same
     // door shut again while Bob stood in the doorway (stuck at -821 124 566, Oct 20). Only run it when the pathfinder can't.
@@ -1120,7 +1228,7 @@ export async function goToGoal(bot, goal) {
             bot,
             () => bot.pathfinder.goto(goal),
             {
-                maxAttempts: 2,
+                maxAttempts: strategy.retry ? 2 : 1,
                 targetGoal: goal,
                 onRetry: () => log(
                     bot,
@@ -1128,6 +1236,13 @@ export async function goToGoal(bot, goal) {
                 )
             }
         );
+    } catch (error) {
+        if (isNoPathError(error)) {
+            memory.rememberGoal(dest || goal);
+            await handleHouseEnclosure(bot, goal);
+            navConsole(`goto noPath ${error.message} ${probes}`);
+        }
+        throw error;
     } finally {
         // Release the door helper on success, error or interruption.
         clearInterval(doorCheckInterval);
@@ -1223,6 +1338,11 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
         log(bot, `Teleported to ${x}, ${y}, ${z}.`);
         return true;
     }
+
+    if (navMemory(bot).isUnreachableGoal(x, y, z)) {
+        log(bot, `unreachable: ${x}, ${y}, ${z} was recently unreachable; not retrying that cell.`);
+        return false;
+    }
     
     const checkDigProgress = () => {
         if (bot.targetDigBlock) {
@@ -1251,6 +1371,8 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
             return false;
         }
     } catch (err) {
+        if (isNoPathError(err))
+            navMemory(bot).rememberGoal({ x, y, z });
         log(bot, `Pathfinding stopped: ${err.message}.`);
         clearInterval(progressInterval);
         return false;
@@ -1273,30 +1395,37 @@ export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64
         log(bot, `Maximum search range capped at ${MAX_RANGE}. `);
         range = MAX_RANGE;
     }
-    let block = null;
+    let blocks = [];
     if (blockType === 'water' || blockType === 'lava') {
-        let blocks = world.getNearestBlocksWhere(bot, block => block.name === blockType && block.metadata === 0, range, 1);
+        blocks = world.getNearestBlocksWhere(bot, block => block.name === blockType && block.metadata === 0, range, 8);
         if (blocks.length === 0) {
             log(bot, `Could not find any source ${blockType} in ${range} blocks, looking for uncollectable flowing instead...`);
-            blocks = world.getNearestBlocksWhere(bot, block => block.name === blockType, range, 1);
+            blocks = world.getNearestBlocksWhere(bot, block => block.name === blockType, range, 8);
         }
-        block = blocks[0];
     }
     else {
-        block = world.getNearestBlock(bot, blockType, range);
+        blocks = world.getNearestBlocks(bot, blockType, range, 8);
     }
-    if (!block) {
+    const memory = navMemory(bot);
+    const reachable = (blocks || []).filter((b) => b?.position && !memory.isUnreachableBlock(b.position));
+    if (reachable.length === 0) {
         log(bot, `Could not find any ${blockType} in ${range} blocks.`);
         return false;
     }
-    log(bot, `Found ${blockType} at ${block.position}. Navigating...`);
-    return await goToPosition(
-        bot,
-        block.position.x,
-        block.position.y,
-        block.position.z,
-        min_distance
-    );
+    for (const block of reachable) {
+        log(bot, `Found ${blockType} at ${block.position}. Navigating...`);
+        const ok = await goToPosition(
+            bot,
+            block.position.x,
+            block.position.y,
+            block.position.z,
+            min_distance
+        );
+        if (ok) return true;
+        if (bot.interrupt_code) return false;
+    }
+    log(bot, `Could not reach any ${blockType} in ${range} blocks (unreachable or missing).`);
+    return false;
 }
 
 export async function goToNearestEntity(bot, entityType, min_distance=2, range=64) {

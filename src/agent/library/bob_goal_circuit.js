@@ -1,17 +1,33 @@
 // An independent gameplay guard, not a Brain queue client.
 // One repeated failing objective pauses; it never stops the bot.
 
+import { coordCellLabel, SIGNATURE_CELL_SIZE } from './bob_nav_memory.js';
+
 function normalize(value) {
     return String(value ?? '')
         .trim().toLowerCase().replace(/\s+/g, ' ')
         .slice(0, 160);
 }
 
+function coarsenTarget(target) {
+    const text = String(target ?? '');
+    const nums = text.match(/-?\d+(?:\.\d+)?/g);
+    if (nums && nums.length >= 3) {
+        return coordCellLabel(
+            Number(nums[0]),
+            Number(nums[1]),
+            Number(nums[2]),
+            SIGNATURE_CELL_SIZE
+        );
+    }
+    return normalize(target);
+}
+
 export function goalFailureSignature(action, target, error) {
     const text = normalize(error);
     let reason;
 
-    if (/no[\s_-]*path|nopath/.test(text))
+    if (/no[\s_-]*path|nopath|unreachable/.test(text))
         reason = 'no_path';
     else if (/timed?\s*out|timeout|took to long/.test(text))
         reason = 'timeout';
@@ -20,7 +36,11 @@ export function goalFailureSignature(action, target, error) {
     else
         reason = text.replace(/-?\d+(?:\.\d+)?/g, '#');
 
-    return `${normalize(action)}|${normalize(target)}|${reason}`;
+    const targetKey = reason === 'no_path'
+        ? coarsenTarget(target)
+        : normalize(target);
+
+    return `${normalize(action)}|${targetKey}|${reason}`;
 }
 
 export class GoalFailureCircuit {
@@ -45,6 +65,16 @@ export class GoalFailureCircuit {
         this.goal = normalize(goal);
         this.failures.clear();
         this.tripped = null;
+    }
+
+    // Same objective (night/mode restart) keeps the failure window.
+    // A different objective starts a new count.
+    continueGoal(goal) {
+        const next = normalize(goal);
+        if (next === this.goal)
+            return false;
+        this.reset(goal);
+        return true;
     }
 
 

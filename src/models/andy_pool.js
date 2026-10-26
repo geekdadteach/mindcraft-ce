@@ -9,6 +9,10 @@
 //     (LM Studio is also paused 30 s..5 min after a failure so a down server is not hammered).
 // Used only for profile.model (chat/memory). Embeddings stay on profile.embedding (andy),
 // code_model stays as configured. One "[ai-player] pool call" log line per call.
+// params.api_fallback (default true): false = LM Studio only. No Andy API client is created, no chat/memory
+// call and no embedding ever goes to the Andy API; when every LM Studio endpoint fails the call returns a
+// model-error placeholder (the agent never chats it) and embed() throws so callers use word overlap.
+// params.lmstudio_fallback_urls may be missing or [] (only the profile url is used).
 import OpenAIApi from 'openai';
 import { Andy } from './andy.js';
 import { LMStudio } from './lmstudio.js';
@@ -46,8 +50,10 @@ export class AndyPool {
         this.lm_model = p.lmstudio_model || 'andy-4.2';
         this.lm_timeout_ms = Number(p.lmstudio_timeout_ms) || 150000;
         this.max_attempts = Number(p.max_attempts) || 6;
-        this.mode = p.mode || 'share';
-        this.andy = new Andy(this.model_name, p.andy_url || undefined, undefined);
+        // [ai-player] api_fallback=false: LM Studio only (implies lmstudio_primary routing), never the Andy API.
+        this.api_fallback = p.api_fallback !== false;
+        this.mode = this.api_fallback ? (p.mode || 'share') : 'lmstudio_primary';
+        this.andy = this.api_fallback ? new Andy(this.model_name, p.andy_url || undefined, undefined) : null;
         this.lm = new LMStudio(this.lm_model, this.lm_url, undefined);
         // Same client as lmstudio.js but with a hard timeout and no silent SDK retries; one per endpoint.
         this.lm_clients = new Map(this.lm_urls.map(u => [u, new OpenAIApi({
@@ -175,6 +181,13 @@ export class AndyPool {
             const now = Date.now();
             const lmPaused = now < AndyPool._lmDownUntil;
 
+            // api_fallback=false: LM Studio is the only backend. Paused or already failed -> no reply, no API call.
+            if (!this.api_fallback && (lmFailedThisCall || lmPaused)) {
+                if (!lmFailedThisCall) path.push('lmstudio:paused');
+                console.warn(`[ai-player] pool call NO_REPLY api_fallback=false attempts=${attempts} total_ms=${Date.now() - t0} path=${path.join(',')}`);
+                return lastRes;
+            }
+
             // 1. LM Studio first, unless it already failed for this call or is paused after failures.
             if (!lmFailedThisCall && !lmPaused) {
                 if (AndyPool._lmBusy) { await AndyPool._waitLmIdle(); continue; }
@@ -197,7 +210,7 @@ export class AndyPool {
                     AndyPool._lmDownUntil = Date.now() + AndyPool._lmBackoffMs;
                     pauseNote = `LM Studio paused ${Math.round(AndyPool._lmBackoffMs / 1000)}s`;
                 }
-                console.warn(`[ai-player] pool lmstudio ${r.reason} after ${ms}ms${extra()}${r.detail ? ' detail="' + r.detail + '"' : ''}; ${pauseNote}; falling back to Andy`);
+                console.warn(`[ai-player] pool lmstudio ${r.reason} after ${ms}ms${extra()}${r.detail ? ' detail="' + r.detail + '"' : ''}; ${pauseNote}; ${this.api_fallback ? 'falling back to Andy' : 'api_fallback=false, no API call'}`);
                 continue;
             }
 
@@ -290,11 +303,14 @@ export class AndyPool {
         return lastRes;
     }
 
+    // [ai-player] Only reached when the profile has no usable embedding block (prompter falls back to the chat api).
     async embed(text) {
+        if (!this.andy) throw new Error('andy_pool api_fallback=false: no API embeddings (word overlap is used)');
         return await this.andy.embed(text);
     }
 
     async embedMany(texts) {
+        if (!this.andy) throw new Error('andy_pool api_fallback=false: no API embeddings (word overlap is used)');
         return await this.andy.embedMany(texts);
     }
 }

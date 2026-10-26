@@ -210,3 +210,74 @@ test('failures outside an active goal do not trip the circuit', () => {
     );
     assert.equal(prompter.goalCircuit.tripped, null);
 });
+
+test('continueGoal keeps failures for the same objective', () => {
+    let now = 100_000;
+    const circuit = new GoalFailureCircuit({
+        now: () => now,
+        minGapMs: 0
+    });
+
+    circuit.reset('Gather oak');
+    circuit.record('!goToCoordinates', '-800 70 500', 'NoPath');
+    now += 1000;
+    assert.equal(circuit.continueGoal('Gather oak'), false);
+    assert.equal(circuit.failures.size, 1);
+
+    circuit.continueGoal('Build a cabin');
+    assert.equal(circuit.failures.size, 0);
+    assert.equal(circuit.tripped, null);
+});
+
+test('nearby unreachable coordinates share a no_path signature', () => {
+    assert.equal(
+        goalFailureSignature(
+            '!goToCoordinates', '-800 70 500', 'No path to the goal!'
+        ),
+        goalFailureSignature(
+            '!goToCoordinates', '-802 71 498', 'unreachable: no path'
+        )
+    );
+});
+
+test('circuit trips across self-prompt restarts of the same goal', () => {
+    let now = 100_000;
+    const prompter = new SelfPrompter({
+        actions: { async stop() {} }
+    });
+    prompter.startLoop = async () => {};
+    prompter.goalCircuit = new GoalFailureCircuit({
+        now: () => now,
+        minGapMs: 0
+    });
+
+    prompter.start('Gather oak');
+    assert.equal(
+        prompter.noteFailure(
+            '!goToCoordinates', '-800 70 500', 'No path to the goal!'
+        ),
+        null
+    );
+
+    now += 20_000;
+    prompter.start('Gather oak');
+    assert.equal(
+        prompter.noteFailure(
+            '!goToCoordinates', '-802 70 498', 'NoPath'
+        ),
+        null
+    );
+
+    now += 20_000;
+    prompter.start('Gather oak');
+    const trip = prompter.noteFailure(
+        '!collectBlocks', 'oak_log', 'No path to the goal!'
+    );
+    assert.equal(trip, null, 'different action should not yet trip');
+
+    const tripCoords = prompter.noteFailure(
+        '!goToCoordinates', '-799 71 503', 'unreachable: no path'
+    );
+    assert.equal(tripCoords?.count, 3);
+    assert.equal(prompter.goalCircuit.tripped.goal, 'gather oak');
+});

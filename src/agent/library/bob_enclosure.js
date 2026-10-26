@@ -8,7 +8,7 @@ import {
     WALKING_LANE,
     inBox,
     isInsideHouseArea
-} from './protected_area.js';
+} from './house_bounds.js';
 import { coordCellKey, goalPosition, navConsole } from './bob_nav_memory.js';
 
 export const ENCLOSURE_WINDOW_MS = 8 * 60_000;

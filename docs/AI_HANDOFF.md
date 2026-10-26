@@ -1,8 +1,18 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
-**Snapshot:** 2026-10-26 10:20 ET — branch `m4-runtime-20261026` records the live M4 runtime on Randy's Mac mini `.20` (`~/BobRuntime/cutover/mindcraft-m4`). Record only; no logic rewrite. Verify repository and live state before changing anything.
+**Snapshot:** 2026-10-26 — branch `m4-runtime-20261026` (`c3c963b`) is still the recorded live M4 runtime on Randy's Mac mini `.20`. Navigation failure handling is a PR on top of that snapshot. Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
+
+## 2026-10-26 — Navigation unreachable handling (Coded; PR open, not merged, not deployed)
+- Why: After the porch exit was sealed, Bob was physically boxed in but the code treated every impossible `!goToCoordinates` / collect as a normal path miss. He retried the same unreachable goals (probes + "attempt anyway" goto + a local retry), never blacklisted the cell, never tripped the goal circuit (self-prompt `start()` wiped it), and never noticed he was enclosed. Resets were being used as the everyday answer.
+- Base: `m4-runtime-20261026` `c3c963b`. Feature branch `cursor/nav-unreachable-20261026-900b`.
+- House protection: the unbreakable box now matches the claim plus the east wall (`x -827..-816`, `y 123..127`, `z 566..573`) and starts at the door row. The walking lane in front of the door (`x -821..-819`, `z 564..565`) is not protected, so Bob can dig sealed porch dirt. Walls, roof and the door stay protected. `bot.dig` and `Movements.safeToBreak` still refuse house blocks.
+- Unreachable memory: block positions and 4-block coordinate cells are remembered for 15 minutes and shared by `collectBlock`, `goToNearestBlock` and `goToCoordinates`. `collectBlock` asks for more candidates and skips a NoPath block instead of re-picking it.
+- Fail-fast: when both path probes return `noPath`, `goToGoal` does not goto and does not retry. The model gets `unreachable: ...` plus probe `status` / `visitedNodes`. Nav console lines are timestamped.
+- Enclosure: three distinct outside targets failing with NoPath from inside the house area within 8 minutes logs the blocking exit cells, tries one scripted walk through the door to a waypoint a few blocks north (`-819.5 124 562.5`), then stops retrying. A reset is only mentioned after that scripted exit fails. No teleport or process restart is issued from this repo.
+- Goal circuit: `start()` / night pause of the same objective keep the failure window. Nearby coordinates share one `no_path` signature. Failures count while the goal is active or paused, not only inside one self-prompt iteration.
+- Do not deploy from this PR. Door opening in the pathfinder patch and `doorAllowsMove` are unchanged.
 
 ## 2026-10-26 10:20 ET — Record M4 (.20) live runtime snapshot (Coded; record only, no PR)
 - Why: Randy asked to record the exact code now running on the Mac mini `.20` M4 runtime so a later PR can build on it. This branch is a record only. No logic was rewritten here, no PR, no merge, no history rewrite.
@@ -39,6 +49,7 @@ Status words, never conflated: **Proposed** → **Coded** → **Tested** → **M
 - The private repo `geekdadteach/minebob` holds ops (scripts, Discord control bot, reset-watcher, systemd units, polkit, Bob Brain queue source), config/profiles, docs, AI handoff rules, and the record of **which commit of this fork is live**.
 
 ## Branches
+- `cursor/nav-unreachable-20261026-900b` — navigation unreachable / enclosure handling, branched from `m4-runtime-20261026` `c3c963b`. PR against that snapshot. Not merged, not deployed.
 - `m4-runtime-20261026` — record-only snapshot of the Mac mini `.20` M4 runtime at `~/BobRuntime/cutover/mindcraft-m4` as of 2026-10-26 10:20 ET, branched from `f86efea` (`feature/lm-fallback-144-20261025`). Snapshot commit `e061d87`. Not a PR. Later work may build on it.
 - `feature/lm-fallback-144-20261025` — LM Studio `.144` first, `.143` fallback. Head `f86efea`. Parent of `m4-runtime-20261026`. LinuxGrok LITE used this tree on Oct 25.
 - `develop` — fork default branch, as inherited from upstream. Do not change it or the default-branch setting without Randy's OK.

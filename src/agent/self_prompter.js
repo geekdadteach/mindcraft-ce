@@ -25,7 +25,7 @@ export class SelfPrompter {
         }
         this.state = ACTIVE;
         this.prompt = prompt;
-        this.goalCircuit.reset(prompt);
+        this.goalCircuit.continueGoal(prompt);
         this.startLoop();
     }
 
@@ -55,18 +55,18 @@ export class SelfPrompter {
 
     setPromptPaused(prompt) {
         this.prompt = prompt;
-        this.goalCircuit.reset(prompt);
+        this.goalCircuit.continueGoal(prompt);
         this.state = PAUSED;
     }
 
     noteFailure(action, target, error) {
-        if (!this.isActive() || !this._selfPromptIteration)
+        if (this.isStopped())
             return null;
         return this.goalCircuit.record(action, target, error);
     }
 
     noteSuccess(action, target) {
-        if (this._selfPromptIteration)
+        if (!this.isStopped())
             this.goalCircuit.success(action, target);
     }
 

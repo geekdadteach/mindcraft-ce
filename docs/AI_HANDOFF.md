@@ -4,7 +4,7 @@
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
 
-## 2026-10-26 — Navigation unreachable handling (Coded; PR open, not merged, not deployed)
+## 2026-10-26 — Navigation unreachable handling (Tested; PR open, not merged, not deployed)
 - Why: After the porch exit was sealed, Bob was physically boxed in but the code treated every impossible `!goToCoordinates` / collect as a normal path miss. He retried the same unreachable goals (probes + "attempt anyway" goto + a local retry), never blacklisted the cell, never tripped the goal circuit (self-prompt `start()` wiped it), and never noticed he was enclosed. Resets were being used as the everyday answer.
 - Base: `m4-runtime-20261026` `c3c963b`. Feature branch `cursor/nav-unreachable-20261026-900b`.
 - House protection: the unbreakable box now matches the claim plus the east wall (`x -827..-816`, `y 123..127`, `z 566..573`) and starts at the door row. The walking lane in front of the door (`x -821..-819`, `z 564..565`) is not protected, so Bob can dig sealed porch dirt. Walls, roof and the door stay protected. `bot.dig` and `Movements.safeToBreak` still refuse house blocks.

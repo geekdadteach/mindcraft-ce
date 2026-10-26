@@ -269,7 +269,15 @@ export class Andy {
         if (qh('x-andy-quota-requests-remaining') !== null) console.log(`[ai-player] Andy quota window=${qh('x-andy-quota-window')} requests_remaining=${qh('x-andy-quota-requests-remaining')} tokens_remaining=${qh('x-andy-quota-tokens-remaining')} reset=${qh('x-andy-quota-reset')}`);
         if (!res.ok) {
             if (res.status === 429) {
-                console.error('[ai-player] Andy API 429 rate limited');
+                // [ai-player] Log the API's error type/code (rate_limit_exceeded, quota_exceeded, temporarily_blocked, ...)
+                // and Retry-After so a 429 can be diagnosed from the log. The body never contains the key.
+                let kind = '';
+                try {
+                    const j = JSON.parse(await res.text());
+                    const e = j?.error || j || {};
+                    kind = [e.type, e.code].filter(Boolean).join('/') + (e.message ? ` "${String(e.message).slice(0, 160).replace(/\s+/g, ' ')}"` : '');
+                } catch (_) { /* non-JSON body */ }
+                console.error(`[ai-player] Andy API 429 rate limited${kind ? ' ' + kind : ''}${qh('retry-after') ? ' retry_after=' + qh('retry-after') : ''}`);
             }
             throw new Error(`Andy API status: ${res.status}`);
         }

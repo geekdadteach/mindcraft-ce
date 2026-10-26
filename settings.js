@@ -4,7 +4,8 @@
 // LITE: profile ./profiles/andy-api-lite.json (thinking: Andy-4.2 on LM Studio 192.168.1.144 (Wi-Fi, default since
 // 2026-10-25), then .143 (same Mac, Ethernet) if .144 does not connect, then Andy API fallback; embeddings: LM Studio
 // .144 -> .143, word-overlap if both
-// fail; no code_model / vision_model), no coding (allow_insecure_coding false + "!newAction" blocked), no vision.
+// fail), no vision. Coding is allowed in BOTH modes (2026-10-26): LITE no longer sets allow_insecure_coding=false
+// or blocks "!newAction"; code goes to the profile's code_model (chat model if the profile has none).
 // Lite uses only LM Studio (:1234) on the living-room Mac, never its Ollama (:11434).
 import { readFileSync, writeFileSync, renameSync } from 'fs';
 import { bobRuntimePath } from './src/utils/bob_runtime_paths.js';
@@ -88,9 +89,8 @@ const settings = {
 settings.bob_mode = bob_mode;
 if (bob_mode === 'lite') {
     settings.profiles = ["./profiles/andy-api-lite.json"];
-    settings.allow_insecure_coding = false;
+    // [ai-player] 2026-10-26: coding stays on in LITE (no allow_insecure_coding=false, no "!newAction" block).
     settings.allow_vision = false;
-    settings.blocked_actions = settings.blocked_actions.concat(["!newAction"]);
 }
 // Only the real Bob process (node main.js) logs the mode and records it for bob-mode.sh status.
 if (/(^|[\/\\])main\.js$/.test(process.argv[1] || '')) {

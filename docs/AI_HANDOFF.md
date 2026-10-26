@@ -4,6 +4,16 @@
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
 
+## 2026-10-26 3:50 PM ET — Chat on LM Studio only (`api_fallback: false`), coding on the Andy API in both modes (Coded, Tested; PR open, not merged, not deployed)
+- Why: Randy decided chat must use only the local Andy-4.2 LM Studio endpoint (no second LM Studio endpoint, no Andy API backup), so LM Studio failures never spend API quota; coding uses the Andy API model `claude-haiku-5.5` and must stay allowed in LITE too.
+- `andy_pool`: new `params.api_fallback` (default `true` = unchanged). `false` = no Andy client is created, routing is forced to `lmstudio_primary`, and when LM Studio errors, times out, returns empty or is paused, the call returns the model-error placeholder at once (the agent never chats or stores it) instead of calling the API. `embed()`/`embedMany()` throw, so callers use word overlap. `lmstudio_fallback_urls` may be missing or `[]`.
+- `prompter.js`: when a profile has no usable `embedding` block and the chat api is `andy_pool`, the embedding model now gets the chat profile's params, so `api_fallback: false` also covers embeddings (before, it built a default pool that embedded via the Andy API).
+- `andy.js`: a 429 now logs the API error type/code, a short message and `Retry-After`, so the cause (rate limit, quota, network block) is visible in the log. No key is logged.
+- `settings.js` LITE block: no longer sets `allow_insecure_coding = false` or blocks `!newAction`. LITE still selects `andy-api-lite.json` and sets `allow_vision = false`. Which Andy-4.2 file LM Studio serves (lighter model while someone is at the console) is handled on the LM Studio host, not here.
+- Profiles `andy-api-lite.json` and `andy-api.json`: chat `api_fallback: false`, `lmstudio_fallback_urls: []`; `code_model` = Andy API `claude-haiku-5.5` (`max_tokens` 8192); `vision_model` removed from `andy-api.json` (vision off: andy_pool has no vision request). Lite embedding has no second endpoint. `andy-api.json` embedding is unchanged here; the live machine sets it locally.
+- Tests: `node --test test/andy_pool_no_api_fallback.test.js` (9 pass): default unchanged; no Andy client when off; empty/missing fallback list; LM up; LM down and paused = placeholder and 0 API calls; empty reply; embeddings refuse; LITE keeps coding; profile shape.
+- Not deployed. Restart timing is Randy's call. Rollback: revert the commit (or set `api_fallback` back to `true`).
+
 ## 2026-10-26 10:20 ET — Record M4 (.20) live runtime snapshot (Coded; record only, no PR)
 - Why: Randy asked to record the exact code now running on the Mac mini `.20` M4 runtime so a later PR can build on it. This branch is a record only. No logic was rewritten here, no PR, no merge, no history rewrite.
 - Base: `feature/lm-fallback-144-20261025` commit `f86efea`. Overlay from the runtime working-tree tarball (sha256 `b3a5d240965fe9219c95664a36ec99c613362285496c8357cc67ff7695121f67`). Snapshot commit `e061d87`.

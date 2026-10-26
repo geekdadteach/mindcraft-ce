@@ -1,6 +1,8 @@
 import { surfaceForWood } from '../library/ai_player_nav.js';
 import * as survival from '../library/survival.js';
 import * as skills from '../library/skills.js';
+import * as world from '../library/world.js';
+import { obtainWithRoutines } from '../library/bob_routines.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
 
@@ -534,4 +536,39 @@ export const actionsList = [
             await skills.useToolOn(agent.bot, tool_name, target);
         })
     },
+
+    // Opt-in AltoClef-style task tree. Andy chooses the target; routine handles steps.
+    // No separate client, Baritone installation, or model call inside the routine.
+    ...(process.env.BOB_ROUTINES_ENABLED === '1' ? [{
+        name: '!obtainItem',
+        description: 'Run a verified routine to obtain an item. Pilot supports oak_log, oak_planks, stick, crafting_table (1-64 total); checks inventory after each step.',
+        params: {
+            'item_name': { type: 'ItemName', description: 'One of oak_log, oak_planks, stick, crafting_table.' },
+            'count': { type: 'int', description: 'Total desired in inventory (not items to add), from 1 to 64.', domain: [1, 64] }
+        },
+        perform: runAsAction(async (agent, item_name, count) => {
+            const bot = agent.bot;
+            const generation = bot._actionGen;
+            const result = await obtainWithRoutines({
+                item: item_name,
+                quantity: count,
+                inventory: () => world.getInventoryCounts(bot),
+                gather: async (block, missing) => {
+                    // Use the same escape-to-surface protection as !collectBlocks.
+                    if (!await surfaceForWood(agent, block)) return;
+                    await skills.collectBlock(bot, block, missing);
+                },
+                craft: (item, times) => skills.craftRecipe(bot, item, times),
+                interrupted: () => bot.interrupt_code || bot._actionGen !== generation,
+                event: ({ type, target, before, after, needed }) => {
+                    skills.log(bot, `Routine ${type} ${target}: ${before} -> ${after}, target ${needed}.`);
+                }
+            });
+            if (!result.ok) {
+                skills.log(bot, `Routine stopped: ${result.reason}; ${result.observed ?? 0}/${count} ${item_name} verified.`);
+                throw new Error(`obtainItem ${item_name} failed: ${result.reason}`);
+            }
+            skills.log(bot, `Routine complete: ${result.observed}/${count} ${item_name} verified in inventory (${result.steps} steps).`);
+        }, false, 4)
+    }] : []),
 ];

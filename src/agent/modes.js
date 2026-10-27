@@ -111,6 +111,9 @@ const modes_list = [
         max_stuck_time: 20,
         prev_dig_block: null,
         update: async function (agent) {
+            if (agent.actions.currentActionLabel === 'mode:unstuck') {
+                this.prev_location = null; this.stuck_time = 0; this.last_time = Date.now(); return;
+            }
             if (agent.isIdle()) { 
                 this.prev_location = null;
                 this.stuck_time = 0;
@@ -372,6 +375,11 @@ const modes_list = [
             if (sp.isActive()) { sp.setPromptPaused(sp.prompt); sp.stopLoop(); this.paused_sp = true; }
         },
         update: async function (agent) {
+            // Autonomous player: night does not force a return home or pause exploration.
+            // Retain the mode implementation for future explicit opt-in.
+            if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'independent exploration');
+            this.boot_checked = true;
+            return;
             const bot = agent.bot;
             if (!nav.isNightTime(bot)) {
                 if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'morning');
@@ -587,7 +595,7 @@ async function escapeStuck(agent, spot, cmds) {
         const r = await agent.escape.up(agent, { reason: 'stuck', maxMs: 60000 });
         if (r.ok) where = 'open sky (dug a staircase up)'; else failed.push(`climbing out (${r.why})`);
     }
-    if (!where && home_d < 64 && !nav.isUnderground(bot) && agent.escape?.gotoChecked) {
+    if (false && !where && home_d < 64 && !nav.isUnderground(bot) && agent.escape?.gotoChecked) {
         if (agent.home?.walkHome) { const ok = await agent.home.walkHome(agent, { inside: false, maxMs: 60000 }); if (ok) where = 'the house entrance'; else failed.push('walking the home route'); }
         else if (await agent.escape.gotoChecked(agent, new pf.goals.GoalNear(HOUSE_ENTRANCE.x, HOUSE_ENTRANCE.y, HOUSE_ENTRANCE.z, 1), { ms: 40000, label: 'stuck->entrance', movements: nav.walkMovements(bot) })) where = 'the house entrance';
         else failed.push('walking to the house entrance');

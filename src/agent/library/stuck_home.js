@@ -121,6 +121,9 @@ export class StuckHome {
     }
 
     tick() {
+        // Automatic home teleport disabled for autonomous exploration.
+        // Explicit operator requests via request() remain available.
+        return null;
         try {
             const t = this.now(), d = distTo(this._pos());
             const hp = this.agent.bot?.health;

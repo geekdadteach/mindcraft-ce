@@ -221,8 +221,9 @@ else
     fi
 fi
 NEWPID=""
-for _ in {1..45}; do
+for _ in {1..90}; do
     observed="$(service_pid)"
+    if [[ ! "$observed" =~ ^[0-9]+$ ]]; then observed="$(launchctl print "$DOMAIN/$LABEL" 2>/dev/null | awk '/^[[:space:]]*pid = [0-9]+/ {print $3; exit}')"; fi
     if [[ "$observed" =~ ^[0-9]+$ ]] && is_alive "$observed"; then
         # Make sure it stays alive rather than being a momentary crash-loop PID.
         sleep 3
@@ -233,7 +234,7 @@ for _ in {1..45}; do
     fi
     sleep 1
 done
-[[ "$NEWPID" =~ ^[0-9]+$ ]] || { echo "LaunchAgent loaded but no stable running launcher within startup grace period"; exit 8; }
+[[ "$NEWPID" =~ ^[0-9]+$ ]] || { echo "LaunchAgent has no stable running launcher"; launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -E "state =|pid =|runs =|last exit code =" | head -n 16 || true; exit 8; }
 echo "New Bob launcher PID: $NEWPID"
 DONE=1
 trap - EXIT

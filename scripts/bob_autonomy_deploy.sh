@@ -40,12 +40,25 @@ on_exit() {
         if [[ "$UNSAFE" -eq 1 ]]; then
             echo "UNSAFE: old bot process still alive; service stays unloaded to avoid a second player."
         else
-            if [[ "$MODIFIED" -eq 1 ]]; then restore_previous || echo "ROLLBACK FAILED: inspect $BACKUP"; fi
-            if [[ -n "$(service_pid)" ]]; then
+            # If bootstrap partly succeeded, stop the candidate *before* restoring
+            # source/memory. Never copy over an active agent's files.
+            candidate_pid="$(service_pid)"
+            if [[ -n "$candidate_pid" ]]; then
                 launchctl bootout "$DOMAIN" "$PLIST" || true
+                for _ in {1..10}; do
+                    if ! is_alive "$candidate_pid"; then break; fi
+                    sleep 1
+                done
+                if is_alive "$candidate_pid"; then
+                    UNSAFE=1
+                    echo "Candidate launcher did not exit; manual recovery required. No files restored."
+                fi
             fi
-            if [[ -z "$(service_pid)" ]]; then
-                launchctl bootstrap "$DOMAIN" "$PLIST" || echo "SERVICE RESTART FAILED: inspect LaunchAgent manually"
+            if [[ "$UNSAFE" -eq 0 ]]; then
+                if [[ "$MODIFIED" -eq 1 ]]; then restore_previous || echo "ROLLBACK FAILED: inspect $BACKUP"; fi
+                if [[ -z "$(service_pid)" ]]; then
+                    launchctl bootstrap "$DOMAIN" "$PLIST" || echo "SERVICE RESTART FAILED: inspect LaunchAgent manually"
+                fi
             fi
         fi
         echo "Backups remain at $BACKUP"

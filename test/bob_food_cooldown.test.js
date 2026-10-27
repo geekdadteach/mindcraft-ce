@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { foodSearchAllowed, noteFoodSearchFailure, foodRelocationCandidates, foodRelocationGround, relocateForFood, inBobFarmArea } from '../src/agent/library/survival.js';
+import { foodSearchAllowed, noteFoodSearchFailure, foodRelocationCandidates, foodRelocationGround, relocateForFood, inBobFarmArea, breedNearbyAnimals } from '../src/agent/library/survival.js';
 
 test('failed food search is throttled in same 16-block cell for 45 seconds', () => {
     const agent = {};
@@ -105,4 +105,12 @@ test('farming never targets house structures, no-go zones or distant farmland', 
     assert.equal(inBobFarmArea({x:-830,y:124,z:580}), true);
     assert.equal(inBobFarmArea({x:-750,y:124,z:568}), false);
     assert.equal(inBobFarmArea({x:-572,y:69,z:480}), false);
+});
+
+test('breeding refuses starving, injured or interrupted agents', async () => {
+    const bot = recoveryBot();
+    bot.inventory = {items: () => []};
+    assert.equal(await breedNearbyAnimals({bot}), false);
+    bot.health = 20; bot.food = 20; bot.interrupt_code = true;
+    assert.equal(await breedNearbyAnimals({bot}), false);
 });

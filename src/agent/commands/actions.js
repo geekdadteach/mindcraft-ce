@@ -188,7 +188,11 @@ export const actionsList = [
                     return;
                 }
             }
-            await skills.goToPosition(agent.bot, pos[0], pos[1], pos[2], 1);
+            // [ai-player] stuck-home-20261026: house/home trips feed the stuck-home failure counter
+            const homeTrip = /^(house|home)$/i.test(String(name || '').trim());
+            if (homeTrip) agent.stuckHome?.markHomeGoal();
+            const ok = await skills.goToPosition(agent.bot, pos[0], pos[1], pos[2], 1);
+            if (homeTrip) { try { agent.stuckHome?.reportHomeAttempt(ok !== false, 'goToRememberedPlace')?.catch?.(() => {}); } catch (_) {} }
         })
     },
     {
@@ -389,6 +393,7 @@ export const actionsList = [
             const modes = agent.bot.modes;
             if (!modes.exists(mode_name))
             return `Mode ${mode_name} does not exist.` + modes.getDocs();
+            if (mode_name === 'cheat') return 'Mode cheat is locked off on this server and cannot be changed.'; // [ai-player] stuck-home-20261026
             if (modes.isOn(mode_name) === on)
             return `Mode ${mode_name} is already ${on ? 'on' : 'off'}.`;
             modes.setOn(mode_name, on);

@@ -551,9 +551,12 @@ const modes_list = [
     },
     {
         name: 'cheat',
-        description: 'Use cheats to instantly place blocks and teleport.',
+        description: 'Use cheats to instantly place blocks and teleport. Locked off on NewEarth.',
         interrupts: [],
-        on: false,
+        // [ai-player] stuck-home-20261026: cheat is locked off. Nothing (profile, !setMode, setOn, loadJson,
+        // generated code) can turn it on; skills' /tp, /setblock paths stay dead.
+        get on() { return false; },
+        set on(v) { if (v) console.log('[ai-player] cheat mode: refused to turn on (locked off)'); },
         active: false,
         update: function (agent) { /* do nothing */ }
     }
@@ -665,6 +668,7 @@ class ModeController {
     }
 
     setOn(mode_name, on) {
+        if (mode_name === 'cheat' && on) { console.log('[ai-player] cheat mode: setOn refused (locked off)'); return false; } // stuck-home-20261026
         modes_map[mode_name].on = on;
     }
 
@@ -711,6 +715,7 @@ class ModeController {
     }
 
     async update() {
+        if (_agent?.stuckHome?.holding) return; // [ai-player] stuck-home-20261026: stand still during the /home warmup
         if (_agent.isIdle()) {
             this.unPauseAll();
         }
@@ -757,4 +762,5 @@ export function initModes(agent) {
     if (modes_json) {
         agent.bot.modes.loadJson(modes_json);
     }
+    console.log(`[ai-player] cheat mode: locked off (isOn=${agent.bot.modes.isOn('cheat')})`); // stuck-home-20261026
 }

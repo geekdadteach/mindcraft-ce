@@ -14,9 +14,10 @@
         }
     },
     "embedding": {
-        "api": "ollama",
-        "model": "nomic-embed-text",
-        "url": "http://192.168.1.143:11434"
+        "api": "lmstudio",
+        "model": "text-embedding-nomic-embed-text-v1.5@q8_0",
+        "url": "http://192.168.1.144:1234/v1",
+        "params": { "connect_timeout_ms": 1500 }
     },
     "code_model": {
         "api": "andy",

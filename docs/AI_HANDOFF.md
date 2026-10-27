@@ -1,8 +1,21 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
-**Snapshot:** 2026-10-26 10:20 ET — branch `m4-runtime-20261026` records the live M4 runtime on Randy's Mac mini `.20` (`~/BobRuntime/cutover/mindcraft-m4`). Record only; no logic rewrite. Verify repository and live state before changing anything.
+**Snapshot:** 2026-10-26 8:30 PM ET — branch `live-m4-20261026` is the exact live tree on Randy's Mac mini `.20` (`~/BobRuntime/cutover/mindcraft-m4`). `m4-runtime-20261026` was the 10:20 ET snapshot. Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
+
+## 2026-10-26 8:30 PM ET — `live-m4-20261026`: record of the exact live `.20` tree (Coded, Tested; record only; PR open, not merged)
+- Why: Randy approved (8:18 PM ET, "Do steps 1 through 3, and deploy through MM20") recording every live-only `.20` change in git first, so later deploys cannot wipe them.
+- Base: `feature/andy-pool-no-api-fallback` `2074ef1` (PR #15, which is itself on `m4-runtime-20261026` `c3c963b`). PR #15 was applied live on `.20` around 3:56–3:58 PM ET but is not merged.
+- Added the live-only `.20` patches, byte-for-byte from `~/BobRuntime/cutover/mindcraft-m4`:
+  - stuck-home-20261026, approved 1:56 PM ET and applied 2:04 PM ET: `src/agent/library/stuck_home.js` including the later 4:26 PM ET "nodistance" edit (radius `null`/0 = unlimited), `src/agent/library/chat_guard.js`, and the edits to `src/agent/agent.js`, `src/agent/commands/actions.js` and `src/agent/modes.js` (cheat locked off).
+  - reset-recovery-20261026 in its later form: `src/agent/library/reset_recovery.js`.
+  - Tests `test/bob_stuck_home.test.js` and `test/bob_reset_recovery.test.js`.
+  - `docs/BOB_AI_RECEIPTS.md`, the live copy.
+- Recorded oddity, not fixed: live `profiles/andy-api.json` is byte-identical to `profiles/andy-api-lite.json` (sha1 `d5a36ae7…`). PR #15's `andy-api.json` had Ollama embeddings. This branch keeps the live copy.
+- Verification: every tracked path outside `docs/` was hashed against the live dir. All are identical, and no tracked path is missing on live. The only differences are this repo's `docs/AI_HANDOFF.md` and `docs/AI_CHANGELOG.md`, which are documentation and were never byte-matched.
+- Not recorded here: ops/runtime files that belong in the private repo. `run/bob-m4-ctl`, `run/guarded-start.py` and `run/stuck-home.config.json` (`{"radius": null}`) are recorded in `geekdadteach/minebob`. `run/bob-mode.*`, `run/recovery-inbox/`, `M4_CUTOVER_STATUS.json`, `andy_quota_ledger.json`, `keys.json`, `bots/`, `logs/`, the `tmp-*.mjs`/`zz-*.mjs` scratch scripts and the `*.bak-20261026-nodistance` backups are not recorded.
+- Tests: `node --test test/` 94/94 pass (Node 20, after `npm ci` + patch-package).
 
 ## 2026-10-26 3:50 PM ET — Chat on LM Studio only (`api_fallback: false`), coding on the Andy API in both modes (Coded, Tested; PR open, not merged, not deployed)
 - Why: Randy decided chat must use only the local Andy-4.2 LM Studio endpoint (no second LM Studio endpoint, no Andy API backup), so LM Studio failures never spend API quota; coding uses the Andy API model `claude-haiku-5.5` and must stay allowed in LITE too.

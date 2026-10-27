@@ -13,7 +13,8 @@ import {
     WALKING_LANE,
     isInsideHouseArea,
     isWalkingLane,
-    protectedAreaAt
+    protectedAreaAt,
+    isDiggableLaneFill
 } from '../src/agent/library/house_bounds.js';
 
 const inside = { x: -821, y: 124, z: 568 };
@@ -81,10 +82,10 @@ test('inspectExitBlockers reports sealed porch cells and ignores air, plate and 
     assert.match(formatBlockers(blockers), /dirt at -820 124 564/);
 });
 
-test('walking lane is not protected; walls, roof and door stay protected', () => {
-    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 564 }), null);
-    assert.equal(protectedAreaAt({ x: -820, y: 125, z: 564 }), null);
-    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 565 }), null);
+test('walking lane: only loose fill is diggable; walls, roof and door stay protected', () => {
+    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 564 }, 'dirt'), null);
+    assert.equal(protectedAreaAt({ x: -820, y: 125, z: 564 }, 'gravel'), null);
+    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 565 }, 'dirt'), null);
     assert.equal(isWalkingLane({ x: -820, y: 124, z: 564 }), true);
 
     assert.equal(protectedAreaAt({ x: -820, y: 124, z: 566 })?.name, 'house');
@@ -99,4 +100,35 @@ test('walking lane is not protected; walls, roof and door stay protected', () =>
     assert.equal(HOUSE_DOOR.z, HOUSE_AREA.z1);
     assert.ok(WALKING_LANE.z2 < HOUSE_AREA.z1);
     assert.equal(EXIT_WAYPOINT.z < WALKING_LANE.z1, true);
+});
+
+// nav-on-live-20261026: porch row z 564..565 holds real house blocks (oak_log posts beside the plate,
+// seen in the .20 log at -823/-821/-819 124 565; outside plate -820 124 565 and its support below).
+test('porch row: house blocks at z 564..565 are never diggable', () => {
+    for (const x of [-823, -821, -819]) {
+        assert.equal(protectedAreaAt({ x, y: 124, z: 565 }, 'oak_log')?.name, 'house-porch');
+    }
+    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 565 }, 'oak_pressure_plate')?.name, 'house-porch');
+    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 565 }, 'stone_pressure_plate')?.name, 'house-porch');
+    // plate support stays protected even if it is dirt/grass
+    assert.equal(protectedAreaAt({ x: -820, y: 123, z: 565 }, 'grass_block')?.name, 'house-porch');
+    assert.equal(protectedAreaAt({ x: -820, y: 123, z: 565 }, 'dirt')?.name, 'house-porch');
+    // planks, cobblestone, glass, stairs in the lane are building blocks, protected
+    for (const name of ['oak_planks', 'cobblestone', 'glass', 'oak_stairs', 'oak_fence', 'torch', 'oak_door']) {
+        assert.equal(protectedAreaAt({ x: -820, y: 125, z: 564 }, name)?.name, 'house-porch', name);
+    }
+    // unknown block name (position-only query) is protected
+    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 564 })?.name, 'house-porch');
+    // outside the lane on the porch row, even fill is protected (front wall side cells)
+    assert.equal(protectedAreaAt({ x: -824, y: 124, z: 565 }, 'dirt')?.name, 'house-porch');
+    assert.equal(protectedAreaAt({ x: -818, y: 124, z: 565 }, 'dirt')?.name, 'house-porch');
+    assert.equal(protectedAreaAt({ x: -816, y: 124, z: 564 }, 'oak_log')?.name, 'house-porch');
+    // live .20 box (x -824..-816 z 564..572) is still covered in full
+    for (let x = -824; x <= -816; x++) for (let z = 564; z <= 572; z++) for (let y = 123; y <= 127; y++) {
+        if (isDiggableLaneFill({ x, y, z }, 'oak_log')) assert.fail('oak_log diggable');
+        assert.ok(protectedAreaAt({ x, y, z }, 'oak_log'), `${x} ${y} ${z}`);
+    }
+    // outside everything
+    assert.equal(protectedAreaAt({ x: -820, y: 124, z: 563 }, 'oak_log'), null);
+    assert.equal(protectedAreaAt({ x: -828, y: 124, z: 568 }, 'oak_log'), null);
 });

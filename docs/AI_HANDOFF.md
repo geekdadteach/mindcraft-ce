@@ -4,6 +4,18 @@
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
 
+## 2026-10-26 9:00 PM ET — `nav-on-live-20261026`: PR #14 navigation handling ported onto the live tree (Coded, Tested; PR open, not merged; deploy via MM20 bundled with `task-finish-fixes-20261026`)
+- Base: `live-m4-20261026` `effe004`. PR #14's three commits are cherry-picked; the only conflicts were in the docs. The live patches are untouched: stuck-home teleport fallback, nodistance (`radius: null`), reset-recovery and chat guard.
+- **Change from PR #14: the porch row stays protected.**
+  - What the `.20` log shows at z 565: `oak_log` blocks at `-823/-821/-819 124 565` beside the outside pressure plate `-820 124 565` (Bob's collector kept finding them and the live guard refused them), and the door at `-820 124 566`/`125 566`.
+  - The live guard protected `x -824..-816 z 564..572`. PR #14's box starts at z 566 and its lane `x -821..-819 z 564..565 y 123..126` was fully unprotected. That would have made the posts at -821/-819, the plate and its support block breakable, and every other z 564..565 cell too.
+  - Now: `HOUSE_AREA` is `x -827..-816 y 123..127 z 566..573`, as in PR #14 and used for enclosure detection. A new `HOUSE_PORCH` box `x -827..-816 y 123..127 z 564..565` is also protected.
+  - In the lane only loose fill (`LANE_FILL`: dirt, grass_block, gravel, sand, snow, netherrack and similar) can be dug, so a sealed porch can still be cleared. Logs, planks, cobblestone, glass, stairs, fences, doors, plates and unknown blocks stay protected.
+  - The plate support `-820 123 565` is never diggable. The protected union still covers the whole live box.
+- `inBox` now floors coordinates, so the door-plate landing spot `-819.5 124 565.5` counts as lane cell `-820 124 565`.
+- Merged behavior: `ResetRecovery.recordReset`, which both the reset-teleport detector and the stuck-home `/home house` fallback call, now clears the 15-minute unreachable nav blacklist. Old NoPath verdicts are stale after Bob moves.
+- Tests: 114/114 (`node --test test/`). New `test/bob_nav_on_live.test.js` and the porch tests in `test/bob_enclosure.test.js`.
+
 ## 2026-10-26 8:30 PM ET — `live-m4-20261026`: record of the exact live `.20` tree (Coded, Tested; record only; PR open, not merged)
 - Why: Randy approved (8:18 PM ET, "Do steps 1 through 3, and deploy through MM20") recording every live-only `.20` change in git first, so later deploys cannot wipe them.
 - Base: `feature/andy-pool-no-api-fallback` `2074ef1` (PR #15, which is itself on `m4-runtime-20261026` `c3c963b`). PR #15 was applied live on `.20` around 3:56–3:58 PM ET but is not merged.

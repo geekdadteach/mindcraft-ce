@@ -11,6 +11,7 @@
 // "[recovery]" note after every reconnect so Bob knows he was restarted. Notes only; never restarts anything.
 import fs from 'fs';
 import path from 'path';
+import { navMemory } from './bob_nav_memory.js'; // nav-on-live-20261026
 
 export const TARGET = { x: -819.5, y: 124, z: 565.5 };
 export const COOLDOWN_MS = 180000;
@@ -100,6 +101,8 @@ export class ResetRecovery {
         this.log(`reset: ${reason === 'teleport' ? 'Bob was teleported home' : 'reset requested (' + reason + ')'}; stopping the current action and starting fresh (no restart)`);
         try { this.agent.actions?.cancelResume(); } catch (_) {}
         try { await this.agent.actions?.stop(); } catch (_) {}
+        // nav-on-live-20261026: Bob is somewhere else now; drop the unreachable blacklist from the old spot
+        try { if (this.agent.bot) { const n = navMemory(this.agent.bot).clear(); if (n) this.log(`reset: cleared ${n} unreachable nav entries`); } } catch (_) {}
         await this._note(text);
         const l = resetLesson(pos, action);
         if (this.agent.longMemory?._addLesson) { this.agent.longMemory._addLesson(l.key, l.text, l.kind); this.log(`reset: note+lesson written (${l.key})`); }

@@ -164,6 +164,14 @@ export class UnreachableMemory {
             || this.isUnreachableCell(x, y, z);
     }
 
+    // nav-on-live-20261026: a reset / stuck-home teleport moves Bob, so old NoPath verdicts are stale.
+    clear() {
+        const n = this.blocks.size + this.cells.size;
+        this.blocks.clear();
+        this.cells.clear();
+        return n;
+    }
+
     forgetExpired() {
         this._expire(this.blocks);
         this._expire(this.cells);

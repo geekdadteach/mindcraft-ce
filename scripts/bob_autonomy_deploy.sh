@@ -15,69 +15,47 @@ STOPPED=0
 MODIFIED=0
 DONE=0
 UNSAFE=0
+START_ATTEMPTED=0
 
-service_pid() {
-    launchctl list 2>/dev/null | awk -v label="$LABEL" '$3 == label && $1 ~ /^[0-9]+$/ {print $1; exit}'
+lifecycle() {
+    python3 "$STAGE/scripts/bob_launchd_safety.py" "$1" \
+        --domain "$DOMAIN" --label "$LABEL" --live "$LIVE" --timeout "${2:-180}"
 }
-is_alive() { kill -0 "$1" 2>/dev/null; }
+service_pid() { lifecycle pid; }
 service_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
 
 restore_previous() {
-    echo "Rolling back changed runtime sources and saved memory from $BACKUP"
+    echo "Restoring previous source; memory restored only if candidate never started"
     while IFS= read -r -d '' rel; do
         if [[ -f "$BACKUP/source/$rel" ]]; then
-            mkdir -p "$LIVE/$(dirname "$rel")"
-            cp -p "$BACKUP/source/$rel" "$LIVE/$rel"
+            mkdir -p "$LIVE/$(dirname "$rel")" || return 1
+            cp -p "$BACKUP/source/$rel" "$LIVE/$rel" || return 1
         fi
     done < "$BACKUP/old-files.nul"
-    while IFS= read -r -d '' rel; do rm -f -- "$LIVE/$rel"; done < "$BACKUP/new-files.nul"
-    if [[ -f "$BACKUP/memory.json" ]]; then cp -p "$BACKUP/memory.json" "$LIVE/bots/MineBobNE/memory.json"; fi
+    while IFS= read -r -d '' rel; do
+        rm -f -- "$LIVE/$rel" || return 1
+    done < "$BACKUP/new-files.nul"
+    if [[ "$START_ATTEMPTED" -eq 0 && -f "$BACKUP/memory.json" ]]; then
+        cp -p "$BACKUP/memory.json" "$LIVE/bots/MineBobNE/memory.json" || return 1
+    fi
 }
 on_exit() {
     rc=$?
     trap - EXIT
     if [[ "$DONE" -eq 0 && "$STOPPED" -eq 1 ]]; then
         echo "Deployment interrupted (status $rc)."
-        if [[ "$UNSAFE" -eq 1 ]]; then
-            echo "UNSAFE: old bot process still alive; service stays unloaded to avoid a second player."
+        if ! lifecycle stop 30; then
+            echo "UNSAFE: runtime writers may remain; no restore or restart."
+        elif [[ "$MODIFIED" -eq 1 ]] && ! restore_previous; then
+            echo "ROLLBACK FAILED: service stays stopped; inspect $BACKUP"
+        elif ! lifecycle ports 180; then
+            echo "Ports unavailable; service stays stopped."
+        elif ! launchctl bootstrap "$DOMAIN" "$PLIST"; then
+            echo "SERVICE RESTART FAILED; inspect LaunchAgent."
+        elif ! lifecycle ready 180; then
+            echo "ROLLBACK SERVICE NOT VERIFIED; do not start another Bob."
         else
-            # If bootstrap partly succeeded, stop the candidate *before* restoring
-            # source/memory. Never copy over an active agent's files.
-            candidate_pid="$(service_pid)"
-            if service_loaded; then
-                # Bob launcher spawns the Mineflayer agent as a direct child.
-                # Capture it before bootout, since it may be reparented.
-                candidate_children=""
-                if [[ "$candidate_pid" =~ ^[0-9]+$ ]]; then
-                    candidate_children="$(ps -axo pid=,ppid= | awk -v parent="$candidate_pid" '$2 == parent {print $1}')"
-                fi
-                launchctl bootout "$DOMAIN" "$PLIST" || true
-                if service_loaded; then
-                    UNSAFE=1
-                    echo "Candidate LaunchAgent remains registered after bootout; refusing memory/source rollback"
-                fi
-                for _ in {1..10}; do
-                    candidate_alive=0
-                    if [[ "$candidate_pid" =~ ^[0-9]+$ ]] && is_alive "$candidate_pid"; then candidate_alive=1; fi
-                    for child in $candidate_children; do
-                        if is_alive "$child"; then candidate_alive=1; fi
-                    done
-                    if [[ "$candidate_alive" -eq 0 ]]; then break; fi
-                    sleep 1
-                done
-                if [[ "$candidate_alive" -eq 1 ]]; then
-                    UNSAFE=1
-                    echo "Candidate launcher or agent still running; manual recovery required. No files restored."
-                fi
-            fi
-            if [[ "$UNSAFE" -eq 0 ]]; then
-                if [[ "$MODIFIED" -eq 1 ]]; then restore_previous || echo "ROLLBACK FAILED: inspect $BACKUP"; fi
-                if ! service_loaded; then
-                    launchctl bootstrap "$DOMAIN" "$PLIST" || echo "SERVICE RESTART FAILED: inspect LaunchAgent manually"
-                else
-                    echo "LaunchAgent already loaded; not bootstrapping a duplicate"
-                fi
-            fi
+            echo "Previous source restarted and verified at process level."
         fi
         echo "Backups remain at $BACKUP"
     fi
@@ -89,6 +67,7 @@ echo "===== MM20 NATIVE AUTONOMY DEPLOYMENT ====="
 echo "Staged checkout: $STAGE"
 echo "Live runtime: $LIVE"
 echo "Node 22: $NODE"
+[[ -f "$STAGE/scripts/bob_launchd_safety.py" ]] || { echo "FAIL: lifecycle helper missing"; exit 2; }
 [[ -x "$NODE" ]] || { echo "FAIL: Node 22 executable missing: $NODE"; exit 2; }
 [[ -f "$PLIST" ]] || { echo "FAIL: LaunchAgent plist missing: $PLIST"; exit 2; }
 [[ -d "$LIVE/src" ]] || { echo "FAIL: live source missing: $LIVE/src"; exit 2; }
@@ -129,43 +108,10 @@ while IFS= read -r -d '' rel; do
 done < <(git -C "$STAGE" diff --name-only -z "$BASE" HEAD -- src profiles settings.js)
 
 echo "===== STOP BOB / WAIT FOR WRITERS ====="
-# Capture direct and indirect children before stopping the launchd parent.
-python3 - "$OLDPID" > "$BACKUP/agent-descendants.txt" <<'PY'
-import subprocess, sys
-root = int(sys.argv[1])
-children = {}
-for line in subprocess.check_output(["ps", "-axo", "pid=,ppid="], text=True).splitlines():
-    try: pid, ppid = map(int, line.split())
-    except ValueError: continue
-    children.setdefault(ppid, []).append(pid)
-found, stack = [], [root]
-while stack:
-    parent = stack.pop()
-    for pid in children.get(parent, []):
-        if pid not in found: found.append(pid); stack.append(pid)
-for pid in found: print(pid)
-PY
-launchctl bootout "$DOMAIN" "$PLIST"
+# Recovery must run even if bootout partially succeeds.
 STOPPED=1
-for _ in {1..20}; do
-    alive=0
-    if is_alive "$OLDPID"; then alive=1; fi
-    while read -r child; do if [[ -n "$child" ]] && is_alive "$child"; then alive=1; fi; done < "$BACKUP/agent-descendants.txt"
-    if [[ "$alive" -eq 0 ]]; then break; fi
-    sleep 1
-done
-# Send SIGINT only to previously identified children of this launchd job.
-while read -r child; do
-    if [[ -n "$child" ]] && is_alive "$child"; then kill -INT "$child" 2>/dev/null || true; fi
-done < "$BACKUP/agent-descendants.txt"
-sleep 2
-if is_alive "$OLDPID"; then UNSAFE=1; echo "Old launcher did not exit"; exit 5; fi
-while read -r child; do
-    if [[ -n "$child" ]] && is_alive "$child"; then
-        UNSAFE=1; echo "Old agent child still running: $child"; exit 5
-    fi
-done < "$BACKUP/agent-descendants.txt"
-[[ -z "$(service_pid)" ]] || { UNSAFE=1; echo "LaunchAgent reappeared unexpectedly"; exit 5; }
+lifecycle stop 30
+lifecycle ports 180
 
 echo "===== BACK UP FINAL MEMORY STATE ====="
 MEMORY="$LIVE/bots/MineBobNE/memory.json"
@@ -220,22 +166,8 @@ else
         fi
     fi
 fi
-NEWPID=""
-for _ in {1..90}; do
-    observed="$(service_pid)"
-    if [[ ! "$observed" =~ ^[0-9]+$ ]]; then observed="$(launchctl print "$DOMAIN/$LABEL" 2>/dev/null | awk '/^[[:space:]]*pid = [0-9]+/ {print $3; exit}')"; fi
-    if [[ "$observed" =~ ^[0-9]+$ ]] && is_alive "$observed"; then
-        # Make sure it stays alive rather than being a momentary crash-loop PID.
-        sleep 3
-        if [[ "$(service_pid)" = "$observed" ]] && is_alive "$observed"; then
-            NEWPID="$observed"
-            break
-        fi
-    fi
-    sleep 1
-done
-[[ "$NEWPID" =~ ^[0-9]+$ ]] || { echo "LaunchAgent has no stable running launcher"; launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -E "state =|pid =|runs =|last exit code =" | head -n 16 || true; exit 8; }
-echo "New Bob launcher PID: $NEWPID"
+START_ATTEMPTED=1
+lifecycle ready 180 || { echo "Candidate startup not verified; attempting safe rollback"; exit 8; }
 DONE=1
 trap - EXIT
 echo "DEPLOYMENT COMPLETE — game behavior still requires live smoke checks"

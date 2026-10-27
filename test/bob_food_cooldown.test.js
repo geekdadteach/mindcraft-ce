@@ -100,11 +100,16 @@ test('first recovery attempts cover all four compass directions', () => {
         [[-12, 0], [0, -12], [12, 0], [0, 12]]);
 });
 
-test('farming never targets house structures, no-go zones or distant farmland', () => {
-    assert.equal(inBobFarmArea({x:-823,y:124,z:568}), false);
-    assert.equal(inBobFarmArea({x:-830,y:124,z:580}), true);
-    assert.equal(inBobFarmArea({x:-750,y:124,z:568}), false);
-    assert.equal(inBobFarmArea({x:-572,y:69,z:480}), false);
+test('farming fails closed unless an explicitly approved plot is configured', () => {
+    const env = {BOB_FARM_ENABLED:'true', BOB_FARM_X1:'-835', BOB_FARM_X2:'-828',
+                 BOB_FARM_Z1:'575', BOB_FARM_Z2:'583'};
+    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, {}), false);
+    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, env), true);
+    assert.equal(inBobFarmArea({x:-823,y:124,z:568}, env), false);
+    assert.equal(inBobFarmArea({x:-750,y:124,z:568}, env), false);
+    assert.equal(inBobFarmArea({x:-572,y:69,z:480}, env), false);
+    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, {...env,BOB_FARM_X1:'oops'}), false);
+    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, {...env,BOB_FARM_X1:'-999'}), false);
 });
 
 test('breeding refuses starving, injured or interrupted agents', async () => {

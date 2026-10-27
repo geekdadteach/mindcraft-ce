@@ -133,3 +133,6 @@ See `AGENTS.md`: public-repo warning (no secrets, Discord IDs or ops), Randy's r
 - Crop harvest and replant now FAIL CLOSED unless `BOB_FARM_ENABLED=true` and all four reviewed plot bounds `BOB_FARM_X1`, `BOB_FARM_X2`, `BOB_FARM_Z1`, `BOB_FARM_Z2` are set. Plot must be at most 33x33 blocks, near Bob's base and outside code-protected areas. Do not enable without confirming land ownership on NewEarth.
 - Public operations scripts and migration test removed from PR #19; private `minebob` feature branch contains these plus private preflight tests.
 - Current HEAD is NOT verified on MM20. Do not deploy until full preflight, game telemetry format, rollback and actual protected farm plot are reviewed. Live unchanged.
+
+## 2026-10-27 — MM20 preflight correction (not yet rerun)
+- MM20 preflight at f5fdd52: 141/147 passed; six failures exclusively referenced two ops tests whose scripts moved private. Relocated `test/bob_autonomy_deploy_preflight.test.js` and `test/bob_state_snapshot.test.js` to minebob private branch; next MM20 preflight required.

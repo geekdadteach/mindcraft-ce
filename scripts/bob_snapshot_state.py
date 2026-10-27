@@ -31,7 +31,7 @@ def snapshot(live, backup):
         raise ValueError("live runtime does not exist")
     if not backup.is_dir():
         raise ValueError("backup directory does not exist")
-    if live == backup or live in backup.parents and backup == live:
+    if live == backup or live in backup.parents:
         raise ValueError("unsafe backup location")
     destroot = backup / "persistent-state"
     destroot.mkdir(mode=0o700, exist_ok=False)

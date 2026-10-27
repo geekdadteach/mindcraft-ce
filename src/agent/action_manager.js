@@ -51,10 +51,10 @@ export class ActionManager {
         }
     }
 
-    async stop() {
+    async stop(reason = 'preempted') {
         if (!this.executing) return;
         const task = this.currentTask;
-        this.lifecycle.requestCancel(task, 'preempted');
+        this.lifecycle.requestCancel(task, reason);
         const started = Date.now();
         while (this.executing && this.currentTask === task) {
             this.agent.requestInterrupt();
@@ -85,7 +85,7 @@ export class ActionManager {
         const new_resume = actionFn != null;
         if (new_resume) { // start new resume
             this.resume_func = actionFn;
-            assert(actionLabel != null, 'actionLabel is required for new resume');
+            if (actionLabel == null) throw new Error('actionLabel is required for new resume');
             this.resume_name = actionLabel;
         }
         if (this.resume_func != null && (this.agent.isIdle() || new_resume) && (!this.agent.self_prompter.isActive() || new_resume)) {
@@ -124,7 +124,7 @@ export class ActionManager {
             this._startQueue = new Promise(resolve => { releaseStart = resolve; });
             try {
                 await previousStart;
-                await this.stop();
+                await this.stop('superseded_by:' + actionLabel);
                 this.agent.clearBotLogs();
                 task = this.lifecycle.begin(actionLabel);
                 this.currentTask = task;
@@ -142,7 +142,7 @@ export class ActionManager {
             clearTimeout(timer);
             if (this.currentTask !== task) {
                 this.lifecycle.settle(task, {success:false, interrupted:true});
-                noteRuntimeFinish(this.agent, runtimeReceipt, {success:false, interrupted:true, timedout:false, threw:false});
+                // A stale receipt cannot mutate the next command's outcome slot.
                 return staleReturn();
             }
             const cancelled = task.state === 'cancel_requested' || !!this.agent.bot.interrupt_code;
@@ -163,7 +163,7 @@ export class ActionManager {
             clearTimeout(timer);
             if (task && this.currentTask !== task) {
                 this.lifecycle.settle(task, {success:false, interrupted:true, error:err});
-                noteRuntimeFinish(this.agent, runtimeReceipt, {success:false, interrupted:true, timedout:false, threw:true});
+                // A stale receipt cannot mutate the next command's outcome slot.
                 return staleReturn();
             }
             const interrupted = !!(task?.state === 'cancel_requested' || this.agent.bot?.interrupt_code);

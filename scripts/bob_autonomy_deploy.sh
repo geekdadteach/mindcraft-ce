@@ -72,7 +72,7 @@ echo "Node 22: $NODE"
 [[ -f "$PLIST" ]] || { echo "FAIL: LaunchAgent plist missing: $PLIST"; exit 2; }
 [[ -d "$LIVE/src" ]] || { echo "FAIL: live source missing: $LIVE/src"; exit 2; }
 [[ -f "$LIVE/bots/MineBobNE/memory.json" ]] || { echo "FAIL: live memory missing"; exit 2; }
-[[ "$(git -C "$STAGE" branch --show-current)" = "feature/bob-native-autonomy-20261027" ]] || { echo "FAIL: wrong checkout branch"; exit 2; }
+[[ "$(git -C "$STAGE" rev-parse HEAD)" = "$(git -C "$STAGE" rev-parse refs/remotes/origin/feature/bob-native-autonomy-20261027)" ]] || { echo "FAIL: candidate HEAD differs from reviewed origin branch tip"; exit 2; }
 [[ -z "$(git -C "$STAGE" status --porcelain --untracked-files=no)" ]] || { echo "FAIL: staged tracked files modified"; git -C "$STAGE" status --short --untracked-files=no; exit 2; }
 OLDPID="$(service_pid)"
 [[ "$OLDPID" =~ ^[0-9]+$ ]] || { echo "Bob launchd service not running; refusing"; exit 2; }

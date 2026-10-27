@@ -171,6 +171,10 @@ echo "===== BACK UP FINAL MEMORY STATE ====="
 MEMORY="$LIVE/bots/MineBobNE/memory.json"
 [[ -f "$MEMORY" && ! -L "$MEMORY" ]] || { echo "Unexpected memory file type"; exit 6; }
 cp -p "$MEMORY" "$BACKUP/memory.json"
+echo "===== SNAPSHOT ALL KNOWN BOB STATE FILES ====="
+# Includes failure guards, lessons, places, homing routes and stuck-home
+# history. Never clears failures automatically: reset requires manual review.
+python3 "$STAGE/scripts/bob_snapshot_state.py" "$LIVE" "$BACKUP"
 python3 - "$BACKUP/memory.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))

@@ -562,7 +562,11 @@ function injectedSummary(item, badTrace) {
 
 export function noteRuntimeStart(agent, label) {
     try {
-        if (!agent || runtimeOutcomeContext.getStore()?.agent === agent) return null;
+        // Native command execution is scoped by AsyncLocalStorage. Preserve the
+        // existing direct-command depth contract for legacy callers and tests:
+        // their command already owns the receipt, so modes must not double-log.
+        if (!agent || runtimeOutcomeContext.getStore()?.agent === agent ||
+            (agent._bobV2CommandDepth || 0) > 0) return null;
         return agent.bobBrain?.receipts?.beginRuntime(label) || null;
     } catch {
         return null;
@@ -572,7 +576,13 @@ export function noteRuntimeStart(agent, label) {
 export function noteRuntimeFinish(agent, handle, outcome) {
     try {
         const context = runtimeOutcomeContext.getStore();
-        if (context?.agent === agent) context.outcome = outcome || null;
+        if (context?.agent === agent) {
+            context.outcome = outcome || null;
+        } else if ((agent?._bobV2CommandDepth || 0) > 0 && agent?._bobV2OutcomeSlot) {
+            // Compatibility only for callers using the old explicit command slot.
+            // Do not let it override concurrent AsyncLocalStorage-owned commands.
+            agent._bobV2OutcomeSlot.outcome = outcome || null;
+        }
         if (handle) agent?.bobBrain?.receipts?.finishRuntime(handle, outcome);
     } catch { /* a receipt must not affect the action */ }
 }

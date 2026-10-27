@@ -152,3 +152,6 @@ Append one dated entry per logical change, newest first. Never erase prior entri
 - Added bounded animal breeding, local farm crop harvest/replant, population-preserving hunting, and tests. Farming vicinity is a proximity restriction, NOT proof of ownership; confirm farm plot/claims before live deployment. Breeding helper currently has no automatic scheduling or command integration; do not call it fully operational.
 - Tests: Not run on MM20; isolated sandbox could not clone (git unavailable), so no PASS claim. Risk: gameplay APIs and exact log format require validation.
 - No merge or deployment. Rollback: revert unmerged feature branch commits. Next: complete farming ownership validation and integration, verify private preflight on MM20, then request explicit deployment approval.
+
+### 2026-10-27 — MM20 preflight correction
+- MM20 preflight at f5fdd52: 141/147 passed; six failures exclusively referenced two ops tests whose scripts moved private. Relocated `test/bob_autonomy_deploy_preflight.test.js` and `test/bob_state_snapshot.test.js` to minebob private branch; next MM20 preflight required.

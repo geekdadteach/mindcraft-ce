@@ -142,7 +142,8 @@ export class ActionManager {
             clearTimeout(timer);
             if (this.currentTask !== task) {
                 this.lifecycle.settle(task, {success:false, interrupted:true});
-                // A stale receipt cannot mutate the next command's outcome slot.
+                // Per-command async receipt storage prevents contaminating a newer command.
+                noteRuntimeFinish(this.agent, runtimeReceipt, {success:false, interrupted:true, timedout:false, threw:false});
                 return staleReturn();
             }
             const cancelled = task.state === 'cancel_requested' || !!this.agent.bot.interrupt_code;
@@ -163,7 +164,8 @@ export class ActionManager {
             clearTimeout(timer);
             if (task && this.currentTask !== task) {
                 this.lifecycle.settle(task, {success:false, interrupted:true, error:err});
-                // A stale receipt cannot mutate the next command's outcome slot.
+                // Per-command async receipt storage prevents contaminating a newer command.
+                noteRuntimeFinish(this.agent, runtimeReceipt, {success:false, interrupted:true, timedout:false, threw:true});
                 return staleReturn();
             }
             const interrupted = !!(task?.state === 'cancel_requested' || this.agent.bot?.interrupt_code);

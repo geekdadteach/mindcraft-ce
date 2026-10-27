@@ -228,9 +228,20 @@ export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {
     return { ok: true, got: after - before, animal: animal.name };
 }
 
-export function inBobFarmArea(position) {
-    return !!position && Math.hypot(position.x - HOME.base.x, position.z - HOME.base.z) <= 32 &&
-        !zoneAt(position.x, position.z) && !protectedAreaAt(position);
+// Farming requires an explicitly reviewed, Bob-owned rectangular plot.
+// Proximity to his home alone does not establish permission to modify crops.
+export function inBobFarmArea(position, env = process.env) {
+    if (!position || env.BOB_FARM_ENABLED !== 'true') return false;
+    const raw = [env.BOB_FARM_X1, env.BOB_FARM_X2, env.BOB_FARM_Z1, env.BOB_FARM_Z2];
+    if (raw.some(v => v == null || String(v).trim() === '')) return false;
+    const bounds = raw.map(Number);
+    if (!bounds.every(Number.isSafeInteger)) return false;
+    const [x1,x2,z1,z2] = bounds;
+    if (x1 > x2 || z1 > z2 || x2 - x1 > 32 || z2 - z1 > 32) return false;
+    const x = Math.floor(position.x), z = Math.floor(position.z);
+    return Math.hypot(x - HOME.base.x, z - HOME.base.z) <= 32 &&
+        x >= x1 && x <= x2 && z >= z1 && z <= z2 &&
+        !zoneAt(x,z) && !protectedAreaAt(position);
 }
 
 export async function harvestCrops(bot) {

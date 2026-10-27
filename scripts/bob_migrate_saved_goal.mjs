@@ -13,18 +13,19 @@ export function migrateSavedGoal(source) {
     // This exact shelter-and-lighting instruction is another known legacy
     // fallback from the homestead-only goal circuit. Do not replace arbitrary
     // player-chosen shelter projects or other independently selected goals.
+    const legacyMaintenanceGoal = typeof old === 'string' && /review your equipment and supplies\. choose and complete one useful maintenance or organization task at your homestead\.?/i.test(old.trim());
     const legacyShelterGoal = typeof old === 'string' &&
         old.trim().replace(/\s+/g, ' ').replace(/\.$/, '').toLowerCase() ===
         'inspect your own shelter and lighting. choose one small safe improvement using materials you already own. do not alter protected areas or other players builds';
     if (typeof old === 'string' &&
         (/at your own homestead|homestead plateau|build\/tidy homestead|stop hunting or taming animals/i.test(old) ||
-         legacyShelterGoal)) {
+         legacyShelterGoal || legacyMaintenanceGoal)) {
         obj.self_prompt = NEW_GOAL;
         changedGoal = true;
     }
     if (typeof obj.memory === 'string') {
         const prior = obj.memory;
-        obj.memory = obj.memory.replace(/Goal:\s*Build\/tidy homestead[^;.]*[;.]/i, 'Goal: explore and work on safe independent projects;');
+        obj.memory = obj.memory.replace(/Goal:\s*(?:Build\/tidy homestead|Maintain homestead)[^;.\n]*(?:[;.]|$)/i, 'Goal: explore and work on safe independent projects;');
         obj.memory = obj.memory.replace(/No animal hunting/gi, 'Food gathering for survival allowed');
         changedSummary = obj.memory !== prior;
     }
@@ -37,6 +38,11 @@ function main() {
     const initial = readFileSync(path);
     const stat = statSync(path);
     const migrated = migrateSavedGoal(JSON.parse(initial.toString('utf8')));
+    console.log('Checked file:', path);
+    console.log('Existing self_prompt:', JSON.stringify(JSON.parse(initial.toString('utf8')).self_prompt ?? null));
+    console.log('Existing memory goal:', JSON.stringify((JSON.parse(initial.toString('utf8')).memory ?? '').match(/Goal:[^\n;.]+/)?.[0] ?? null));
+    console.log('Proposed self_prompt:', JSON.stringify(migrated.data.self_prompt ?? null));
+    console.log('Proposed memory goal:', JSON.stringify((migrated.data.memory ?? '').match(/Goal:[^\n;.]+/)?.[0] ?? null));
     console.log('Saved goal replacement:', migrated.changedGoal);
     console.log('Summary priority correction:', migrated.changedSummary);
     console.log('Turns and other JSON fields: retained');

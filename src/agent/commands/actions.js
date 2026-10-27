@@ -268,6 +268,15 @@ export const actionsList = [
         })
     },
     {
+        name: '!gatherWood',
+        description: 'Collect up to the requested number of reachable natural wood logs or stems of any supported wood type. Prefer the surface; automatically skip recorded unreachable trees.',
+        params: {'num': { type: 'int', description: 'Number of logs or stems to gather.', domain: [1, 64] }},
+        perform: runAsAction(async (agent, num) => {
+            if (!await surfaceForWood(agent, 'oak_log')) return;
+            await skills.collectBlock(agent.bot, 'any_log', num);
+        }, false, 10)
+    },
+    {
         name: '!collectBlocks',
         description: 'Collect the nearest blocks of a given type.',
         params: {
@@ -518,6 +527,15 @@ export const actionsList = [
         params: {'distance': { type: 'int', description: 'Distance to dig down', domain: [1, Number.MAX_SAFE_INTEGER] }},
         perform: runAsAction(async (agent, distance) => {
             await skills.digDown(agent.bot, distance)
+        })
+    },
+    {
+        name: '!breedAnimals',
+        description: 'Feed a nearby eligible adult pair to breed when healthy and supplied; preserve breeding resources. This is optional animal husbandry, not emergency food.',
+        params: {},
+        perform: runAsAction(async (agent) => {
+            const ok = await survival.breedNearbyAnimals(agent);
+            if (!ok) console.log('[ai-player] breeding: no safe eligible pair or insufficient feed');
         })
     },
     {

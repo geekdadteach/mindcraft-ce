@@ -1,5 +1,15 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+### 2026-10-27 — ChatGPT — Initial sustainable-food guard and balanced relocation (CODED; NOT TESTED)
+- **Goal:** Advance Bob developer orders without deploying or touching server state.
+- **Files:** `src/agent/library/survival.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** Recovery candidates now sample all compass directions at each radius. Hunting checks at least three visible huntable adults of the selected species within 64 blocks, preserving two. Crop gathering precedes berries/hunting, and refuses homestead protected boxes and no-go zones. Breeding and planting are NOT implemented; other-player claims need a reliable protection API before planting.
+- **Tests:** Not run after these commits; previous 148/148 pass belongs to older d3d8b4f. Do not claim current branch passed.
+- **Risk:** Entity adulthood metadata and Minecraft world integration require live-like tests. Crop harvest may not replenish seeds; current guard cannot identify arbitrary player builds.
+- **Rollback:** Revert unmerged commits. Live runtime unchanged.
+- **Next:** Implement remaining orders, test and review. No deploy without Randy's authorization.
+
+
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
 ### 2026-10-26 9:00 PM ET — Grok Bot — Branch `nav-on-live-20261026`: PR #14 on the live tree, porch kept protected
@@ -135,3 +145,13 @@ Append one dated entry per logical change, newest first. Never erase prior entri
 - **Live state:** Live Bob = `49761ee` content, not run from a git checkout. No service or process change.
 - **Next:** Later, run Bob from a checkout of this fork; minebob records the live commit until then.
 - **Rollback:** Revert this commit.
+
+### 2026-10-27 — ChatGPT — Gameplay/ops ownership separation and home/food work (CODED, UNTESTED)
+- Removed six public deployment/migration/rollback scripts and moved the saved-goal regression to the private `geekdadteach/minebob` feature branch. Operational scripts and tests now live under `ops/bob-autonomy/`.
+- Added canonical `bob_home.js` and rewired house bounds, home routes, stuck-home and no-go-zone base coordinates; added `test/bob_home.test.js`.
+- Added bounded animal breeding, local farm crop harvest/replant, population-preserving hunting, and tests. Farming vicinity is a proximity restriction, NOT proof of ownership; confirm farm plot/claims before live deployment. Breeding helper currently has no automatic scheduling or command integration; do not call it fully operational.
+- Tests: Not run on MM20; isolated sandbox could not clone (git unavailable), so no PASS claim. Risk: gameplay APIs and exact log format require validation.
+- No merge or deployment. Rollback: revert unmerged feature branch commits. Next: complete farming ownership validation and integration, verify private preflight on MM20, then request explicit deployment approval.
+
+### 2026-10-27 — MM20 preflight correction
+- MM20 preflight at f5fdd52: 141/147 passed; six failures exclusively referenced two ops tests whose scripts moved private. Relocated `test/bob_autonomy_deploy_preflight.test.js` and `test/bob_state_snapshot.test.js` to minebob private branch; next MM20 preflight required.

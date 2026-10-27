@@ -1,3 +1,4 @@
+import { HOME } from './bob_home.js';
 // [ai-player] No-go zones enforced in code (not just the prompt).
 // Any pathfinder target (goto / setGoal: goToCoordinates, goToPlayer, followPlayer, collectBlock, generated code, ...)
 // whose x/z lies within NO_GO_RADIUS of a zone centre is refused and logged. Moving away (GoalInvert) is allowed.
@@ -11,7 +12,7 @@ export const NO_GO_ZONES = [
     { name: 'world spawn and its builds', x: -543, y: 75, z: 448 },
     { name: 'the racetrack', x: -264, y: 66, z: 513 },
 ];
-export const HOMESTEAD = { x: -823, y: 124, z: 568 };
+export const HOMESTEAD = HOME.base;
 
 const ESCAPE_RETRY_MS = 45000;
 const TICK_MS = 3000;
@@ -96,7 +97,7 @@ export function installNoGoZoneGuard(agent) {
 
     const refuse = (hit, via) => {
         const tx = Math.round(hit.target.x), tz = Math.round(hit.target.z);
-        const msg = `No-go zone: refused to move to (${tx}, ${tz}); it is ${Math.round(hit.dist)} blocks from ${hit.zone.name} (${hit.zone.x} ${hit.zone.y} ${hit.zone.z}). Stay at least ${NO_GO_RADIUS} blocks away; pick a place near the homestead (${HOMESTEAD.x} ${HOMESTEAD.y} ${HOMESTEAD.z}) instead.`;
+        const msg = `No-go zone: refused to move to (${tx}, ${tz}); it is ${Math.round(hit.dist)} blocks from ${hit.zone.name} (${hit.zone.x} ${hit.zone.y} ${hit.zone.z}). Stay at least ${NO_GO_RADIUS} blocks away; choose another reachable destination outside all protected zones instead.`;
         const key = `${via}:${tx}:${tz}`;
         const now = Date.now();
         if (key !== lastRefusalLog.key || now - lastRefusalLog.at > 10000) {

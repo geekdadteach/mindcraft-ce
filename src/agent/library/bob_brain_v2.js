@@ -19,6 +19,8 @@
 // result matches a regex. Nothing records that a lesson was the reason for a
 // command, or that a later result confirmed that lesson.
 import { randomBytes } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
+const runtimeOutcomeContext = new AsyncLocalStorage();
 import {
     closeSync,
     constants,
@@ -560,7 +562,11 @@ function injectedSummary(item, badTrace) {
 
 export function noteRuntimeStart(agent, label) {
     try {
-        if (!agent || (agent._bobV2CommandDepth || 0) > 0) return null;
+        // Native command execution is scoped by AsyncLocalStorage. Preserve the
+        // existing direct-command depth contract for legacy callers and tests:
+        // their command already owns the receipt, so modes must not double-log.
+        if (!agent || runtimeOutcomeContext.getStore()?.agent === agent ||
+            (agent._bobV2CommandDepth || 0) > 0) return null;
         return agent.bobBrain?.receipts?.beginRuntime(label) || null;
     } catch {
         return null;
@@ -569,8 +575,14 @@ export function noteRuntimeStart(agent, label) {
 
 export function noteRuntimeFinish(agent, handle, outcome) {
     try {
-        if ((agent?._bobV2CommandDepth || 0) > 0 && agent?._bobV2OutcomeSlot)
+        const context = runtimeOutcomeContext.getStore();
+        if (context?.agent === agent) {
+            context.outcome = outcome || null;
+        } else if ((agent?._bobV2CommandDepth || 0) > 0 && agent?._bobV2OutcomeSlot) {
+            // Compatibility only for callers using the old explicit command slot.
+            // Do not let it override concurrent AsyncLocalStorage-owned commands.
             agent._bobV2OutcomeSlot.outcome = outcome || null;
+        }
         if (handle) agent?.bobBrain?.receipts?.finishRuntime(handle, outcome);
     } catch { /* a receipt must not affect the action */ }
 }
@@ -603,28 +615,23 @@ export async function runCommandPerform(agent, meta, perform) {
     };
     try { handle.actionId = receipts?.nextActionId?.() || 'a0'; } catch { handle.actionId = 'a0'; }
 
-    const slot = { outcome: null };
-    const prevSlot = agent?._bobV2OutcomeSlot;
-    if (agent) {
-        agent._bobV2OutcomeSlot = slot;
-        agent._bobV2CommandDepth = (agent._bobV2CommandDepth || 0) + 1;
-    }
-    try {
-        try { receipts?.emitActionStarted(handle); } catch { /* ignore */ }
-        const result = await perform();
+    const slot = { agent, outcome: null };
+    // Each command (including abandoned and late-settling commands) gets its
+    // own async receipt slot, so nested/interleaved Promises cannot overwrite
+    // another command's outcome.
+    return runtimeOutcomeContext.run(slot, async () => {
         try {
-            receipts?.emitActionResult(handle, { result, threw: false, runtime: slot.outcome });
-        } catch { /* ignore */ }
-        return result;
-    } catch (err) {
-        try {
-            receipts?.emitActionResult(handle, { result: null, threw: true, runtime: slot.outcome });
-        } catch { /* ignore */ }
-        throw err;
-    } finally {
-        if (agent) {
-            agent._bobV2CommandDepth = Math.max(0, (agent._bobV2CommandDepth || 1) - 1);
-            agent._bobV2OutcomeSlot = prevSlot;
+            try { receipts?.emitActionStarted(handle); } catch { /* ignore */ }
+            const result = await perform();
+            try {
+                receipts?.emitActionResult(handle, { result, threw: false, runtime: slot.outcome });
+            } catch { /* ignore */ }
+            return result;
+        } catch (err) {
+            try {
+                receipts?.emitActionResult(handle, { result: null, threw: true, runtime: slot.outcome });
+            } catch { /* ignore */ }
+            throw err;
         }
-    }
+    });
 }

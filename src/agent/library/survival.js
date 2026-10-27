@@ -6,6 +6,10 @@ import Vec3 from 'vec3';
 import * as skills from './skills.js';
 import * as world from './world.js';
 import * as mc from '../../utils/mcdata.js';
+import { zoneAt } from './no_go_zones.js';
+import { protectedAreaAt } from './house_bounds.js';
+import { HOME } from './bob_home.js';
+import { gotoWithin, walkMovements } from './ai_player_nav.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
 export const RAW_FOODS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'potato'];
@@ -14,6 +18,73 @@ export const BERRY_BLOCKS = ['sweet_berry_bush', 'cave_vines', 'cave_vines_plant
 const FOOD_STOCK_TARGET = 4; // food items to keep in the inventory
 
 const now = () => Date.now();
+const NO_FOOD_RETRY_MS = 45_000;
+const FOOD_SEARCH_CELL = 16;
+// Per-agent cooldown: a failed local search should not run every hunger tick.
+// Moving into a different area immediately permits another search.
+const foodSearchCooldown = new WeakMap();
+export function foodSearchAllowed(agent, position, time = now()) {
+    if (!position) return true;
+    const cell = [position.x, position.y, position.z].map(v => Math.floor(v / FOOD_SEARCH_CELL)).join(',');
+    const previous = foodSearchCooldown.get(agent);
+    return !previous || previous.cell !== cell || time >= previous.until;
+}
+export function noteFoodSearchFailure(agent, position, time = now()) {
+    if (!position) return;
+    const cell = [position.x, position.y, position.z].map(v => Math.floor(v / FOOD_SEARCH_CELL)).join(',');
+    foodSearchCooldown.set(agent, { cell, until: time + NO_FOOD_RETRY_MS });
+}
+
+// Only food recovery may relocate a critically weak Bob. No digging, parkour or blind exploration.
+const FOOD_RELOCATION_STEPS = [12, 20, 28];
+const FOOD_RELOCATION_MAX_ATTEMPTS = 6;
+const HAZARD_BLOCK = /lava|magma|fire|cactus|powder_snow|campfire|sweet_berry_bush/;
+export function foodRelocationCandidates(position) {
+    if (!position) return [];
+    const x = Math.floor(position.x), y = Math.floor(position.y), z = Math.floor(position.z);
+    // Interleave directions and distances: a blocked nearby ring must not exhaust every attempt.
+    return FOOD_RELOCATION_STEPS.flatMap(d => [
+        { x: x - d, y, z }, { x, y, z: z - d },
+        { x: x + d, y, z }, { x, y, z: z + d },
+    ]).filter(p => !zoneAt(p.x, p.z));
+}
+// Ground may rise or fall. Only accept a fully loaded, standable 2-block-high space.
+export function foodRelocationGround(bot, candidate) {
+    if (!bot?.blockAt || !candidate || zoneAt(candidate.x, candidate.z)) return null;
+    for (let dy = 2; dy >= -4; dy--) {
+        const p = new Vec3(candidate.x, candidate.y + dy, candidate.z);
+        const feet = bot.blockAt(p), head = bot.blockAt(p.offset(0, 1, 0));
+        const floor = bot.blockAt(p.offset(0, -1, 0));
+        if (!feet || !head || !floor) continue;
+        if (feet.boundingBox !== 'empty' || head.boundingBox !== 'empty' ||
+            floor.boundingBox !== 'block' || HAZARD_BLOCK.test(
+                feet.name + ' ' + head.name + ' ' + floor.name)) continue;
+        return p;
+    }
+    return null;
+}
+export async function relocateForFood(agent, { navigate = (bot, goal) => gotoWithin(bot, goal, 12000, walkMovements(bot)) } = {}) {
+    const bot = agent.bot;
+    if (!bot?.entity?.position || bot.interrupt_code || bot.health <= 0) return false;
+    const start = bot.entity.position.clone();
+    let attempts = 0;
+    for (const candidate of foodRelocationCandidates(start)) {
+        if (bot.interrupt_code || bot.health <= 0) return false;
+        const p = foodRelocationGround(bot, candidate);
+        if (!p) continue;
+        if (++attempts > FOOD_RELOCATION_MAX_ATTEMPTS) break;
+        try {
+            const ok = await navigate(bot, new pf.goals.GoalNear(p.x, p.y, p.z, 2));
+            if (ok && bot.entity.position.distanceTo(start) >= 8) {
+                console.log('[ai-player] food: reached a new search area');
+                return true;
+            }
+        } catch (err) { console.log('[ai-player] food: relocation failed: ' + (err?.message || err)); }
+    }
+    console.log('[ai-player] food: no safe relocation route found; not repeating blind movement');
+    return false;
+}
+
 const fail = (agent, cmd, target, pos, error) => { try { agent?.failures?.record(cmd, target, pos, error); } catch (_) {} };
 const blocked = (agent, cmd, target, pos) => { try { return agent?.failures?.isBlocked(cmd, target, pos) || false; } catch (_) { return false; } };
 
@@ -67,7 +138,7 @@ export async function harvestBerries(agent, range = 24) {
     const target = cands[0];
     console.log(`[ai-player] food: picking ${target.name} at ${target.position}`);
     await skills.goToPosition(bot, target.position.x, target.position.y, target.position.z, 1);
-    for (const b of world.getNearestBlocks(bot, BERRY_BLOCKS, 5, 30).filter(ripeBerry)) {
+    for (const b of world.getNearestBlocks(bot, BERRY_BLOCKS, 5, 30).filter(ripeBerry).filter(b => !blocked(agent, 'berries', b.name, b.position))) {
         if (b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, bot.entity.height ?? 1.62, 0)) > 4.4) continue;
         try { await bot.lookAt(b.position.offset(0.5, 0.5, 0.5), true); await bot.activateBlock(b); } catch (_) {}
         await new Promise(r => setTimeout(r, 250));
@@ -84,10 +155,59 @@ export async function harvestBerries(agent, range = 24) {
 }
 
 // Hunt one passive food animal within range: kill (bounded), collect drops.
+export function huntableAdultCount(bot, type, range = 64) {
+    const pos = bot?.entity?.position;
+    if (!pos) return 0;
+    return Object.values(bot.entities || {}).filter(e =>
+        e?.name === type && e.position?.distanceTo(pos) <= range &&
+        mc.isHuntable(e) && e.isBaby !== true
+    ).length;
+}
+
+// Preserve at least two visible adults of every food species in the local ecosystem.
+export function canHuntSpecies(bot, type, range = 64) {
+    return huntableAdultCount(bot, type, range) > 2;
+}
+
+// Breeding is opportunistic, not an emergency-food action. Never consume the last two
+// breeding animals, and never approach entities inside protected NewEarth zones.
+const BREEDING_FOOD = Object.freeze({cow:'wheat',sheep:'wheat',pig:'carrot',chicken:'wheat_seeds',rabbit:'carrot'});
+export async function breedNearbyAnimals(agent, range = 16) {
+    const bot = agent?.bot;
+    if (!bot?.entity?.position || bot.food <= 10 || bot.health <= 8 || bot.interrupt_code) return false;
+    const inventory = world.getInventoryCounts(bot);
+    for (const [species, itemName] of Object.entries(BREEDING_FOOD)) {
+        if ((inventory[itemName] || 0) < 3) continue; // reserve one item for planting or later use
+        const nearby = Object.values(bot.entities || {}).filter(e => e?.name === species &&
+            e.position && e.isBaby !== true &&
+            e.position.distanceTo(bot.entity.position) <= range &&
+            !zoneAt(e.position.x, e.position.z) && !protectedAreaAt(e.position));
+        if (nearby.length < 2) continue;
+        const item = bot.inventory.items().find(i => i.name === itemName);
+        if (!item) continue;
+        try {
+            await bot.equip(item, 'hand');
+            let fed = 0;
+            for (const animal of nearby.slice(0, 2)) {
+                if (bot.interrupt_code) return false;
+                await skills.goToPosition(bot, animal.position.x, animal.position.y, animal.position.z, 3);
+                if (animal.position.distanceTo(bot.entity.position) > 4) break;
+                await bot.activateEntity(animal);
+                fed++;
+            }
+            if (fed === 2) {
+                console.log('[ai-player] food: fed a pair of ' + species + ' for breeding');
+                return true;
+            }
+        } catch (err) { console.log('[ai-player] food: breeding attempt failed: ' + (err?.message || err)); }
+    }
+    return false;
+}
+
 export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {}) {
     const bot = agent.bot;
     const before = foodStock(bot) + RAW_FOODS.reduce((s, n) => s + (world.getInventoryCounts(bot)[n] || 0), 0);
-    const animal = world.getNearestEntityWhere(bot, e => types.includes(e.name) && mc.isHuntable(e) &&
+    const animal = world.getNearestEntityWhere(bot, e => types.includes(e.name) && mc.isHuntable(e) && canHuntSpecies(bot, e.name) &&
         !blocked(agent, 'hunt', e.name, e.position.floored()), range);
     if (!animal) return { ok: false, why: `no ${types.join('/')} within ${range} blocks` };
     console.log(`[ai-player] food: hunting ${animal.name} at ${animal.position.floored()} (${Math.round(animal.position.distanceTo(bot.entity.position))}m)`);
@@ -108,32 +228,70 @@ export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {
     return { ok: true, got: after - before, animal: animal.name };
 }
 
-export async function harvestCrops(bot) {
-    const ripe = (b) => (b.getProperties?.()?.age ?? 0) >= (b.name === 'beetroots' ? 3 : 7);
-    const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], 32, 60).filter(ripe).slice(0, 4);
-    if (!crops.length) return false;
-    console.log(`[ai-player] food: harvesting ${crops.length} ${crops[0].name}`);
-    for (const c of crops) { try { await skills.breakBlockAt(bot, c.position.x, c.position.y, c.position.z); } catch (e) {} }
-    await skills.pickupNearbyItems(bot);
-    if ((world.getInventoryCounts(bot)['wheat'] || 0) >= 3) { try { await skills.craftRecipe(bot, 'bread', 1); } catch (e) {} }
-    return true;
+// Farming requires an explicitly reviewed, Bob-owned rectangular plot.
+// Proximity to his home alone does not establish permission to modify crops.
+export function inBobFarmArea(position, env = process.env) {
+    if (!position || env.BOB_FARM_ENABLED !== 'true') return false;
+    const raw = [env.BOB_FARM_X1, env.BOB_FARM_X2, env.BOB_FARM_Z1, env.BOB_FARM_Z2];
+    if (raw.some(v => v == null || String(v).trim() === '')) return false;
+    const bounds = raw.map(Number);
+    if (!bounds.every(Number.isSafeInteger)) return false;
+    const [x1,x2,z1,z2] = bounds;
+    if (x1 > x2 || z1 > z2 || x2 - x1 > 32 || z2 - z1 > 32) return false;
+    const x = Math.floor(position.x), z = Math.floor(position.z);
+    return Math.hypot(x - HOME.base.x, z - HOME.base.z) <= 32 &&
+        x >= x1 && x <= x2 && z >= z1 && z <= z2 &&
+        !zoneAt(x,z) && !protectedAreaAt(position);
 }
 
-// Get food: animals first (best food), then berries, crops, wider hunt; underground, go up first (animals live on
+export async function harvestCrops(bot) {
+    const before = foodStock(bot);
+    const ripe = (b) => (b.getProperties?.()?.age ?? 0) >= (b.name === 'beetroots' ? 3 : 7);
+    const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], 32, 60)
+        .filter(ripe).filter(c => inBobFarmArea(c.position)).slice(0, 4);
+    if (!crops.length) return false;
+    console.log(`[ai-player] food: harvesting ${crops.length} ${crops[0].name}`);
+    let harvested = 0;
+    for (const c of crops) { try { await skills.breakBlockAt(bot, c.position.x, c.position.y, c.position.z); harvested++; } catch (e) {} }
+    await skills.pickupNearbyItems(bot);
+    // Replant only when the harvested position is verified to be outside all
+    // protected areas. Never till new ground or modify another player's farm.
+    for (const crop of crops) {
+        if (!inBobFarmArea(crop.position)) continue;
+        const seed = {wheat:'wheat_seeds',carrots:'carrot',potatoes:'potato',beetroots:'beetroot_seeds'}[crop.name];
+        const item = bot.inventory.items().find(i => i.name === seed);
+        const soil = bot.blockAt(crop.position.offset(0, -1, 0));
+        const air = bot.blockAt(crop.position);
+        if (!item || soil?.name !== 'farmland' || air?.boundingBox !== 'empty') continue;
+        try {
+            await bot.equip(item, 'hand');
+            await bot.placeBlock(soil, {x:0,y:1,z:0});
+        } catch (err) { console.log('[ai-player] food: replant failed: ' + (err?.message || err)); }
+    }
+    if ((world.getInventoryCounts(bot)['wheat'] || 0) >= 3) { try { await skills.craftRecipe(bot, 'bread', 1); } catch (e) {} }
+    return harvested > 0 && foodStock(bot) > before;
+}
+
+// Get food: crops first (best food), then berries, crops, wider hunt; underground, go up first (animals live on
 // the surface). Returns true when Bob ate or now holds food.
 export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}) {
     const bot = agent.bot;
     console.log(`[ai-player] food: ${reason}; food=${bot.food} health=${Math.round(bot.health)} stock=${foodStock(bot)}`);
     if (foodStock(bot) > 0 && bot.food <= 14) return await eatBest(bot);
-    let r = await huntAnimal(agent, 24);
+    if (!foodSearchAllowed(agent, bot.entity?.position)) {
+        console.log('[ai-player] food: local search cooling down; move to a different safe area before retrying');
+        await relocateForFood(agent);
+        return false;
+    }
+    let r = { ok: await harvestCrops(bot) };
     if (!r.ok) { const b = await harvestBerries(agent, 24); if (b.ok) r = b; }
-    if (!r.ok && await harvestCrops(bot)) r = { ok: true };
+    if (!r.ok) r = await huntAnimal(agent, 24);
     if (!r.ok && escapeUp && (await import('./ai_player_nav.js')).isUnderground(bot)) {
         console.log('[ai-player] food: nothing to eat down here; going up to the surface to hunt');
         await escapeUp(agent, { reason: 'food' });
     }
     if (!r.ok) r = await huntAnimal(agent, 64);
-    if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); skills.log(bot, `Could not find food nearby (${r.why}). Try another area on the surface.`); return false; }
+    if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); noteFoodSearchFailure(agent, bot.entity?.position); skills.log(bot, `Could not find food nearby (${r.why}). Seeking a safe new search area.`); await relocateForFood(agent); return false; }
     await cookOrEat(bot);
     return true;
 }

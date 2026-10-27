@@ -1,3 +1,4 @@
+import { HOME } from './bob_home.js';
 // [ai-player] stuck-home-20261026 (approved by Randy, Oct 26 2026 1:56 PM ET: "Go with /home house set at his
 // door, block cheat mode, and restart Bob").
 // Code-only self-rescue: when Bob is near home but cannot walk to it, send the fixed Essentials command
@@ -21,7 +22,7 @@ import path from 'path';
 import { HOME_CMD, sendFixedHomeCommand, chatGuardArmed } from './chat_guard.js';
 export { HOME_CMD };
 
-export const DOOR = { x: -819.5, y: 124, z: 565.5 };
+export const DOOR = HOME.entrance;
 export const STUCK_HOME_NOTE = 'You were stuck near your house and could not walk home, so you used /home house and are now at your front door. Start fresh: check your inventory, then go back to gathering within ~60 blocks, avoiding the spot where you got stuck.';
 export const DEFAULTS = Object.freeze({
     radius: 64, failLimit: 3, failMemoryMs: 30 * 60_000, noProgressMs: 120_000, progressBlocks: 2,

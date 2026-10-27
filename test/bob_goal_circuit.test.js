@@ -147,7 +147,8 @@ test('actual self-prompt loop changes goals and remains autonomous', async () =>
     assert.equal(prompter.isActive(), true);
     assert.equal(calls, 4);
     assert.notEqual(replacement, 'Find a cow');
-    assert.match(replacement, /homestead/i);
+    assert.match(replacement, /survival|explore|food|safe/i);
+    assert.doesNotMatch(replacement, /at your own homestead|homestead improvement/i);
     assert.equal(prompter.goalCircuit.tripped, null);
 });
 

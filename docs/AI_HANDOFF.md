@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-27 — Bob autonomy follow-on (CODED; NOT TESTED; NOT DEPLOYED)
+- PR #19 remains unmerged. Public gameplay patch now includes compass-balanced food relocation and an initial local adult-animal keep-two hunting guard; crop/berry gathering is attempted before hunting, and crop harvesting refuses the homestead protected boxes and no-go zones. These are **not yet validated on MM20**.
+- Private ops work is staged in `geekdadteach/minebob` branch `feature/bob-autonomy-ops-20261027`; public script copies have NOT been deleted because cross-repo test references still need reconciliation.
+- Remaining from developer orders: complete central home source-of-truth refactor, breeding and protected wheat planting, optional logged failure aging, test coverage, private ops integration, secret scan, trial plan and reviewed deployment. No changes to live Bob or server.
+
+
 **Snapshot:** 2026-10-26 8:30 PM ET — branch `live-m4-20261026` is the exact live tree on Randy's Mac mini `.20` (`~/BobRuntime/cutover/mindcraft-m4`). `m4-runtime-20261026` was the 10:20 ET snapshot. Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.
@@ -121,3 +127,12 @@ Status words, never conflated: **Proposed** → **Coded** → **Tested** → **M
 
 ## Rules
 See `AGENTS.md`: public-repo warning (no secrets, Discord IDs or ops), Randy's rules, never merge/deploy/force-push/change default branches without his authorization.
+
+## 2026-10-27 follow-up — guarded husbandry and farm ownership (CODED, NOT DEPLOYED)
+- `!breedAnimals` is available as a model-selected gameplay action; the breeding routine requires health, food, feed reserves and an eligible adult pair. No periodic automatic breeding scheduler was added.
+- Crop harvest and replant now FAIL CLOSED unless `BOB_FARM_ENABLED=true` and all four reviewed plot bounds `BOB_FARM_X1`, `BOB_FARM_X2`, `BOB_FARM_Z1`, `BOB_FARM_Z2` are set. Plot must be at most 33x33 blocks, near Bob's base and outside code-protected areas. Do not enable without confirming land ownership on NewEarth.
+- Public operations scripts and migration test removed from PR #19; private `minebob` feature branch contains these plus private preflight tests.
+- Current HEAD is NOT verified on MM20. Do not deploy until full preflight, game telemetry format, rollback and actual protected farm plot are reviewed. Live unchanged.
+
+## 2026-10-27 — MM20 preflight correction (not yet rerun)
+- MM20 preflight at f5fdd52: 141/147 passed; six failures exclusively referenced two ops tests whose scripts moved private. Relocated `test/bob_autonomy_deploy_preflight.test.js` and `test/bob_state_snapshot.test.js` to minebob private branch; next MM20 preflight required.

@@ -193,6 +193,7 @@ export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {
 }
 
 export async function harvestCrops(bot) {
+    const before = foodStock(bot);
     const ripe = (b) => (b.getProperties?.()?.age ?? 0) >= (b.name === 'beetroots' ? 3 : 7);
     const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], 32, 60)
         .filter(ripe).filter(c => !protectedAreaAt(c.position) && !zoneAt(c.position.x, c.position.z)).slice(0, 4);
@@ -202,7 +203,7 @@ export async function harvestCrops(bot) {
     for (const c of crops) { try { await skills.breakBlockAt(bot, c.position.x, c.position.y, c.position.z); harvested++; } catch (e) {} }
     await skills.pickupNearbyItems(bot);
     if ((world.getInventoryCounts(bot)['wheat'] || 0) >= 3) { try { await skills.craftRecipe(bot, 'bread', 1); } catch (e) {} }
-    return harvested > 0;
+    return harvested > 0 && foodStock(bot) > before;
 }
 
 // Get food: crops first (best food), then berries, crops, wider hunt; underground, go up first (animals live on

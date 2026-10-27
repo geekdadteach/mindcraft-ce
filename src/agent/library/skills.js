@@ -1,6 +1,7 @@
 import * as mc from "../../utils/mcdata.js";
 import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
+import { withInventoryWindow } from './bob_inventory_window.js';
 import Vec3 from 'vec3';
 import { retryPathfinding } from './bob_path_retry.js';
 import {
@@ -928,86 +929,69 @@ export async function putInChest(bot, itemName, num=-1) {
     }
     let to_put = num === -1 ? item.count : Math.min(num, item.count);
     await goToPosition(bot, chest.position.x, chest.position.y, chest.position.z, 2);
-    const chestContainer = await bot.openContainer(chest);
-    await chestContainer.deposit(item.type, null, to_put);
-    await chestContainer.close();
-    log(bot, `Successfully put ${to_put} ${itemName} in the chest.`);
-    return true;
+    return withInventoryWindow(bot, chest, 'deposit ' + itemName, async (container, verifyOwner) => {
+        const before = bot.inventory.items().filter(i => i.name === itemName).reduce((n, i) => n + i.count, 0);
+        const current = bot.inventory.findInventoryItem(itemName);
+        if (!current) return false;
+        const quantity = num === -1 ? current.count : Math.min(num, current.count);
+        verifyOwner();
+        await container.deposit(current.type, null, quantity);
+        verifyOwner();
+        const after = bot.inventory.items().filter(i => i.name === itemName).reduce((n, i) => n + i.count, 0);
+        const moved = before - after;
+        if (moved !== quantity) {
+            log(bot, 'Chest deposit not confirmed (' + moved + '/' + quantity + ' ' + itemName + '); reconcile inventory before retry.');
+            return false;
+        }
+        log(bot, 'Successfully put ' + moved + ' ' + itemName + ' in the chest.');
+        return true;
+    });
 }
 
 export async function takeFromChest(bot, itemName, num=-1) {
-    /**
-     * Take the given item from the nearest chest, potentially from multiple slots.
-     * @param {MinecraftBot} bot, reference to the minecraft bot.
-     * @param {string} itemName, the item or block name to take from the chest.
-     * @param {number} num, the number of items to take from the chest. Defaults to -1, which takes all items.
-     * @returns {Promise<boolean>} true if the item was taken from the chest, false otherwise.
-     * @example
-     * await skills.takeFromChest(bot, "oak_log");
-     * **/
-    let chest = world.getNearestBlock(bot, 'chest', 32);
-    if (!chest) {
-        log(bot, `Could not find a chest nearby.`);
-        return false;
-    }
+    const chest = world.getNearestBlock(bot, 'chest', 32);
+    if (!chest) { log(bot, 'Could not find a chest nearby.'); return false; }
     await goToPosition(bot, chest.position.x, chest.position.y, chest.position.z, 2);
-    const chestContainer = await bot.openContainer(chest);
-    
-    // Find all matching items in the chest
-    let matchingItems = chestContainer.containerItems().filter(item => item.name === itemName);
-    if (matchingItems.length === 0) {
-        log(bot, `Could not find any ${itemName} in the chest.`);
-        await chestContainer.close();
-        return false;
-    }
-    
-    let totalAvailable = matchingItems.reduce((sum, item) => sum + item.count, 0);
-    let remaining = num === -1 ? totalAvailable : Math.min(num, totalAvailable);
-    let totalTaken = 0;
-    
-    // Take items from each slot until we've taken enough or run out
-    for (const item of matchingItems) {
-        if (remaining <= 0) break;
-        
-        let toTakeFromSlot = Math.min(remaining, item.count);
-        await chestContainer.withdraw(item.type, null, toTakeFromSlot);
-        
-        totalTaken += toTakeFromSlot;
-        remaining -= toTakeFromSlot;
-    }
-    
-    await chestContainer.close();
-    log(bot, `Successfully took ${totalTaken} ${itemName} from the chest.`);
-    return totalTaken > 0;
+    return withInventoryWindow(bot, chest, 'withdraw ' + itemName, async (container, verifyOwner) => {
+        const available = container.containerItems().filter(item => item.name === itemName);
+        if (!available.length) { log(bot, 'Could not find any ' + itemName + ' in the chest.'); return false; }
+        const before = bot.inventory.items().filter(item => item.name === itemName).reduce((n, item) => n + item.count, 0);
+        const requested = num === -1 ? available.reduce((n, item) => n + item.count, 0) :
+            Math.min(num, available.reduce((n, item) => n + item.count, 0));
+        let remaining = requested;
+        for (const item of available) {
+            if (remaining <= 0) break;
+            const take = Math.min(remaining, item.count);
+            verifyOwner();
+            await container.withdraw(item.type, null, take);
+            verifyOwner();
+            remaining -= take;
+        }
+        const after = bot.inventory.items().filter(item => item.name === itemName).reduce((n, item) => n + item.count, 0);
+        const actual = after - before;
+        if (actual !== requested) {
+            log(bot, 'Chest withdrawal not confirmed (' + actual + '/' + requested + ' ' + itemName + '); reconcile inventory before retry.');
+            return false;
+        }
+        log(bot, 'Successfully took ' + actual + ' ' + itemName + ' from the chest.');
+        return actual > 0;
+    });
 }
 
 export async function viewChest(bot) {
-    /**
-     * View the contents of the nearest chest.
-     * @param {MinecraftBot} bot, reference to the minecraft bot.
-     * @returns {Promise<boolean>} true if the chest was viewed, false otherwise.
-     * @example
-     * await skills.viewChest(bot);
-     * **/
-    let chest = world.getNearestBlock(bot, 'chest', 32);
-    if (!chest) {
-        log(bot, `Could not find a chest nearby.`);
-        return false;
-    }
+    const chest = world.getNearestBlock(bot, 'chest', 32);
+    if (!chest) { log(bot, 'Could not find a chest nearby.'); return false; }
     await goToPosition(bot, chest.position.x, chest.position.y, chest.position.z, 2);
-    const chestContainer = await bot.openContainer(chest);
-    let items = chestContainer.containerItems();
-    if (items.length === 0) {
-        log(bot, `The chest is empty.`);
-    }
-    else {
-        log(bot, `The chest contains:`);
-        for (let item of items) {
-            log(bot, `${item.count} ${item.name}`);
+    return withInventoryWindow(bot, chest, 'view chest', async (container, verifyOwner) => {
+        verifyOwner();
+        const items = container.containerItems();
+        if (!items.length) log(bot, 'The chest is empty.');
+        else {
+            log(bot, 'The chest contains:');
+            for (const item of items) log(bot, item.count + ' ' + item.name);
         }
-    }
-    await chestContainer.close();
-    return true;
+        return true;
+    });
 }
 
 export async function consume(bot, itemName="") {

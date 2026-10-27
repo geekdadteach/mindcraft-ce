@@ -2,6 +2,15 @@
 
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
+### 2026-10-26 9:00 PM ET — Grok Bot — Branch `nav-on-live-20261026`: PR #14 on the live tree, porch kept protected
+- **Goal:** Randy (8:18 PM ET) step 2. Port the PR #14 nav unreachable/enclosure handling onto `live-m4-20261026` without breaking the live patches and without exposing house blocks.
+- **Files:** PR #14's files (`bob_nav_memory.js`, `bob_enclosure.js`, `house_bounds.js`, `protected_area.js`, `skills.js`, `ai_player_nav.js`, `bob_goal_circuit.js`, `failures.js`, `self_prompter.js`, tests, `.github/workflows/bob-nav.yml`) plus `src/agent/library/reset_recovery.js`, `test/bob_nav_on_live.test.js` and `test/bob_enclosure.test.js`.
+- **Summary:** Cherry-picked PR #14. The porch row z 564..565 is protected again, because the log shows oak_log posts at -823/-821/-819 124 565 and the outside plate -820 124 565. Only loose fill is diggable in the door lane, and the plate support is never diggable. `inBox` floors coordinates. A reset or stuck-home teleport clears the nav blacklist.
+- **Decisions:** Fill-only lane instead of an open lane, so no house block can be dug. Unknown block names count as protected.
+- **Tests:** 114/114.
+- **Deploy status:** Not deployed. Deployed together with `task-finish-fixes-20261026` via MM20.
+- **Rollback:** The deploy package's `rollback.sh` restores the pre-deploy live files.
+
 ### 2026-10-26 8:30 PM ET — Grok Bot — Branch `live-m4-20261026`: record of live `.20` (no logic changes)
 - **Goal:** Randy (8:18 PM ET): record everything live on `.20` in git before any new deploy.
 - **Files:** `src/agent/agent.js`, `src/agent/commands/actions.js`, `src/agent/modes.js`, `src/agent/library/{stuck_home,chat_guard,reset_recovery}.js`, `test/bob_{stuck_home,reset_recovery}.test.js`, `profiles/andy-api.json`, `docs/BOB_AI_RECEIPTS.md`, plus these docs.

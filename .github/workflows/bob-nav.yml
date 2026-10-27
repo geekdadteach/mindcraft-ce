@@ -1,0 +1,34 @@
+name: Bob Navigation Failure Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-bob-nav:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax validation
+        run: |
+          node --check src/agent/library/bob_nav_memory.js
+          node --check src/agent/library/bob_enclosure.js
+          node --check src/agent/library/house_bounds.js
+          node --check src/agent/library/protected_area.js
+          node --check src/agent/library/bob_goal_circuit.js
+          node --check src/agent/library/failures.js
+          node --check src/agent/library/skills.js
+          node --check src/agent/library/ai_player_nav.js
+          node --check src/agent/self_prompter.js
+          node --check test/bob_nav_memory.test.js
+          node --check test/bob_enclosure.test.js
+          node --check test/bob_goal_circuit.test.js
+          node --check test/bob_path_retry.test.js
+      - name: Test navigation failure handling
+        run: node --test test/bob_nav_memory.test.js test/bob_enclosure.test.js test/bob_goal_circuit.test.js test/bob_path_retry.test.js test/bob_path_escalation.test.js

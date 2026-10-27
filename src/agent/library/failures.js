@@ -4,17 +4,28 @@
 // spot after it failed twice recently, with a short reason so the model picks something else.
 // Pattern follows Reflexion / Voyager-style failure feedback that the existing long_memory.js already uses for lessons.
 import fs from 'fs';
+import { coordCellLabel } from './bob_nav_memory.js';
 
 const HALF_LIFE_MS = 2 * 3600e3;      // a failure's weight halves every 2 h
 const MAX_AGE_MS = 48 * 3600e3;
 const BLOCK_WINDOW_MS = 15 * 60e3;    // 2+ failures of the same thing here within 15 min -> blocked
 const BLOCK_RADIUS = 12;
 const MAX_ENTRIES = 200;
-const FAIL_RE = /(failed|could not|couldn't|cannot|can't|unable to|no path|path not found|not found|no \w+ (nearby|found)|collected 0|took to long|timed out|invalid|don't have|you do not have|not enough|is blocked|stuck|did not reach|no more \w+ nearby)/i;
+const FAIL_RE = /(failed|could not|couldn't|cannot|can't|unable to|no path|path not found|unreachable|not found|no \w+ (nearby|found)|collected 0|took to long|timed out|invalid|don't have|you do not have|not enough|is blocked|stuck|did not reach|no more \w+ nearby)/i;
 const OK_RE = /(successfully|collected [1-9]|you have reached|picked [1-9]|got food|reached)/i;
 
 const cellOf = (p, s = 8) => p ? `${Math.floor(p.x / s)},${Math.floor(p.y / s)},${Math.floor(p.z / s)}` : '-';
 const norm = (v) => String(v ?? '').toLowerCase().replace(/^minecraft:/, '').slice(0, 40);
+
+function coarsenFailureTarget(cmd, target) {
+    const text = String(target ?? '');
+    const nums = text.match(/-?\d+(?:\.\d+)?/g);
+    if (nums && nums.length >= 3)
+        return coordCellLabel(Number(nums[0]), Number(nums[1]), Number(nums[2]));
+    if (/gotocoordinates/.test(String(cmd || '')) && nums?.length === 1)
+        return text;
+    return norm(target);
+}
 
 export class Failures {
     constructor(agent) {
@@ -49,7 +60,8 @@ export class Failures {
             const km = String(cmd || '').match(/^(![\w]+)\(\s*["']?([\w:]+)/); // a command key like !collectBlocks("coal_ore", 1)
             if (km && target === 'stuck') { cmd = km[1]; target = km[2]; error = `stuck: ${error}`; }
             const shown = String(cmd || '').split('(')[0].slice(0, 30);
-            cmd = norm(cmd).split('(')[0]; target = norm(target);
+            cmd = norm(cmd).split('(')[0];
+            target = coarsenFailureTarget(cmd, target);
             const p = pos ? { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) } : null;
             const key = `${cmd}|${target}|${cellOf(p)}`;
             let f = this.data.failures.find(x => x.key === key);
@@ -67,7 +79,7 @@ export class Failures {
     }
     // a success clears the recent-failure window of that command+target nearby
     success(cmd, target, pos) {
-        cmd = norm(cmd).split('(')[0]; target = norm(target);
+        cmd = norm(cmd).split('(')[0]; target = coarsenFailureTarget(cmd, target);
         for (const f of this.data.failures) if (f.cmd === cmd && f.target === target && (!pos || f.x == null || Math.hypot(f.x - pos.x, f.z - pos.z) < BLOCK_RADIUS)) f.recent = [];
         this.save();
         try {
@@ -78,7 +90,7 @@ export class Failures {
     }
     blocking(cmd, target, pos) {
         const now = Date.now();
-        cmd = norm(cmd).split('(')[0]; target = norm(target);
+        cmd = norm(cmd).split('(')[0]; target = coarsenFailureTarget(cmd, target);
         return this.data.failures.find(f => f.cmd === cmd && f.target === target &&
             (f.recent || []).filter(t => now - t < BLOCK_WINDOW_MS).length >= 2 &&
             (!pos || f.x == null || Math.hypot(f.x - pos.x, f.y - pos.y, f.z - pos.z) < BLOCK_RADIUS)) || null;
@@ -90,7 +102,12 @@ export class Failures {
         try {
             const m = String(message || '').match(/(![a-zA-Z]+)\(?\s*["']?([\w:]+)?/);
             if (!m) return;
-            const cmd = m[1], target = m[2] || '', text = String(result ?? '');
+            const cmd = m[1];
+            let target = m[2] || '';
+            const coords = String(message || '').match(/!goToCoordinates\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/i);
+            if (coords)
+                target = coordCellLabel(Number(coords[1]), Number(coords[2]), Number(coords[3]));
+            const text = String(result ?? '');
             const pos = this.agent.bot?.entity?.position;
             if (!text || /interrupted|^undefined$/i.test(text)) return;
             if (OK_RE.test(text) && !/collected 0/i.test(text)) { this.success(cmd, target, pos); return; }

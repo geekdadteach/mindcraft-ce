@@ -530,6 +530,15 @@ export const actionsList = [
         })
     },
     {
+        name: '!breedAnimals',
+        description: 'Feed a nearby eligible adult pair to breed when healthy and supplied; preserve breeding resources. This is optional animal husbandry, not emergency food.',
+        params: {},
+        perform: runAsAction(async (agent) => {
+            const ok = await survival.breedNearbyAnimals(agent);
+            if (!ok) console.log('[ai-player] breeding: no safe eligible pair or insufficient feed');
+        })
+    },
+    {
         name: '!goToSurface',
         description: 'Moves the bot to the highest block above it (usually the surface).',
         params: {},

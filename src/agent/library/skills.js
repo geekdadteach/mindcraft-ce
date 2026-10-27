@@ -2,6 +2,7 @@ import * as mc from "../../utils/mcdata.js";
 import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
 import { withInventoryWindow } from './bob_inventory_window.js';
+import { availableWoodNames } from './bob_wood_types.js';
 import Vec3 from 'vec3';
 import { retryPathfinding } from './bob_path_retry.js';
 import {
@@ -458,6 +459,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
         return false;
     }
     let blocktypes = [blockType];
+    if (blockType === 'any_log') blocktypes = availableWoodNames(bot.registry?.blocksArray || []);
     if (blockType === 'coal' || blockType === 'diamond' || blockType === 'emerald' || blockType === 'iron' || blockType === 'gold' || blockType === 'lapis_lazuli' || blockType === 'redstone')
         blocktypes.push(blockType+'_ore');
     if (blockType.endsWith('ore'))

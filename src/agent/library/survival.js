@@ -237,6 +237,20 @@ export async function harvestCrops(bot) {
     let harvested = 0;
     for (const c of crops) { try { await skills.breakBlockAt(bot, c.position.x, c.position.y, c.position.z); harvested++; } catch (e) {} }
     await skills.pickupNearbyItems(bot);
+    // Replant only when the harvested position is verified to be outside all
+    // protected areas. Never till new ground or modify another player's farm.
+    for (const crop of crops) {
+        if (zoneAt(crop.position.x, crop.position.z) || protectedAreaAt(crop.position)) continue;
+        const seed = {wheat:'wheat_seeds',carrots:'carrot',potatoes:'potato',beetroots:'beetroot_seeds'}[crop.name];
+        const item = bot.inventory.items().find(i => i.name === seed);
+        const soil = bot.blockAt(crop.position.offset(0, -1, 0));
+        const air = bot.blockAt(crop.position);
+        if (!item || soil?.name !== 'farmland' || air?.boundingBox !== 'empty') continue;
+        try {
+            await bot.equip(item, 'hand');
+            await bot.placeBlock(soil, {x:0,y:1,z:0});
+        } catch (err) { console.log('[ai-player] food: replant failed: ' + (err?.message || err)); }
+    }
     if ((world.getInventoryCounts(bot)['wheat'] || 0) >= 3) { try { await skills.craftRecipe(bot, 'bread', 1); } catch (e) {} }
     return harvested > 0 && foodStock(bot) > before;
 }

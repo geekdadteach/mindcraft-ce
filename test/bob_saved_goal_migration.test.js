@@ -47,3 +47,21 @@ test('preserves independently selected shelter task with different intent', () =
  assert.equal(outcome.changedSummary, false);
  assert.deepEqual(outcome.data, src);
 });
+
+test('migrates actual live maintenance goal and summary without losing state', () => {
+ const src = {
+  self_prompt: 'Review your equipment and supplies. Choose and complete one useful maintenance or organization task at your homestead.',
+  memory: 'Goal: Maintain homestead at -820 124 566. Remember the river and village.',
+  turns: [{role:'user',content:'keep this'}], self_prompting_state: 1, taskStart: 42
+ };
+ const result = migrateSavedGoal(src);
+ assert.equal(result.changedGoal, true);
+ assert.equal(result.changedSummary, true);
+ assert.match(result.data.self_prompt, /independent project/);
+ assert.doesNotMatch(result.data.memory, /Maintain homestead/);
+ assert.match(result.data.memory, /Remember the river and village/);
+ assert.deepEqual(result.data.turns, src.turns);
+ assert.equal(result.data.self_prompting_state, 1);
+ assert.equal(result.data.taskStart, 42);
+ assert.match(src.self_prompt, /maintenance or organization/);
+});

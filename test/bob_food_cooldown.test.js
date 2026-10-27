@@ -92,3 +92,10 @@ test('blocked terrain prevents blind navigation', async () => {
     assert.equal(await relocateForFood({bot}, {navigate: async () => {attempts++; return true;}}), false);
     assert.equal(attempts, 0);
 });
+
+test('first recovery attempts cover all four compass directions', () => {
+    const origin = {x: -820, y: 124, z: 568};
+    const first = foodRelocationCandidates(origin).slice(0, 4);
+    assert.deepEqual(first.map(p => [p.x-origin.x, p.z-origin.z]),
+        [[-12, 0], [0, -12], [12, 0], [0, 12]]);
+});

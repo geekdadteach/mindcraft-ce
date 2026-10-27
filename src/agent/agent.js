@@ -26,6 +26,9 @@ import Vec3 from 'vec3';
 import { installPhysicsGuard, memStatus, heapGuard } from './library/stability.js';
 import { escapeUp, gotoChecked } from './library/escape.js';
 import { HomeRoutes } from './library/home_route.js';
+import { installResetRecovery } from './library/reset_recovery.js'; // [ai-player] reset-recovery-20261026
+import { installChatGuard, stripCommandPrefix } from './library/chat_guard.js'; // [ai-player] stuck-home-20261026
+import { installStuckHome } from './library/stuck_home.js'; // [ai-player] stuck-home-20261026
 import { Failures } from './library/failures.js';
 import { attachBobBrain } from './library/bob_brain.js';
 
@@ -100,6 +103,15 @@ export class Agent {
         installPhysicsGuard(this.bot); // [ai-player] stability.js: clamp runaway velocity (hang/OOM fix)
         this.escape = { up: escapeUp, gotoChecked }; // [ai-player] item 3: staircase escape + checked routes
         try { this.home = new HomeRoutes(this); } catch (e) { console.warn('[ai-player] home-route disabled:', e.message); this.home = null; } // item 4
+        if (this.home) { // [ai-player] stuck-home-20261026: every walk home (night, unstuck walkHome) feeds the stuck-home counter
+            const walk = this.home.walk.bind(this.home);
+            this.home.walk = async (opts) => {
+                this.stuckHome?.markHomeGoal();
+                const ok = await walk(opts);
+                try { this.stuckHome?.reportHomeAttempt(!!ok, 'home-route')?.catch?.(() => {}); } catch (_) {}
+                return ok;
+            };
+        }
 
         // [ai-player] Watchdog heartbeat to the parent (agent_process.js). If the event loop hangs or the
         // server connection goes silent (no packets) the parent kills and restarts this process.
@@ -154,6 +166,7 @@ export class Agent {
 
         this.bot.on('login', () => {
             console.log(this.name, 'logged in!');
+            installChatGuard(this.bot); // [ai-player] stuck-home-20261026: no outgoing line may start with '/'
             serverProxy.login();
             
             // Set skin for profile, requires Fabric Tailor. (https://modrinth.com/mod/fabrictailor)
@@ -183,6 +196,8 @@ export class Agent {
                 this.clearBotLogs();
                 installNoGoZoneGuard(this);
                 installProtectedAreaGuard(this);
+                try { installResetRecovery(this); } catch (e) { console.warn('[ai-player] reset-recovery disabled:', e.message); } // reset-recovery-20261026
+                try { installChatGuard(this.bot); installStuckHome(this); } catch (e) { console.warn('[ai-player] stuck-home disabled:', e.message); } // stuck-home-20261026
               
                 this._setupEventHandlers(save_data, init_message);
                 this.startEvents();
@@ -535,6 +550,7 @@ export class Agent {
         const cmd_in_msg = containsCommand(message);
         if (cmd_in_msg) message = message.substring(0, message.indexOf(cmd_in_msg));
         message = message.replace(/![a-zA-Z_]+(\([^)]*\))?/g, '').trim();
+        message = stripCommandPrefix(message); // [ai-player] stuck-home-20261026: LLM text is never a server command
         if (!opts.reply_to) {
             if (message) console.log(`[ai-player] chat suppressed (not a player reply): ${message.slice(0, 200)}`);
             return;
@@ -553,7 +569,7 @@ export class Agent {
         }
         message = (await handleTranslation(to_translate)).trim() + " " + remaining;
         // newlines are interpreted as separate chats, which triggers spam filters. replace them with spaces
-        message = message.replaceAll('\n', ' ').trim();
+        message = stripCommandPrefix(message.replaceAll('\n', ' ')); // [ai-player] stuck-home-20261026 (also after translation)
 
         if (settings.only_chat_with.length > 0) {
             for (let username of settings.only_chat_with) {

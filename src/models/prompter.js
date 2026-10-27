@@ -109,7 +109,10 @@ export class Prompter {
             this.embedding_model = createModel(embedding_model_profile);
         }
         else {
-            this.embedding_model = createModel({api: chat_model_profile.api});
+            // [ai-player] andy_pool keeps its params here so api_fallback=false also covers embeddings (no silent API use).
+            this.embedding_model = createModel(chat_model_profile.api === 'andy_pool'
+                ? { api: 'andy_pool', model: chat_model_profile.model, url: chat_model_profile.url, params: chat_model_profile.params }
+                : { api: chat_model_profile.api });
         }
 
         this.skill_libary = new SkillLibrary(agent, this.embedding_model);

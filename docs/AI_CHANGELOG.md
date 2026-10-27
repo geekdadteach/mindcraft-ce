@@ -2,6 +2,23 @@
 
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
+### 2026-10-26 8:30 PM ET — Grok Bot — Branch `live-m4-20261026`: record of live `.20` (no logic changes)
+- **Goal:** Randy (8:18 PM ET): record everything live on `.20` in git before any new deploy.
+- **Files:** `src/agent/agent.js`, `src/agent/commands/actions.js`, `src/agent/modes.js`, `src/agent/library/{stuck_home,chat_guard,reset_recovery}.js`, `test/bob_{stuck_home,reset_recovery}.test.js`, `profiles/andy-api.json`, `docs/BOB_AI_RECEIPTS.md`, plus these docs.
+- **Summary:** PR #15 plus the stuck-home (with the nodistance edit), reset-recovery and chat-guard patches, copied byte-for-byte from the live dir. The `andy-api.json` == `andy-api-lite.json` oddity is kept as it is live.
+- **Tests:** 94/94 `node --test test/`. Every tracked non-doc path was hash-compared against live: identical. gitleaks: no leaks.
+- **Deploy status:** Already live on `.20`. Record only. PR open against `m4-runtime-20261026`, not merged.
+- **Rollback:** n/a (record). Revert the commit to drop the record.
+
+### 2026-10-26 3:50 PM ET — Grok Bot — andy_pool `api_fallback: false`; coding allowed in LITE
+- **Goal:** Randy: chat only on local LM Studio Andy-4.2 with no API backup (errors must not drain quota); coding on the Andy API (`claude-haiku-5.5`) always allowed, LITE included.
+- **Files:** `src/models/andy_pool.js`, `src/models/prompter.js`, `src/models/andy.js`, `settings.js`, `profiles/andy-api-lite.json`, `profiles/andy-api.json`, `test/andy_pool_no_api_fallback.test.js`, docs.
+- **Summary:** `api_fallback: false` = LM Studio only, clean no-reply on failure, no API embeddings; empty fallback list allowed; prompter embedding fallback keeps andy_pool params; 429 log shows error type/code and Retry-After; LITE no longer disables coding; profiles use `code_model` `claude-haiku-5.5` and no vision model.
+- **Decisions:** Default stays `true` so other profiles behave as before. Vision stays off (no vision request path in andy/andy_pool; local model is loaded without a vision projector).
+- **Tests:** new test file 9/9 pass; `node --check` on changed files.
+- **Deploy status:** Not deployed, not merged. Base `m4-runtime-20261026` (matches the live model code).
+- **Rollback:** revert the commit.
+
 ### 2026-10-26 10:20 ET — Grok Bot — Record M4 (.20) live runtime snapshot (no logic changes)
 - **Goal:** Randy authorized a record-only branch of the exact code running on the Mac mini `.20` M4 runtime, so a later PR can build on it. No logic rewrite, no PR, no merge, no history rewrite.
 - **Files:** Overlay of `src/`, `profiles/`, `settings.js`, `main.js`, `package.json`, `package-lock.json`, `test/`, `services/`, `patches/` from `~/BobRuntime/cutover/mindcraft-m4` (tarball sha256 `b3a5d240965fe9219c95664a36ec99c613362285496c8357cc67ff7695121f67`), plus this handoff/changelog. Snapshot commit `e061d87` (24 files, +1647/−71). Docs commit follows.

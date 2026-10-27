@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,4 +29,14 @@ test('deployment resolves actual shell variables and reports missing prerequisit
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('deployment waits for stable launchd startup instead of failing after five seconds', () => {
+  const script = fileURLToPath(new URL('../scripts/bob_autonomy_deploy.sh', import.meta.url));
+  const source = readFileSync(script, 'utf8');
+  assert.match(source, /for _ in \{1\.\.45\}; do/);
+  assert.match(source, /if service_loaded; then/);
+  assert.match(source, /LaunchAgent already registered; observing its startup/);
+  assert.match(source, /Candidate LaunchAgent remains registered after bootout/);
+  assert.doesNotMatch(source, /sleep 5\s*NEWPID=/);
 });

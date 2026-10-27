@@ -52,6 +52,10 @@ on_exit() {
                     candidate_children="$(ps -axo pid=,ppid= | awk -v parent="$candidate_pid" '$2 == parent {print $1}')"
                 fi
                 launchctl bootout "$DOMAIN" "$PLIST" || true
+                if service_loaded; then
+                    UNSAFE=1
+                    echo "Candidate LaunchAgent remains registered after bootout; refusing memory/source rollback"
+                fi
                 for _ in {1..10}; do
                     candidate_alive=0
                     if [[ "$candidate_pid" =~ ^[0-9]+$ ]] && is_alive "$candidate_pid"; then candidate_alive=1; fi

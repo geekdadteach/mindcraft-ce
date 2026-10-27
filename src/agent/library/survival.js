@@ -8,6 +8,7 @@ import * as world from './world.js';
 import * as mc from '../../utils/mcdata.js';
 import { zoneAt } from './no_go_zones.js';
 import { protectedAreaAt } from './house_bounds.js';
+import { HOME } from './bob_home.js';
 import { gotoWithin, walkMovements } from './ai_player_nav.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
@@ -227,11 +228,16 @@ export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {
     return { ok: true, got: after - before, animal: animal.name };
 }
 
+export function inBobFarmArea(position) {
+    return !!position && Math.hypot(position.x - HOME.base.x, position.z - HOME.base.z) <= 32 &&
+        !zoneAt(position.x, position.z) && !protectedAreaAt(position);
+}
+
 export async function harvestCrops(bot) {
     const before = foodStock(bot);
     const ripe = (b) => (b.getProperties?.()?.age ?? 0) >= (b.name === 'beetroots' ? 3 : 7);
     const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], 32, 60)
-        .filter(ripe).filter(c => !protectedAreaAt(c.position) && !zoneAt(c.position.x, c.position.z)).slice(0, 4);
+        .filter(ripe).filter(c => inBobFarmArea(c.position)).slice(0, 4);
     if (!crops.length) return false;
     console.log(`[ai-player] food: harvesting ${crops.length} ${crops[0].name}`);
     let harvested = 0;
@@ -240,7 +246,7 @@ export async function harvestCrops(bot) {
     // Replant only when the harvested position is verified to be outside all
     // protected areas. Never till new ground or modify another player's farm.
     for (const crop of crops) {
-        if (zoneAt(crop.position.x, crop.position.z) || protectedAreaAt(crop.position)) continue;
+        if (!inBobFarmArea(crop.position)) continue;
         const seed = {wheat:'wheat_seeds',carrots:'carrot',potatoes:'potato',beetroots:'beetroot_seeds'}[crop.name];
         const item = bot.inventory.items().find(i => i.name === seed);
         const soil = bot.blockAt(crop.position.offset(0, -1, 0));

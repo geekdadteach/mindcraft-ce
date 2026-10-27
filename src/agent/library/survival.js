@@ -158,7 +158,7 @@ export function huntableAdultCount(bot, type, range = 64) {
     if (!pos) return 0;
     return Object.values(bot.entities || {}).filter(e =>
         e?.name === type && e.position?.distanceTo(pos) <= range &&
-        mc.isHuntable(e) && !e.isBaby && e.metadata?.[16] !== true
+        mc.isHuntable(e) && e.isBaby !== true
     ).length;
 }
 

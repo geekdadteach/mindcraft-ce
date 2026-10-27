@@ -20,6 +20,7 @@ service_pid() {
     launchctl list 2>/dev/null | awk -v label="$LABEL" '$3 == label && $1 ~ /^[0-9]+$/ {print $1; exit}'
 }
 is_alive() { kill -0 "$1" 2>/dev/null; }
+service_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
 
 restore_previous() {
     echo "Rolling back changed runtime sources and saved memory from $BACKUP"
@@ -43,14 +44,17 @@ on_exit() {
             # If bootstrap partly succeeded, stop the candidate *before* restoring
             # source/memory. Never copy over an active agent's files.
             candidate_pid="$(service_pid)"
-            if [[ -n "$candidate_pid" ]]; then
+            if service_loaded; then
                 # Bob launcher spawns the Mineflayer agent as a direct child.
                 # Capture it before bootout, since it may be reparented.
-                candidate_children="$(ps -axo pid=,ppid= | awk -v parent="$candidate_pid" '$2 == parent {print $1}')"
+                candidate_children=""
+                if [[ "$candidate_pid" =~ ^[0-9]+$ ]]; then
+                    candidate_children="$(ps -axo pid=,ppid= | awk -v parent="$candidate_pid" '$2 == parent {print $1}')"
+                fi
                 launchctl bootout "$DOMAIN" "$PLIST" || true
                 for _ in {1..10}; do
                     candidate_alive=0
-                    if is_alive "$candidate_pid"; then candidate_alive=1; fi
+                    if [[ "$candidate_pid" =~ ^[0-9]+$ ]] && is_alive "$candidate_pid"; then candidate_alive=1; fi
                     for child in $candidate_children; do
                         if is_alive "$child"; then candidate_alive=1; fi
                     done
@@ -64,8 +68,10 @@ on_exit() {
             fi
             if [[ "$UNSAFE" -eq 0 ]]; then
                 if [[ "$MODIFIED" -eq 1 ]]; then restore_previous || echo "ROLLBACK FAILED: inspect $BACKUP"; fi
-                if [[ -z "$(service_pid)" ]]; then
+                if ! service_loaded; then
                     launchctl bootstrap "$DOMAIN" "$PLIST" || echo "SERVICE RESTART FAILED: inspect LaunchAgent manually"
+                else
+                    echo "LaunchAgent already loaded; not bootstrapping a duplicate"
                 fi
             fi
         fi
@@ -193,10 +199,33 @@ print("Migrated goal:",str(after.get('self_prompt'))[:180])
 PY
 
 echo "===== START ONE LAUNCHD SERVICE ====="
-launchctl bootstrap "$DOMAIN" "$PLIST"
-sleep 5
-NEWPID="$(service_pid)"
-[[ "$NEWPID" =~ ^[0-9]+$ ]] || { echo "LaunchAgent did not report running PID"; exit 8; }
+# macOS may report a loaded but temporarily PID-less KeepAlive job.
+# Never issue a second bootstrap for a label launchd already registered.
+if service_loaded; then
+    echo "LaunchAgent already registered; observing its startup"
+else
+    if ! launchctl bootstrap "$DOMAIN" "$PLIST"; then
+        # launchctl may race a KeepAlive restart; inspect loaded state first.
+        if ! service_loaded; then
+            echo "Bootstrap failed and launchd does not report the service loaded"
+            exit 8
+        fi
+    fi
+fi
+NEWPID=""
+for _ in {1..45}; do
+    observed="$(service_pid)"
+    if [[ "$observed" =~ ^[0-9]+$ ]] && is_alive "$observed"; then
+        # Make sure it stays alive rather than being a momentary crash-loop PID.
+        sleep 3
+        if [[ "$(service_pid)" = "$observed" ]] && is_alive "$observed"; then
+            NEWPID="$observed"
+            break
+        fi
+    fi
+    sleep 1
+done
+[[ "$NEWPID" =~ ^[0-9]+$ ]] || { echo "LaunchAgent loaded but no stable running launcher within startup grace period"; exit 8; }
 echo "New Bob launcher PID: $NEWPID"
 DONE=1
 trap - EXIT

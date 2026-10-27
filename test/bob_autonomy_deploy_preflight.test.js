@@ -37,7 +37,7 @@ test('deployment waits for stable launchd startup instead of failing after five 
   assert.match(source, /for _ in \{1\.\.45\}; do/);
   assert.match(source, /if service_loaded; then/);
   assert.match(source, /LaunchAgent already registered; observing its startup/);
-  assert.match(source, /Candidate LaunchAgent remains registered after bootout/);
+  assert.match(source, /lifecycle stop 30/);
   assert.doesNotMatch(source, /sleep 5\s*NEWPID=/);
 });
 
@@ -52,10 +52,15 @@ test('deployment preserves persistence state and never silently erases failure h
   assert.doesNotMatch(source, /rm\s+[^\n]*failures\.json/);
 });
 
-test('startup probe falls back to launchctl print PID and surfaces diagnostic state', () => {
+test('deployment delegates process checks to lifecycle helper and guards rollback', () => {
   const script = fileURLToPath(new URL('../scripts/bob_autonomy_deploy.sh', import.meta.url));
   const source = readFileSync(script, 'utf8');
-  assert.match(source, /launchctl print "\$DOMAIN\/\$LABEL" 2>\/dev\/null \| awk/);
-  assert.match(source, /LaunchAgent has no stable running launcher/);
-  assert.match(source, /last exit code =/);
+  assert.match(source, /bob_launchd_safety\.py/);
+  assert.match(source, /lifecycle stop 30/);
+  assert.match(source, /lifecycle ports 180/);
+  assert.match(source, /lifecycle ready 180/);
+  assert.match(source, /START_ATTEMPTED=1/);
+  assert.match(source, /START_ATTEMPTED" -eq 0/);
+  assert.match(source, /if ! lifecycle stop 30; then/);
+  assert.doesNotMatch(source, /for _ in \\{1\\.\\.90\\}/);
 });

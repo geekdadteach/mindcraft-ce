@@ -20,7 +20,7 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(safety, "job", return_value=(True, 10)), \
              patch.object(safety, "processes", return_value=table), \
              patch.object(safety.time, "sleep"), \
-             patch.object(safety.time, "monotonic", side_effect=[0, 0, 11, 12]):
+             patch.object(safety.time, "monotonic", side_effect=[0, 0, 1, 12, 13]):
             safety.wait_ready("gui/501", "org.newearth.mindcraft-m4", 180, stable=10)
 
     def test_stop_refuses_bootout_failure(self):

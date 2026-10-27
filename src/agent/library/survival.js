@@ -6,6 +6,8 @@ import Vec3 from 'vec3';
 import * as skills from './skills.js';
 import * as world from './world.js';
 import * as mc from '../../utils/mcdata.js';
+import { zoneAt } from './no_go_zones.js';
+import { gotoWithin, walkMovements } from './ai_player_nav.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
 export const RAW_FOODS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'potato'];
@@ -29,6 +31,40 @@ export function noteFoodSearchFailure(agent, position, time = now()) {
     if (!position) return;
     const cell = [position.x, position.y, position.z].map(v => Math.floor(v / FOOD_SEARCH_CELL)).join(',');
     foodSearchCooldown.set(agent, { cell, until: time + NO_FOOD_RETRY_MS });
+}
+
+// Only food recovery may relocate a critically weak Bob. No digging, parkour or blind exploration.
+const FOOD_RELOCATION_STEPS = [12, 20, 28];
+export function foodRelocationCandidates(position) {
+    if (!position) return [];
+    const x = Math.floor(position.x), y = Math.floor(position.y), z = Math.floor(position.z);
+    return FOOD_RELOCATION_STEPS.flatMap(d => [
+        { x: x - d, y, z }, { x, y, z: z - d },
+        { x: x + d, y, z }, { x, y, z: z + d },
+    ]).filter(p => !zoneAt(p.x, p.z));
+}
+async function relocateForFood(agent) {
+    const bot = agent.bot;
+    if (!bot?.entity?.position || bot.interrupt_code || bot.health <= 0) return false;
+    // Never attempt a blind long-distance walk. Pathfinder must find a non-digging route.
+    const start = bot.entity.position.clone();
+    for (const p of foodRelocationCandidates(start)) {
+        if (bot.interrupt_code || bot.health <= 0) return false;
+        const foot = bot.blockAt(new Vec3(p.x, p.y, p.z));
+        const head = bot.blockAt(new Vec3(p.x, p.y + 1, p.z));
+        const floor = bot.blockAt(new Vec3(p.x, p.y - 1, p.z));
+        if (!foot || !head || !floor || foot.boundingBox !== 'empty' ||
+            head.boundingBox !== 'empty' || floor.boundingBox !== 'block' ||
+            /lava|magma|fire|cactus|powder_snow/.test(floor.name + foot.name)) continue;
+        try {
+            const ok = await gotoWithin(bot, new pf.goals.GoalNear(p.x, p.y, p.z, 2), 12000, walkMovements(bot));
+            if (ok && bot.entity.position.distanceTo(start) >= 8) {
+                console.log('[ai-player] food: reached a new search area');
+                return true;
+            }
+        } catch (err) { console.log('[ai-player] food: relocation failed: ' + (err?.message || err)); }
+    }
+    return false;
 }
 
 const fail = (agent, cmd, target, pos, error) => { try { agent?.failures?.record(cmd, target, pos, error); } catch (_) {} };
@@ -144,6 +180,7 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}
     if (foodStock(bot) > 0 && bot.food <= 14) return await eatBest(bot);
     if (!foodSearchAllowed(agent, bot.entity?.position)) {
         console.log('[ai-player] food: local search cooling down; move to a different safe area before retrying');
+        await relocateForFood(agent);
         return false;
     }
     let r = await huntAnimal(agent, 24);
@@ -154,7 +191,7 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}
         await escapeUp(agent, { reason: 'food' });
     }
     if (!r.ok) r = await huntAnimal(agent, 64);
-    if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); noteFoodSearchFailure(agent, bot.entity?.position); skills.log(bot, `Could not find food nearby (${r.why}). Try another safe area on the surface; repeated searches here will not help.`); return false; }
+    if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); noteFoodSearchFailure(agent, bot.entity?.position); skills.log(bot, `Could not find food nearby (${r.why}). Seeking a safe new search area.`); await relocateForFood(agent); return false; }
     await cookOrEat(bot);
     return true;
 }

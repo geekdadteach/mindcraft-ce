@@ -168,6 +168,41 @@ export function canHuntSpecies(bot, type, range = 64) {
     return huntableAdultCount(bot, type, range) > 2;
 }
 
+// Breeding is opportunistic, not an emergency-food action. Never consume the last two
+// breeding animals, and never approach entities inside protected NewEarth zones.
+const BREEDING_FOOD = Object.freeze({cow:'wheat',sheep:'wheat',pig:'carrot',chicken:'wheat_seeds',rabbit:'carrot'});
+export async function breedNearbyAnimals(agent, range = 16) {
+    const bot = agent?.bot;
+    if (!bot?.entity?.position || bot.food <= 10 || bot.health <= 8 || bot.interrupt_code) return false;
+    const inventory = world.getInventoryCounts(bot);
+    for (const [species, itemName] of Object.entries(BREEDING_FOOD)) {
+        if ((inventory[itemName] || 0) < 3) continue; // reserve one item for planting or later use
+        const nearby = Object.values(bot.entities || {}).filter(e => e?.name === species &&
+            e.position && e.isBaby !== true &&
+            e.position.distanceTo(bot.entity.position) <= range &&
+            !zoneAt(e.position.x, e.position.z) && !protectedAreaAt(e.position));
+        if (nearby.length < 2) continue;
+        const item = bot.inventory.items().find(i => i.name === itemName);
+        if (!item) continue;
+        try {
+            await bot.equip(item, 'hand');
+            let fed = 0;
+            for (const animal of nearby.slice(0, 2)) {
+                if (bot.interrupt_code) return false;
+                await skills.goToPosition(bot, animal.position.x, animal.position.y, animal.position.z, 3);
+                if (animal.position.distanceTo(bot.entity.position) > 4) break;
+                await bot.activateEntity(animal);
+                fed++;
+            }
+            if (fed === 2) {
+                console.log('[ai-player] food: fed a pair of ' + species + ' for breeding');
+                return true;
+            }
+        } catch (err) { console.log('[ai-player] food: breeding attempt failed: ' + (err?.message || err)); }
+    }
+    return false;
+}
+
 export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {}) {
     const bot = agent.bot;
     const before = foodStock(bot) + RAW_FOODS.reduce((s, n) => s + (world.getInventoryCounts(bot)[n] || 0), 0);

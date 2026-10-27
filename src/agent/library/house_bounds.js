@@ -1,7 +1,8 @@
+import { HOME } from './bob_home.js';
 // House / claim geometry only. No mineflayer import so unit tests can load this
 // without node_modules. The dig/pathfinder guard lives in protected_area.js.
 
-export const HOUSE_DOOR = { x: -820, y: 124, z: 566 };
+export const HOUSE_DOOR = HOME.door;
 export const HOUSE_AREA = {
     name: 'house',
     x1: -827, x2: -816,
@@ -26,7 +27,7 @@ export const HOUSE_PORCH = {
     y1: 123, y2: 127,
     z1: 564, z2: 565
 };
-export const PLATE_SUPPORT = { x: -820, y: 123, z: 565 };
+export const PLATE_SUPPORT = HOME.plateSupport;
 export const LANE_FILL = new Set([
     'dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'mud', 'dirt_path',
     'gravel', 'sand', 'red_sand', 'snow', 'snow_block', 'netherrack'

@@ -142,7 +142,11 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}
     const bot = agent.bot;
     console.log(`[ai-player] food: ${reason}; food=${bot.food} health=${Math.round(bot.health)} stock=${foodStock(bot)}`);
     if (foodStock(bot) > 0 && bot.food <= 14) return await eatBest(bot);
-    if (!foodSearchAllowed(agent, bot.entity?.position)) {\n        console.log('[ai-player] food: local search cooling down; move to a different safe area before retrying');\n        return false;\n    }\n    let r = await huntAnimal(agent, 24);
+    if (!foodSearchAllowed(agent, bot.entity?.position)) {
+        console.log('[ai-player] food: local search cooling down; move to a different safe area before retrying');
+        return false;
+    }
+    let r = await huntAnimal(agent, 24);
     if (!r.ok) { const b = await harvestBerries(agent, 24); if (b.ok) r = b; }
     if (!r.ok && await harvestCrops(bot)) r = { ok: true };
     if (!r.ok && escapeUp && (await import('./ai_player_nav.js')).isUnderground(bot)) {

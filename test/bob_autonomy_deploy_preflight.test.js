@@ -34,7 +34,7 @@ test('deployment resolves actual shell variables and reports missing prerequisit
 test('deployment waits for stable launchd startup instead of failing after five seconds', () => {
   const script = fileURLToPath(new URL('../scripts/bob_autonomy_deploy.sh', import.meta.url));
   const source = readFileSync(script, 'utf8');
-  assert.match(source, /for _ in \{1\.\.45\}; do/);
+  assert.match(source, /lifecycle ready 180/);
   assert.match(source, /if service_loaded; then/);
   assert.match(source, /LaunchAgent already registered; observing its startup/);
   assert.match(source, /lifecycle stop 30/);
@@ -62,5 +62,5 @@ test('deployment delegates process checks to lifecycle helper and guards rollbac
   assert.match(source, /START_ATTEMPTED=1/);
   assert.match(source, /START_ATTEMPTED" -eq 0/);
   assert.match(source, /if ! lifecycle stop 30; then/);
-  assert.doesNotMatch(source, /for _ in \\{1\\.\\.90\\}/);
+  assert.doesNotMatch(source, /NEWPID=""/);
 });

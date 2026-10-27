@@ -153,6 +153,8 @@ print("Migrated goal:",str(after.get('self_prompt'))[:180])
 PY
 
 echo "===== START ONE LAUNCHD SERVICE ====="
+# Mark candidate start before bootstrap; a partial bootstrap can write memory.
+START_ATTEMPTED=1
 # macOS may report a loaded but temporarily PID-less KeepAlive job.
 # Never issue a second bootstrap for a label launchd already registered.
 if service_loaded; then
@@ -166,7 +168,6 @@ else
         fi
     fi
 fi
-START_ATTEMPTED=1
 lifecycle ready 180 || { echo "Candidate startup not verified; attempting safe rollback"; exit 8; }
 DONE=1
 trap - EXIT

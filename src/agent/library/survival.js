@@ -7,6 +7,7 @@ import * as skills from './skills.js';
 import * as world from './world.js';
 import * as mc from '../../utils/mcdata.js';
 import { zoneAt } from './no_go_zones.js';
+import { protectedAreaAt } from './house_bounds.js';
 import { gotoWithin, walkMovements } from './ai_player_nav.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
@@ -193,16 +194,18 @@ export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {
 
 export async function harvestCrops(bot) {
     const ripe = (b) => (b.getProperties?.()?.age ?? 0) >= (b.name === 'beetroots' ? 3 : 7);
-    const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], 32, 60).filter(ripe).slice(0, 4);
+    const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], 32, 60)
+        .filter(ripe).filter(c => !protectedAreaAt(c.position) && !zoneAt(c.position.x, c.position.z)).slice(0, 4);
     if (!crops.length) return false;
     console.log(`[ai-player] food: harvesting ${crops.length} ${crops[0].name}`);
-    for (const c of crops) { try { await skills.breakBlockAt(bot, c.position.x, c.position.y, c.position.z); } catch (e) {} }
+    let harvested = 0;
+    for (const c of crops) { try { await skills.breakBlockAt(bot, c.position.x, c.position.y, c.position.z); harvested++; } catch (e) {} }
     await skills.pickupNearbyItems(bot);
     if ((world.getInventoryCounts(bot)['wheat'] || 0) >= 3) { try { await skills.craftRecipe(bot, 'bread', 1); } catch (e) {} }
-    return true;
+    return harvested > 0;
 }
 
-// Get food: animals first (best food), then berries, crops, wider hunt; underground, go up first (animals live on
+// Get food: crops first (best food), then berries, crops, wider hunt; underground, go up first (animals live on
 // the surface). Returns true when Bob ate or now holds food.
 export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}) {
     const bot = agent.bot;
@@ -213,9 +216,9 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}
         await relocateForFood(agent);
         return false;
     }
-    let r = await huntAnimal(agent, 24);
+    let r = { ok: await harvestCrops(bot) };
     if (!r.ok) { const b = await harvestBerries(agent, 24); if (b.ok) r = b; }
-    if (!r.ok && await harvestCrops(bot)) r = { ok: true };
+    if (!r.ok) r = await huntAnimal(agent, 24);
     if (!r.ok && escapeUp && (await import('./ai_player_nav.js')).isUnderground(bot)) {
         console.log('[ai-player] food: nothing to eat down here; going up to the surface to hunt');
         await escapeUp(agent, { reason: 'food' });

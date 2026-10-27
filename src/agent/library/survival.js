@@ -61,7 +61,7 @@ export function foodRelocationGround(bot, candidate) {
     }
     return null;
 }
-async function relocateForFood(agent) {
+export async function relocateForFood(agent, { navigate = (bot, goal) => gotoWithin(bot, goal, 12000, walkMovements(bot)) } = {}) {
     const bot = agent.bot;
     if (!bot?.entity?.position || bot.interrupt_code || bot.health <= 0) return false;
     const start = bot.entity.position.clone();
@@ -72,7 +72,7 @@ async function relocateForFood(agent) {
         if (!p) continue;
         if (++attempts > FOOD_RELOCATION_MAX_ATTEMPTS) break;
         try {
-            const ok = await gotoWithin(bot, new pf.goals.GoalNear(p.x, p.y, p.z, 2), 12000, walkMovements(bot));
+            const ok = await navigate(bot, new pf.goals.GoalNear(p.x, p.y, p.z, 2));
             if (ok && bot.entity.position.distanceTo(start) >= 8) {
                 console.log('[ai-player] food: reached a new search area');
                 return true;

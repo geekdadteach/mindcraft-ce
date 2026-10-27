@@ -51,3 +51,11 @@ test('deployment preserves persistence state and never silently erases failure h
   assert.ok(source.indexOf('SNAPSHOT ALL KNOWN BOB STATE FILES') < source.indexOf('INSTALL AND VERIFY STAGED SOURCE'));
   assert.doesNotMatch(source, /rm\s+[^\n]*failures\.json/);
 });
+
+test('startup probe falls back to launchctl print PID and surfaces diagnostic state', () => {
+  const script = fileURLToPath(new URL('../scripts/bob_autonomy_deploy.sh', import.meta.url));
+  const source = readFileSync(script, 'utf8');
+  assert.match(source, /launchctl print "\$DOMAIN\/\$LABEL" 2>\/dev\/null \| awk/);
+  assert.match(source, /LaunchAgent has no stable running launcher/);
+  assert.match(source, /last exit code =/);
+});

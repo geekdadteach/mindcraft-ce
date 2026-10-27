@@ -1,5 +1,15 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+### 2026-10-27 — ChatGPT — Initial sustainable-food guard and balanced relocation (CODED; NOT TESTED)
+- **Goal:** Advance Bob developer orders without deploying or touching server state.
+- **Files:** `src/agent/library/survival.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** Recovery candidates now sample all compass directions at each radius. Hunting checks at least three visible huntable adults of the selected species within 64 blocks, preserving two. Crop gathering precedes berries/hunting, and refuses homestead protected boxes and no-go zones. Breeding and planting are NOT implemented; other-player claims need a reliable protection API before planting.
+- **Tests:** Not run after these commits; previous 148/148 pass belongs to older d3d8b4f. Do not claim current branch passed.
+- **Risk:** Entity adulthood metadata and Minecraft world integration require live-like tests. Crop harvest may not replenish seeds; current guard cannot identify arbitrary player builds.
+- **Rollback:** Revert unmerged commits. Live runtime unchanged.
+- **Next:** Implement remaining orders, test and review. No deploy without Randy's authorization.
+
+
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
 ### 2026-10-26 9:00 PM ET — Grok Bot — Branch `nav-on-live-20261026`: PR #14 on the live tree, porch kept protected

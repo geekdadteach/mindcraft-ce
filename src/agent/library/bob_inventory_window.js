@@ -23,10 +23,12 @@ export async function withInventoryWindow(bot, block, label, operation) {
     if (generation !== bot._actionGen || bot.interrupt_code === true)
       throw new SupersededWindowAction();
   };
-  let window = null, closed = false, result, failed = null;
+  let window = null, opening = false, closed = false, result, failed = null;
   try {
     verifyOwner();
+    opening = true;
     window = await bot.openContainer(block);
+    opening = false;
     verifyOwner();
     result = await operation(window, verifyOwner);
     verifyOwner();
@@ -40,6 +42,9 @@ export async function withInventoryWindow(bot, block, label, operation) {
       } catch (error) {
         console.warn('[ai-player] inventory: close failed; lease quarantined until reconnect: ' + error.message);
       }
+    } else if (!opening) {
+      // An abort that occurs before openContainer starts owns no window.
+      closed = true;
     }
     if (closed) held.delete(bot);
     else {

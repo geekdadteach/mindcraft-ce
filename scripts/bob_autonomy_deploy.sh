@@ -145,9 +145,11 @@ before=json.load(open(sys.argv[1]))
 after=json.load(open(sys.argv[2]))
 for field in ('turns','taskStart','last_sender','self_prompting_state'):
     assert before.get(field) == after.get(field), f'Unexpected change to {field}'
-if 'Inspect your own shelter and lighting.' in str(before.get('self_prompt')):
+legacy_goal = 'Review your equipment and supplies. Choose and complete one useful maintenance or organization task at your homestead.'
+if before.get('self_prompt') == legacy_goal or 'Inspect your own shelter and lighting.' in str(before.get('self_prompt')):
     assert after.get('self_prompt') != before.get('self_prompt'), 'Legacy goal not migrated'
 assert 'Goal: Build/tidy homestead' not in str(after.get('memory')), 'Stale summary still present'
+assert 'Goal: Maintain homestead' not in str(after.get('memory')), 'Stale maintenance summary still present'
 print("Preserved",len(after.get('turns') or []),"conversation turns; autonomy state",after.get('self_prompting_state'))
 print("Migrated goal:",str(after.get('self_prompt'))[:180])
 PY

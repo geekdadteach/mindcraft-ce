@@ -127,3 +127,9 @@ Status words, never conflated: **Proposed** → **Coded** → **Tested** → **M
 
 ## Rules
 See `AGENTS.md`: public-repo warning (no secrets, Discord IDs or ops), Randy's rules, never merge/deploy/force-push/change default branches without his authorization.
+
+## 2026-10-27 follow-up — guarded husbandry and farm ownership (CODED, NOT DEPLOYED)
+- `!breedAnimals` is available as a model-selected gameplay action; the breeding routine requires health, food, feed reserves and an eligible adult pair. No periodic automatic breeding scheduler was added.
+- Crop harvest and replant now FAIL CLOSED unless `BOB_FARM_ENABLED=true` and all four reviewed plot bounds `BOB_FARM_X1`, `BOB_FARM_X2`, `BOB_FARM_Z1`, `BOB_FARM_Z2` are set. Plot must be at most 33x33 blocks, near Bob's base and outside code-protected areas. Do not enable without confirming land ownership on NewEarth.
+- Public operations scripts and migration test removed from PR #19; private `minebob` feature branch contains these plus private preflight tests.
+- Current HEAD is NOT verified on MM20. Do not deploy until full preflight, game telemetry format, rollback and actual protected farm plot are reviewed. Live unchanged.

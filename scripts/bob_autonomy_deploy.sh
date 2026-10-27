@@ -155,6 +155,13 @@ print("Migrated goal:",str(after.get('self_prompt'))[:180])
 PY
 
 echo "===== START ONE LAUNCHD SERVICE ====="
+# Only status lines appended after this point count as proof of a fresh login.
+GAME_LOG="$LIVE/logs/mindcraft.log"
+GAME_LOG_OFFSET="$(python3 - "$GAME_LOG" <<'PY'
+import os,sys
+print(os.path.getsize(sys.argv[1]) if os.path.isfile(sys.argv[1]) else 0)
+PY
+)"
 # Mark candidate start before bootstrap; a partial bootstrap can write memory.
 START_ATTEMPTED=1
 # macOS may report a loaded but temporarily PID-less KeepAlive job.
@@ -171,6 +178,11 @@ else
     fi
 fi
 lifecycle ready 180 || { echo "Candidate startup not verified; attempting safe rollback"; exit 8; }
+echo "===== VERIFY FRESH GAME LOGIN AND MOVEMENT (5 MIN) ====="
+python3 "$STAGE/scripts/bob_autonomy_game_smoke.py" "$GAME_LOG" --offset "$GAME_LOG_OFFSET" --timeout 300 || {
+    echo "Game smoke check failed; attempting safe rollback"
+    exit 9
+}
 DONE=1
 trap - EXIT
 echo "DEPLOYMENT COMPLETE — game behavior still requires live smoke checks"

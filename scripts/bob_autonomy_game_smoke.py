@@ -11,7 +11,7 @@ parser.add_argument("log")
 parser.add_argument("--offset", type=int, default=0)
 parser.add_argument("--timeout", type=int, default=300)
 args = parser.parse_args()
-status = re.compile(r"status pos=\\((-?\\d+(?:\\.\\d+)?),\\s*(-?\\d+(?:\\.\\d+)?),\\s*(-?\\d+(?:\\.\\d+)?)\\)")
+status = re.compile(r"status pos=\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)")
 start = time.monotonic()
 position = None
 offset = args.offset

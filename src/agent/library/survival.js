@@ -25,7 +25,7 @@ export function foodSearchAllowed(agent, position, time = now()) {
     const previous = foodSearchCooldown.get(agent);
     return !previous || previous.cell !== cell || time >= previous.until;
 }
-function noteFoodSearchFailure(agent, position, time = now()) {
+export function noteFoodSearchFailure(agent, position, time = now()) {
     if (!position) return;
     const cell = [position.x, position.y, position.z].map(v => Math.floor(v / FOOD_SEARCH_CELL)).join(',');
     foodSearchCooldown.set(agent, { cell, until: time + NO_FOOD_RETRY_MS });

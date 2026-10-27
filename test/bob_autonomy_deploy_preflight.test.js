@@ -40,3 +40,14 @@ test('deployment waits for stable launchd startup instead of failing after five 
   assert.match(source, /Candidate LaunchAgent remains registered after bootout/);
   assert.doesNotMatch(source, /sleep 5\s*NEWPID=/);
 });
+
+test('deployment preserves persistence state and never silently erases failure history', () => {
+  const script = fileURLToPath(new URL('../scripts/bob_autonomy_deploy.sh', import.meta.url));
+  const source = readFileSync(script, 'utf8');
+  assert.match(source, /bob_snapshot_state\.py/);
+  assert.match(source, /BACK UP FINAL MEMORY STATE/);
+  assert.match(source, /SNAPSHOT ALL KNOWN BOB STATE FILES/);
+  assert.ok(source.indexOf('BACK UP FINAL MEMORY STATE') < source.indexOf('SNAPSHOT ALL KNOWN BOB STATE FILES'));
+  assert.ok(source.indexOf('SNAPSHOT ALL KNOWN BOB STATE FILES') < source.indexOf('INSTALL AND VERIFY STAGED SOURCE'));
+  assert.doesNotMatch(source, /rm\s+[^\n]*failures\.json/);
+});

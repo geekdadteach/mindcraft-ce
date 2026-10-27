@@ -14,7 +14,7 @@ export function migrateSavedGoal(source) {
     // fallback from the homestead-only goal circuit. Do not replace arbitrary
     // player-chosen shelter projects or other independently selected goals.
     const legacyShelterGoal = typeof old === 'string' &&
-        old.trim().replace(/\\s+/g, ' ').replace(/\\.$/, '').toLowerCase() ===
+        old.trim().replace(/\s+/g, ' ').replace(/\.$/, '').toLowerCase() ===
         'inspect your own shelter and lighting. choose one small safe improvement using materials you already own. do not alter protected areas or other players builds';
     if (typeof old === 'string' &&
         (/at your own homestead|homestead plateau|build\/tidy homestead|stop hunting or taming animals/i.test(old) ||

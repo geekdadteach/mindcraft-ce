@@ -67,7 +67,7 @@ export async function harvestBerries(agent, range = 24) {
     const target = cands[0];
     console.log(`[ai-player] food: picking ${target.name} at ${target.position}`);
     await skills.goToPosition(bot, target.position.x, target.position.y, target.position.z, 1);
-    for (const b of world.getNearestBlocks(bot, BERRY_BLOCKS, 5, 30).filter(ripeBerry)) {
+    for (const b of world.getNearestBlocks(bot, BERRY_BLOCKS, 5, 30).filter(ripeBerry).filter(b => !blocked(agent, 'berries', b.name, b.position))) {
         if (b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, bot.entity.height ?? 1.62, 0)) > 4.4) continue;
         try { await bot.lookAt(b.position.offset(0.5, 0.5, 0.5), true); await bot.activateBlock(b); } catch (_) {}
         await new Promise(r => setTimeout(r, 250));

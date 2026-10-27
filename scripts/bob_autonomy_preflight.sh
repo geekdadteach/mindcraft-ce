@@ -12,7 +12,7 @@ FAIL=0
 echo "===== STAGE 1: RUNNER AND SOURCE ====="
 test -x "$NODE"
 test -d "$LIVE/src"
-test -d "$ROOT/.git"
+git -C "$ROOT" rev-parse --is-inside-work-tree | grep -qx true
 "$NODE" --version
 git -C "$ROOT" rev-parse --short HEAD
 git -C "$ROOT" cat-file -e "${BASE}^{commit}"

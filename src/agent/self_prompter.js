@@ -81,7 +81,12 @@ export class SelfPrompter {
         const MAX_NO_COMMAND = 3;
         const NO_COMMAND_PAUSE_MS = 60000;
         while (!this.interrupt) {
-            const msg = `You are self-prompting with the goal: '${this.prompt}'. Your next response MUST contain a command with this syntax: !commandName. Respond:`;
+            const recent = (this.agent._recentTaskEvents || []).slice(-3);
+            const taskNotes = recent.map(e =>
+                '[' + e.type + '] task=' + e.taskId + ' state=' + (e.state || '?') +
+                ' reason=' + (e.reason || '-') + '. A preempted task is NOT an objective failure.'
+            ).join(' ');
+            const msg = `You are self-prompting with the goal: '${this.prompt}'. ${taskNotes} Your next response MUST contain a command with this syntax: !commandName. Respond:`;
             
             this.agent.last_reply_was_model_error = false;
             let used_command;
@@ -90,6 +95,11 @@ export class SelfPrompter {
                 used_command = await this.agent.handleMessage(
                     'system', msg, -1
                 );
+                // Events generated during this turn remain queued for the next turn.
+                if (!this.agent.last_reply_was_model_error && recent.length && this.agent._recentTaskEvents) {
+                    const through = recent[recent.length - 1].serial;
+                    this.agent._recentTaskEvents = this.agent._recentTaskEvents.filter(e => e.serial > through);
+                }
             } finally {
                 this._selfPromptIteration = false;
             }

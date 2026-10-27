@@ -96,7 +96,7 @@ export function installNoGoZoneGuard(agent) {
 
     const refuse = (hit, via) => {
         const tx = Math.round(hit.target.x), tz = Math.round(hit.target.z);
-        const msg = `No-go zone: refused to move to (${tx}, ${tz}); it is ${Math.round(hit.dist)} blocks from ${hit.zone.name} (${hit.zone.x} ${hit.zone.y} ${hit.zone.z}). Stay at least ${NO_GO_RADIUS} blocks away; pick a place near the homestead (${HOMESTEAD.x} ${HOMESTEAD.y} ${HOMESTEAD.z}) instead.`;
+        const msg = `No-go zone: refused to move to (${tx}, ${tz}); it is ${Math.round(hit.dist)} blocks from ${hit.zone.name} (${hit.zone.x} ${hit.zone.y} ${hit.zone.z}). Stay at least ${NO_GO_RADIUS} blocks away; choose another reachable destination outside all protected zones instead.`;
         const key = `${via}:${tx}:${tz}`;
         const now = Date.now();
         if (key !== lastRefusalLog.key || now - lastRefusalLog.at > 10000) {

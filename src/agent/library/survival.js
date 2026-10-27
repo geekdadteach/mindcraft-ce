@@ -41,10 +41,10 @@ export function foodRelocationCandidates(position) {
     if (!position) return [];
     const x = Math.floor(position.x), y = Math.floor(position.y), z = Math.floor(position.z);
     // Interleave directions and distances: a blocked nearby ring must not exhaust every attempt.
-    return [0, 1, 2, 3].flatMap(direction => FOOD_RELOCATION_STEPS.map(d => [
+    return FOOD_RELOCATION_STEPS.flatMap(d => [
         { x: x - d, y, z }, { x, y, z: z - d },
         { x: x + d, y, z }, { x, y, z: z + d },
-    ][direction])).filter(p => !zoneAt(p.x, p.z));
+    ]).filter(p => !zoneAt(p.x, p.z));
 }
 // Ground may rise or fall. Only accept a fully loaded, standable 2-block-high space.
 export function foodRelocationGround(bot, candidate) {

@@ -35,15 +35,16 @@ export function noteFoodSearchFailure(agent, position, time = now()) {
 
 // Only food recovery may relocate a critically weak Bob. No digging, parkour or blind exploration.
 const FOOD_RELOCATION_STEPS = [12, 20, 28];
-const FOOD_RELOCATION_MAX_ATTEMPTS = 4;
+const FOOD_RELOCATION_MAX_ATTEMPTS = 6;
 const HAZARD_BLOCK = /lava|magma|fire|cactus|powder_snow|campfire|sweet_berry_bush/;
 export function foodRelocationCandidates(position) {
     if (!position) return [];
     const x = Math.floor(position.x), y = Math.floor(position.y), z = Math.floor(position.z);
-    return FOOD_RELOCATION_STEPS.flatMap(d => [
+    // Interleave directions and distances: a blocked nearby ring must not exhaust every attempt.
+    return [0, 1, 2, 3].flatMap(direction => FOOD_RELOCATION_STEPS.map(d => [
         { x: x - d, y, z }, { x, y, z: z - d },
         { x: x + d, y, z }, { x, y, z: z + d },
-    ]).filter(p => !zoneAt(p.x, p.z));
+    ][direction])).filter(p => !zoneAt(p.x, p.z));
 }
 // Ground may rise or fall. Only accept a fully loaded, standable 2-block-high space.
 export function foodRelocationGround(bot, candidate) {

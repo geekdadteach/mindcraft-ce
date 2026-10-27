@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-27 — Bob autonomy follow-on (CODED; NOT TESTED; NOT DEPLOYED)
+- PR #19 remains unmerged. Public gameplay patch now includes compass-balanced food relocation and an initial local adult-animal keep-two hunting guard; crop/berry gathering is attempted before hunting, and crop harvesting refuses the homestead protected boxes and no-go zones. These are **not yet validated on MM20**.
+- Private ops work is staged in `geekdadteach/minebob` branch `feature/bob-autonomy-ops-20261027`; public script copies have NOT been deleted because cross-repo test references still need reconciliation.
+- Remaining from developer orders: complete central home source-of-truth refactor, breeding and protected wheat planting, optional logged failure aging, test coverage, private ops integration, secret scan, trial plan and reviewed deployment. No changes to live Bob or server.
+
+
 **Snapshot:** 2026-10-26 8:30 PM ET — branch `live-m4-20261026` is the exact live tree on Randy's Mac mini `.20` (`~/BobRuntime/cutover/mindcraft-m4`). `m4-runtime-20261026` was the 10:20 ET snapshot. Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.

@@ -95,11 +95,11 @@ export class GoalFailureCircuit {
         }
 
         const alternatives = [
-            'Inspect your inventory and health, then choose and complete a useful safe task at your own homestead. Avoid repeating unavailable animal or berry searches unless urgently needed for survival.',
-            'Inspect your own shelter and lighting. Choose one small safe improvement using materials you already own. Do not alter protected areas or other players builds.',
-            'Survey the homestead plateau for safely accessible resources. Choose a practical small task, avoiding the previously unsuccessful search.',
-            'Review your equipment and supplies. Choose and complete one useful maintenance or organization task at your homestead.',
-            'Inspect your surroundings and decide on a different achievable homestead improvement. Preserve your shelter and stay away from other players property.'
+            'Prioritize survival: inspect food, health, and safety. If hungry, obtain and eat food. If endangered, seek shelter. Do not pursue optional work before stabilizing.',
+            'Choose an achievable new outdoor activity such as gathering food, exploring a safe route, farming, or collecting needed materials. Your house is a base, not your boundary.',
+            'Explore a previously unvisited safe surface area outside protected zones. Begin with a nearby reachable location, stay out of hazards, and record useful discoveries.',
+            'Check your supplies and choose a different resource or craft using what you already own. Avoid targets and routes that recently failed.',
+            'Choose a useful independent project: organize your own inventory, improve a safe location, or visit a new natural area. Never modify protected builds or other players property.'
         ];
 
         for (let offset = 0; offset < alternatives.length; offset++) {

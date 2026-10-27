@@ -3,13 +3,13 @@
 # Stops Bob once. Preserves original source, plist and memory for local rollback.
 set -euo pipefail
 
-STAGE="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
-LIVE="\${BOB_LIVE_DIR:-$HOME/BobRuntime/cutover/mindcraft-m4}"
+STAGE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIVE="${BOB_LIVE_DIR:-$HOME/BobRuntime/cutover/mindcraft-m4}"
 LABEL="org.newearth.mindcraft-m4"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
 BASE="72a00e81283caba5c1c33165b5962342bfb49106"
-NODE="\${BOB_NODE22:-$(brew --prefix node@22)/bin/node}"
+NODE="${BOB_NODE22:-$(brew --prefix node@22)/bin/node}"
 BACKUP="$HOME/BobRuntime/backups/native-autonomy-$(date +%Y%m%d-%H%M%S)-$$"
 STOPPED=0
 MODIFIED=0
@@ -76,12 +76,15 @@ on_exit() {
 trap on_exit EXIT
 
 echo "===== MM20 NATIVE AUTONOMY DEPLOYMENT ====="
-test -x "$NODE"
-test -f "$PLIST"
-test -d "$LIVE/src"
-test -f "$LIVE/bots/MineBobNE/memory.json"
-test "$(git -C "$STAGE" branch --show-current)" = "feature/bob-native-autonomy-20261027"
-test -z "$(git -C "$STAGE" status --porcelain --untracked-files=no)"
+echo "Staged checkout: $STAGE"
+echo "Live runtime: $LIVE"
+echo "Node 22: $NODE"
+[[ -x "$NODE" ]] || { echo "FAIL: Node 22 executable missing: $NODE"; exit 2; }
+[[ -f "$PLIST" ]] || { echo "FAIL: LaunchAgent plist missing: $PLIST"; exit 2; }
+[[ -d "$LIVE/src" ]] || { echo "FAIL: live source missing: $LIVE/src"; exit 2; }
+[[ -f "$LIVE/bots/MineBobNE/memory.json" ]] || { echo "FAIL: live memory missing"; exit 2; }
+[[ "$(git -C "$STAGE" branch --show-current)" = "feature/bob-native-autonomy-20261027" ]] || { echo "FAIL: wrong checkout branch"; exit 2; }
+[[ -z "$(git -C "$STAGE" status --porcelain --untracked-files=no)" ]] || { echo "FAIL: staged tracked files modified"; git -C "$STAGE" status --short --untracked-files=no; exit 2; }
 OLDPID="$(service_pid)"
 [[ "$OLDPID" =~ ^[0-9]+$ ]] || { echo "Bob launchd service not running; refusing"; exit 2; }
 echo "Running Bob PID: $OLDPID"

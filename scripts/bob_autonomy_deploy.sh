@@ -44,14 +44,22 @@ on_exit() {
             # source/memory. Never copy over an active agent's files.
             candidate_pid="$(service_pid)"
             if [[ -n "$candidate_pid" ]]; then
+                # Bob launcher spawns the Mineflayer agent as a direct child.
+                # Capture it before bootout, since it may be reparented.
+                candidate_children="$(ps -axo pid=,ppid= | awk -v parent="$candidate_pid" '$2 == parent {print $1}')"
                 launchctl bootout "$DOMAIN" "$PLIST" || true
                 for _ in {1..10}; do
-                    if ! is_alive "$candidate_pid"; then break; fi
+                    candidate_alive=0
+                    if is_alive "$candidate_pid"; then candidate_alive=1; fi
+                    for child in $candidate_children; do
+                        if is_alive "$child"; then candidate_alive=1; fi
+                    done
+                    if [[ "$candidate_alive" -eq 0 ]]; then break; fi
                     sleep 1
                 done
-                if is_alive "$candidate_pid"; then
+                if [[ "$candidate_alive" -eq 1 ]]; then
                     UNSAFE=1
-                    echo "Candidate launcher did not exit; manual recovery required. No files restored."
+                    echo "Candidate launcher or agent still running; manual recovery required. No files restored."
                 fi
             fi
             if [[ "$UNSAFE" -eq 0 ]]; then

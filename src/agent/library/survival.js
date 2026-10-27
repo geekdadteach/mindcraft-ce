@@ -153,10 +153,24 @@ export async function harvestBerries(agent, range = 24) {
 }
 
 // Hunt one passive food animal within range: kill (bounded), collect drops.
+export function huntableAdultCount(bot, type, range = 64) {
+    const pos = bot?.entity?.position;
+    if (!pos) return 0;
+    return Object.values(bot.entities || {}).filter(e =>
+        e?.name === type && e.position?.distanceTo(pos) <= range &&
+        mc.isHuntable(e) && !e.isBaby && e.metadata?.[16] !== true
+    ).length;
+}
+
+// Preserve at least two visible adults of every food species in the local ecosystem.
+export function canHuntSpecies(bot, type, range = 64) {
+    return huntableAdultCount(bot, type, range) > 2;
+}
+
 export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {}) {
     const bot = agent.bot;
     const before = foodStock(bot) + RAW_FOODS.reduce((s, n) => s + (world.getInventoryCounts(bot)[n] || 0), 0);
-    const animal = world.getNearestEntityWhere(bot, e => types.includes(e.name) && mc.isHuntable(e) &&
+    const animal = world.getNearestEntityWhere(bot, e => types.includes(e.name) && mc.isHuntable(e) && canHuntSpecies(bot, e.name) &&
         !blocked(agent, 'hunt', e.name, e.position.floored()), range);
     if (!animal) return { ok: false, why: `no ${types.join('/')} within ${range} blocks` };
     console.log(`[ai-player] food: hunting ${animal.name} at ${animal.position.floored()} (${Math.round(animal.position.distanceTo(bot.entity.position))}m)`);

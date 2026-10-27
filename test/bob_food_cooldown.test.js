@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { foodSearchAllowed, noteFoodSearchFailure, foodRelocationCandidates, foodRelocationGround, relocateForFood } from '../src/agent/library/survival.js';
+import { foodSearchAllowed, noteFoodSearchFailure, foodRelocationCandidates, foodRelocationGround, relocateForFood, inBobFarmArea } from '../src/agent/library/survival.js';
 
 test('failed food search is throttled in same 16-block cell for 45 seconds', () => {
     const agent = {};
@@ -98,4 +98,11 @@ test('first recovery attempts cover all four compass directions', () => {
     const first = foodRelocationCandidates(origin).slice(0, 4);
     assert.deepEqual(first.map(p => [p.x-origin.x, p.z-origin.z]),
         [[-12, 0], [0, -12], [12, 0], [0, 12]]);
+});
+
+test('farming never targets house structures, no-go zones or distant farmland', () => {
+    assert.equal(inBobFarmArea({x:-823,y:124,z:568}), false);
+    assert.equal(inBobFarmArea({x:-830,y:124,z:580}), true);
+    assert.equal(inBobFarmArea({x:-750,y:124,z:568}), false);
+    assert.equal(inBobFarmArea({x:-572,y:69,z:480}), false);
 });

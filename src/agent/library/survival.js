@@ -35,6 +35,8 @@ export function noteFoodSearchFailure(agent, position, time = now()) {
 
 // Only food recovery may relocate a critically weak Bob. No digging, parkour or blind exploration.
 const FOOD_RELOCATION_STEPS = [12, 20, 28];
+const FOOD_RELOCATION_MAX_ATTEMPTS = 4;
+const HAZARD_BLOCK = /lava|magma|fire|cactus|powder_snow|campfire|sweet_berry_bush/;
 export function foodRelocationCandidates(position) {
     if (!position) return [];
     const x = Math.floor(position.x), y = Math.floor(position.y), z = Math.floor(position.z);
@@ -43,19 +45,31 @@ export function foodRelocationCandidates(position) {
         { x: x + d, y, z }, { x, y, z: z + d },
     ]).filter(p => !zoneAt(p.x, p.z));
 }
+// Ground may rise or fall. Only accept a fully loaded, standable 2-block-high space.
+export function foodRelocationGround(bot, candidate) {
+    if (!bot?.blockAt || !candidate || zoneAt(candidate.x, candidate.z)) return null;
+    for (let dy = 2; dy >= -4; dy--) {
+        const p = new Vec3(candidate.x, candidate.y + dy, candidate.z);
+        const feet = bot.blockAt(p), head = bot.blockAt(p.offset(0, 1, 0));
+        const floor = bot.blockAt(p.offset(0, -1, 0));
+        if (!feet || !head || !floor) continue;
+        if (feet.boundingBox !== 'empty' || head.boundingBox !== 'empty' ||
+            floor.boundingBox !== 'block' || HAZARD_BLOCK.test(
+                feet.name + ' ' + head.name + ' ' + floor.name)) continue;
+        return p;
+    }
+    return null;
+}
 async function relocateForFood(agent) {
     const bot = agent.bot;
     if (!bot?.entity?.position || bot.interrupt_code || bot.health <= 0) return false;
-    // Never attempt a blind long-distance walk. Pathfinder must find a non-digging route.
     const start = bot.entity.position.clone();
-    for (const p of foodRelocationCandidates(start)) {
+    let attempts = 0;
+    for (const candidate of foodRelocationCandidates(start)) {
         if (bot.interrupt_code || bot.health <= 0) return false;
-        const foot = bot.blockAt(new Vec3(p.x, p.y, p.z));
-        const head = bot.blockAt(new Vec3(p.x, p.y + 1, p.z));
-        const floor = bot.blockAt(new Vec3(p.x, p.y - 1, p.z));
-        if (!foot || !head || !floor || foot.boundingBox !== 'empty' ||
-            head.boundingBox !== 'empty' || floor.boundingBox !== 'block' ||
-            /lava|magma|fire|cactus|powder_snow/.test(floor.name + foot.name)) continue;
+        const p = foodRelocationGround(bot, candidate);
+        if (!p) continue;
+        if (++attempts > FOOD_RELOCATION_MAX_ATTEMPTS) break;
         try {
             const ok = await gotoWithin(bot, new pf.goals.GoalNear(p.x, p.y, p.z, 2), 12000, walkMovements(bot));
             if (ok && bot.entity.position.distanceTo(start) >= 8) {
@@ -64,6 +78,7 @@ async function relocateForFood(agent) {
             }
         } catch (err) { console.log('[ai-player] food: relocation failed: ' + (err?.message || err)); }
     }
+    console.log('[ai-player] food: no safe relocation route found; not repeating blind movement');
     return false;
 }
 

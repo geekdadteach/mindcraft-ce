@@ -99,6 +99,21 @@ export class Agent {
 
         console.log(this.name, 'logging into minecraft...');
         this.bot = initBot(this.name);
+        // Only recent interrupted/uncertain outcomes are injected into the next Andy goal turn.
+        this._recentTaskEvents = [];
+        this._taskEventSerial = 0;
+        this.bot.on('bob_task_event', event => {
+            if (!['task.cancel_requested', 'task.uncertain', 'task.finished'].includes(event?.type)) return;
+            if (event.type === 'task.finished' && event.state === 'succeeded') return;
+            const serial = ++this._taskEventSerial;
+            this._recentTaskEvents.push({
+                serial, type: event.type, label: String(event.label || '').slice(0, 80),
+                taskId: String(event.taskId || '').slice(0, 80),
+                reason: String(event.reason || '').slice(0, 110),
+                state: String(event.state || '').slice(0, 30)
+            });
+            if (this._recentTaskEvents.length > 12) this._recentTaskEvents.splice(0, this._recentTaskEvents.length - 12);
+        });
         try { attachBobBrain(this); } catch (err) { console.warn(`[bob-brain] disabled: ${err?.message || err}`); }
         installPhysicsGuard(this.bot); // [ai-player] stability.js: clamp runaway velocity (hang/OOM fix)
         this.escape = { up: escapeUp, gotoChecked }; // [ai-player] item 3: staircase escape + checked routes

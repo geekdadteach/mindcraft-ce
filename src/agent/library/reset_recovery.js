@@ -1,4 +1,4 @@
-import { HOME } from './bob_home.js';
+import { CLAIM } from './bob_claim.js';
 // [ai-player] reset-recovery-20261026 (M4 port of the .60 ai-player-reset-watcher, Oct 20 2026).
 // What it keeps from the old watcher: when an operator's /bobreset teleports Bob onto the door plate
 // (-819.5 124 565.5), Bob gets ONE system note in memory.json and a `reset:<action>` lesson in lessons.json,
@@ -14,7 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { navMemory } from './bob_nav_memory.js'; // nav-on-live-20261026
 
-export const TARGET = HOME.entrance;
+export const TARGET = CLAIM.center; // claim center is informational, never a teleport destination
 export const COOLDOWN_MS = 180000;
 const SAMPLE_MS = 500, INBOX_POLL_MS = 3000, MAX_REQ_BYTES = 4096, MAX_NOTE = 300;
 const KINDS = new Set(['reset', 'planned-restart', 'note', 'home', 'tphome']); // tphome: stuck-home-20261026
@@ -133,16 +133,9 @@ export class ResetRecovery {
             if (req.lesson) { const key = `recovery:${req.reason.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 40)}`; this.agent.longMemory?._addLesson(key, req.note, 'fail'); return `note + lesson ${key}`; }
             return 'note recorded';
         }
-        if (req.kind === 'home') {
-            const { executeCommand } = await import('../commands/index.js');
-            const place = req.place || 'house';
-            const res = await executeCommand(this.agent, `!goToRememberedPlace("${place}")`);
-            const p = this._pos();
-            return `goToRememberedPlace(${place}) -> ${String(res ?? 'done').slice(0, 200)}; now at ${p ? [p.x, p.y, p.z].map(Math.round).join(' ') : '?'}`;
-        }
-        if (req.kind === 'tphome') { // stuck-home-20261026: fixed '/home house'; reason "force" only shortens the 10-min backoff to 35 s
-            if (!this.agent.stuckHome) return 'not sent: stuck-home is not installed';
-            return await this.agent.stuckHome.request({ force: req.reason === 'force', by: req.by });
+        if (req.kind === 'home' || req.kind === 'tphome') {
+            // No built and verified house exists yet. Do not route or teleport to a claim center.
+            return 'not sent: home recovery is disabled until Bob has built and verified a home';
         }
         return 'unknown kind';
     }

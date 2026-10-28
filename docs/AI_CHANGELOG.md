@@ -5,7 +5,7 @@
 - **Files:** `src/agent/library/{bob_home,bob_homestead,bob_home_migrate,bob_claim_protect,house_bounds,bob_enclosure,home_route,ai_player_nav,stuck_home,reset_recovery,escape,bob_goal_circuit,long_memory,protected_area,no_go_zones}.js`, `src/agent/{agent,modes}.js`, `src/agent/commands/{actions,queries}.js`, `scripts/migrate_bob_home.js`, profiles, tests listed in the handoff, these docs.
 - **Summary:** Verified home is discovered from world features (door+bed+geometry) and persisted in `bots/<name>/verified_home.json`. Homestead progress in `homestead.json`. Hilltop is never a destination. Optional operator-only GriefPrevention helper (inbox `claim-property`) clicks the 128×128 corners and checks `/claimslist`; it never runs on start. Migration script dry-runs by default.
 - **Claim plugin (from operator read-only check, not a live lookup in this repo):** GriefPrevention 16.18.7 on Paper; no WorldGuard; do not use NewEarthRules safe zones. No claim on the 128×128 yet. Golden-shovel corners (-1208,688) and (-1081,815); fallback `/adminclaims` + `/transferclaim MineBobNE`. **Needs Randy approval before anyone creates the claim.**
-- **Tests:** `npm test` on Node 22. D1–D7 plus geometry, enclosure, escape, migrate, GP helper.
+- **Tests:** `npm test` on Node 22: 184/184 pass, 0 fail. D1–D7 plus geometry, enclosure, escape, migrate, GP helper. No in-game validation.
 - **Deploy status:** Draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
 - **Rollback:** Do not merge. Revert the PR branch if needed. Migration `--apply` restores from `bots/<name>/migrations/home-<ts>/`.
 

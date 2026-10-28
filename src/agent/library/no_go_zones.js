@@ -1,4 +1,3 @@
-import { HOME } from './bob_home.js';
 // [ai-player] No-go zones enforced in code (not just the prompt).
 // Any pathfinder target (goto / setGoal: goToCoordinates, goToPlayer, followPlayer, collectBlock, generated code, ...)
 // whose x/z lies within NO_GO_RADIUS of a zone centre is refused and logged. Moving away (GoalInvert) is allowed.
@@ -14,7 +13,7 @@ export const NO_GO_ZONES = [
     { name: 'world spawn and its builds', x: -543, y: 75, z: 448 },
     { name: 'the racetrack', x: -264, y: 66, z: 513 },
 ];
-export const HOMESTEAD = HOME.base;
+// No fixed homestead: Bob has a claim, not a prebuilt home.
 
 const ESCAPE_RETRY_MS = 45000;
 const TICK_MS = 3000;
@@ -72,17 +71,16 @@ export function escapeHeading(x, z) {
         const d = Math.hypot(dx, dz);
         if (d < NO_GO_RADIUS + 16) { const w = d < 1 ? 1 : 1 / d; vx += (d < 1 ? -1 : dx) * w; vz += dz * w; }
     }
-    const hx = HOMESTEAD.x - x, hz = HOMESTEAD.z - z, hd = Math.hypot(hx, hz) || 1;
-    vx += 0.5 * hx / hd; vz += 0.5 * hz / hd;
+    // Escape directly away from restricted zones, never toward an assumed home.
     const n = Math.hypot(vx, vz) || 1;
     return [vx / n, vz / n];
 }
 
 // pr20-reconciled-20261027: where to go after the exit legs. null = already safely out (stay, no home walk).
-export function afterEscapeTarget(x, z) {
-    if (!Number.isFinite(x) || !Number.isFinite(z)) return HOMESTEAD;
-    const near = NO_GO_ZONES.some(zn => Math.hypot(x - zn.x, z - zn.z) < NO_GO_RADIUS + EXIT_MARGIN);
-    return near ? HOMESTEAD : null;
+export function afterEscapeTarget(_x, _z) {
+    // No fallback home exists. Remaining in a zone requires another local escape attempt,
+    // not teleporting or walking to an unverified claim center.
+    return null;
 }
 
 export function installNoGoZoneGuard(agent) {
@@ -90,10 +88,7 @@ export function installNoGoZoneGuard(agent) {
     if (!bot?.pathfinder || bot._aiPlayerNoGoGuard) return;
     bot._aiPlayerNoGoGuard = true;
 
-    for (const zone of NO_GO_ZONES) {
-        const d = Math.hypot(HOMESTEAD.x - zone.x, HOMESTEAD.z - zone.z);
-        console.log(`[ai-player] zone-guard: ${zone.name} (${zone.x} ${zone.y} ${zone.z}) radius ${NO_GO_RADIUS}; homestead is ${Math.round(d)} blocks away`);
-    }
+    for (const zone of NO_GO_ZONES) console.log(`[ai-player] zone-guard: ${zone.name} radius ${NO_GO_RADIUS}`);
 
     const pfx = bot.pathfinder;
     const origGoto = pfx.goto;

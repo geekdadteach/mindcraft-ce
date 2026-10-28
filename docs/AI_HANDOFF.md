@@ -11,7 +11,7 @@
   6. **`AGENTS.md`** documents claim-first architecture, hilltop retirement, and operator rules.
   7. **Migration:** death/zone/reset lessons rewritten; `--apply` requires `--bot-stopped`; compact JSON preserved; hilltop regex requires nearby x, not a lone z 564–573.
   8. **Low:** homestead skip-save; null-safe `HOUSE_AREA`/`DOOR`/`EXIT_WAYPOINT`; enclosure re-exports the house_bounds object; profile keep-away excludes Bob's own claim; stale `-820 124 566` comments removed from `agent.js`, `reset_recovery.js`, `skills.js`.
-- Tests: `npm test` on Node 22. New/extended: `test/bob_vec3_block.test.js`, owned-home, sethome refuse/hilltop-landing, claim walk/approval, migrate bot-stopped/lessons/compact, homestead skip-save. No in-game validation. Do not deploy or merge.
+- Tests: `npm test` on Node 22: **201/201 pass**, 0 fail (was 184/184 before this review pass). New/extended: `test/bob_vec3_block.test.js`, owned-home, sethome refuse/hilltop-landing, claim walk/approval, migrate bot-stopped/lessons/compact, homestead skip-save. No in-game validation. Do not deploy or merge.
 
 ## 2026-10-28 — Claim-first homestead conversion (CODED; unit tests; NOT DEPLOYED)
 - Branch: `cursor/claim-first-homestead-9db4` off `work/bob-home-from-live-20261028`. Draft PR only. Never merge, never target `main`, never deploy without Randy.
@@ -34,7 +34,7 @@
 - **Deploy:** do not deploy this branch. Live Bob and the Mac mini `.20` stay on the current snapshot. After Randy reviews the draft PR: backup `bots/MineBobNE`, dry-run migration, create the GP claim (approved method above), then a planned restart of the new tree. Runtime `run/stuck-home.config.json` should keep `"auto"` unset/false unless Randy opts in.
 - **Rollback:** do not merge. If a deploy happens later, restore the previous tree and `bots/MineBobNE/migrations/home-<ts>/` copies; GP claim rollback is a separate server `/abandonclaim` (or equivalent) decision for Randy, not this repo.
 - **Runtime-config concerns:** live `run/stuck-home.config.json` currently uses `"radius": null` (unlimited). After a verified home exists, a 64-block radius is the code default; unlimited remains valid if the ops file keeps `null`. Night-home and unstuck-home env vars must stay unset unless Randy wants those controllers. Farming still needs `BOB_FARM_ENABLED=true` plus in-claim plot bounds; the old hilltop wheat plot is no longer accepted.
-- Tests: `npm test` (`node --test "test/**/*.test.js"`) on Node 22: **184/184 pass**, 0 fail. New coverage in `test/bob_homestead.test.js`, `test/bob_home_migrate.test.js`, `test/bob_escape_pocket.test.js`, `test/bob_claim_protect.test.js`, `test/bob_claim_first_integration.test.js` (D1–D7). No in-game validation.
+- Tests: `npm test` (`node --test "test/**/*.test.js"`) on Node 22 was **184/184** at the first claim-first commit; the live-review fix pass is **201/201** (see entry above). New coverage in `test/bob_homestead.test.js`, `test/bob_home_migrate.test.js`, `test/bob_escape_pocket.test.js`, `test/bob_claim_protect.test.js`, `test/bob_claim_first_integration.test.js` (D1–D7). No in-game validation.
 
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.

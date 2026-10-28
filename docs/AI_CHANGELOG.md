@@ -4,7 +4,7 @@
 - **Goal:** Fix every ranked item from the live-machine review of draft PR #21. Item 1 is a real live bug: `bot.blockAt` was given plain `{x,y,z}` objects; prismarine-world calls `pos.floored()`.
 - **Files:** `src/agent/library/{vec3_util,bob_home,bob_homestead,bob_claim_protect,bob_home_migrate,stuck_home,chat_guard,house_bounds,bob_enclosure,long_memory,reset_recovery,skills}.js`, `src/agent/{agent,commands/actions}.js`, `scripts/migrate_bob_home.js`, profiles, `AGENTS.md`, these docs, tests including new `test/bob_vec3_block.test.js`.
 - **Summary:** Vec3 wrappers + strict mocks; in-claim + Bob-owned home; `/home house` refused until `/sethome house` at the verified door; claim helper walks/verifies/requires `approved:true`; migration lessons + `--bot-stopped` + compact JSON + tight regex; homestead skip-save; null-safe getters; enclosure `HOUSE_AREA` is the house_bounds object; own-claim excluded from keep-away; stale hilltop comments removed. Base `e6e20c8` already merged (no rebase/force).
-- **Tests:** `npm test` on Node 22 (counts recorded after the run). Vec3-strict tests would have caught item 1.
+- **Tests:** `npm test` on Node 22: **201/201 pass**, 0 fail. Vec3-strict tests would have caught item 1.
 - **Deploy status:** Draft PR #21 against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
 - **Rollback:** Do not merge. Revert the review-fix commit(s) on the PR branch if needed.
 

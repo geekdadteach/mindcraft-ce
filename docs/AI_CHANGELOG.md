@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — Home consolidation on verified live snapshot (CODED; NOT DEPLOYED)
+- Branch: `work/bob-home-from-live-20261028`, based on sanitized live snapshot `a438d10`; PR #19/#20, main and running Mac unchanged.
+- Centralized house coordinates, door/porch protection geometry, indoor occupancy bounds, cave escape avoidance center, enclosure probe positions, reset target, diagnostics, and fixed memory places in `bob_home.js` and consumers. Indoor detection remains distinct from the protected area. The bed hint is now `-822 124 569` rather than `-823 124 568`, with the same six-block search radius.
+- `home_routes.json` transitions to version 2 with a `home` entrance key when saved. Version-1 data at the unchanged entrance retains its routes; relocation invalidates old waypoints and archives the original file as `home_routes.json.pre-relocation.json` on save. Other saved memory files are not deleted or reset.
+- Regression tests now reside in `test/bob_home_geometry.test.js`. `npm test` uses `node --test "test/**/*.test.js"` so the root `zz-lm-test.mjs` embedding probe is not run.
+- Developer independently verified earlier HEAD `54d6e4b`: 157/157 tests via unscoped `node --test` (includes unrelated root embedding probe); PR #20 suites remained green, and Bob stayed PID 65846. **The later test relocation, scoped npm test command and documentation commits have not yet been retested.** No live in-game validation or deployment authorization. Keep Bob running unchanged until reviewed.
+- Remaining release gate: `npm test` on current branch, review runtime route persistence on a copy of saved data, then explicit deployment approval. No automatic home behavior switches changed.
+
 ### 2026-10-28 8:47 AM ET — Grok Bot — Branch `snapshot/bob-live-m4-20261028`: sanitized live `.20` snapshot
 - **Goal:** Randy (8:46 AM ET) asked for a snapshot of Bob's live code on a separate branch, excluding credentials, private runtime data and logs, as the exact baseline to finish against.
 - **Files:** Over `3d6bd38`: `src/agent/library/{stuck_home,ai_player_nav,reset_recovery,no_go_zones}.js`, `src/agent/modes.js`, `test/bob_stuck_home.test.js`, new `test/bob_pr20_independent.test.js`, `test/bob_pr20_navigation.test.js` (reconciled PR #20 as deployed Oct 27 7:00 PM ET; auto home-teleport/night-home/unstuck-home opt-in only), plus these docs.

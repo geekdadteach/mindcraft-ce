@@ -1,3 +1,4 @@
+import { HOME } from './bob_home.js';
 // [ai-player] Detect being boxed in at the house: several distinct outside
 // targets fail with NoPath from inside the house area in a short window.
 // Scripted door-exit is attempted once; a process reset is last resort only.
@@ -13,7 +14,7 @@ import { coordCellKey, goalPosition, navConsole } from './bob_nav_memory.js';
 
 export const ENCLOSURE_WINDOW_MS = 8 * 60_000;
 export const ENCLOSURE_REQUIRED_TARGETS = 3;
-export const EXIT_WAYPOINT = { x: -819.5, y: 124, z: 562.5 };
+export const EXIT_WAYPOINT = HOME.exitWaypoint;
 
 // Two-high columns on the porch and just north of the door (the sealed exit).
 export const EXIT_PROBE_CELLS = [

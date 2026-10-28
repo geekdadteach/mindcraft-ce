@@ -1,6 +1,8 @@
 // Optional operator-triggered GriefPrevention helper. Never runs on its own.
 // Corners are the 128×128 claim; GP claims are full height and do not confine the owner.
+import pf from 'mineflayer-pathfinder';
 import { CLAIM, claimBounds } from './bob_claim.js';
+import { botGetBlock } from './vec3_util.js';
 
 export const CLAIM_PLUGIN = Object.freeze({
     name: 'GriefPrevention',
@@ -19,18 +21,21 @@ export function claimCorners(claim = CLAIM) {
     ]);
 }
 
+function pairOnLine(line, x, z) {
+    return new RegExp(`(?:^|[^\\d-])${x}(?:\\s*,\\s*-?\\d+)?\\s*[, ]\\s*${z}(?:[^\\d]|$)`).test(String(line));
+}
+
 export function parseClaimsList(text, { username = 'MineBobNE' } = {}) {
     const raw = String(text || '');
     const lines = raw.split(/\r?\n/);
     const mentions = lines.filter((l) => new RegExp(username, 'i').test(l) || /claim/i.test(l));
     const b = claimBounds();
-    const hasSW = raw.includes(String(b.x1)) && raw.includes(String(b.z1));
-    const hasNE = raw.includes(String(b.x2)) && raw.includes(String(b.z2));
-    const covers = hasSW && hasNE;
+    const hasSW = lines.some((l) => pairOnLine(l, b.x1, b.z1));
+    const hasNE = lines.some((l) => pairOnLine(l, b.x2, b.z2));
     return {
         raw,
         mentionsUser: new RegExp(username, 'i').test(raw),
-        coversClaim: covers,
+        coversClaim: hasSW && hasNE,
         corners: claimCorners(),
         lines: mentions.slice(0, 12),
     };
@@ -42,12 +47,19 @@ export function findSurfaceY(getBlock, x, z, { fromY = 80, toY = 50 } = {}) {
         try { feet = getBlock(x, y, z); } catch (_) { continue; }
         try { below = getBlock(x, y - 1, z); } catch (_) { continue; }
         const fn = String(feet?.name || 'air');
-        const bn = String(below?.name || '');
-        if ((fn === 'air' || fn === 'cave_air' || /pressure_plate|grass|snow/.test(fn)) && below && below.boundingBox === 'block')
-            return y - (fn === 'air' || fn === 'cave_air' ? 0 : 0);
-        if ((fn === 'air' || fn === 'cave_air') && bn && bn !== 'air' && bn !== 'cave_air') return y;
+        const belowSolid = below && (below.boundingBox === 'block' || (below.name && below.name !== 'air' && below.name !== 'cave_air'));
+        if ((fn === 'air' || fn === 'cave_air') && belowSolid) return y;
     }
-    return 65;
+    return null;
+}
+
+async function defaultGoto(agent, x, y, z) {
+    if (agent?.escape?.gotoChecked) {
+        return agent.escape.gotoChecked(agent, new pf.goals.GoalNear(x, y, z, 2), {
+            ms: 120000, label: 'claim-corner',
+        });
+    }
+    return false;
 }
 
 export async function claimProperty(agent, {
@@ -55,22 +67,54 @@ export async function claimProperty(agent, {
     activateBlock,
     equip,
     chat,
+    goto,
     wait = (ms) => new Promise((r) => setTimeout(r, ms)),
     username = agent?.name || 'MineBobNE',
+    approved = false,
 } = {}) {
+    if (approved !== true) {
+        return {
+            ok: false,
+            refused: true,
+            plugin: CLAIM_PLUGIN.name,
+            steps: [],
+            corners: claimCorners(),
+            fallback: CLAIM_PLUGIN.adminFallback,
+            approval: 'Requires Randy approval before use on the live server (approved:true).',
+        };
+    }
     const bot = agent?.bot;
     const corners = claimCorners();
-    const blockAt = getBlock || ((x, y, z) => bot?.blockAt?.({ x, y, z }));
+    const blockAt = getBlock || botGetBlock(bot);
     const steps = [];
     if (typeof equip === 'function') {
         await equip('golden_shovel');
         steps.push('equipped golden_shovel');
     }
+    const walk = typeof goto === 'function' ? goto : (x, y, z) => defaultGoto(agent, x, y, z);
     for (const c of corners) {
+        const yGuess = findSurfaceY(blockAt, c.x, c.z) ?? 65;
+        const reached = await walk(c.x, yGuess, c.z);
+        if (!reached) {
+            steps.push(`could not reach ${c.x} ${c.z}`);
+            continue;
+        }
         const y = findSurfaceY(blockAt, c.x, c.z);
-        const block = blockAt(c.x, y - 1, c.z) || { x: c.x, y: y - 1, z: c.z, name: 'grass_block' };
+        if (y == null) {
+            steps.push(`no surface at ${c.x} ${c.z}`);
+            continue;
+        }
+        const block = blockAt(c.x, y - 1, c.z);
+        if (!block || (block.boundingBox && block.boundingBox !== 'block')) {
+            steps.push(`no solid block at ${c.x} ${y - 1} ${c.z}`);
+            continue;
+        }
         if (typeof activateBlock === 'function') await activateBlock(block);
         else if (bot?.activateBlock) await bot.activateBlock(block);
+        else {
+            steps.push(`no activateBlock for ${c.x} ${y - 1} ${c.z}`);
+            continue;
+        }
         steps.push(`clicked ${c.x} ${y - 1} ${c.z}`);
         await wait(400);
     }

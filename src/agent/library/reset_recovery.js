@@ -2,8 +2,8 @@ import { CLAIM } from './bob_claim.js';
 import { getActiveHome, isVerifiedHome } from './bob_home.js';
 import { claimProperty } from './bob_claim_protect.js';
 // [ai-player] reset-recovery-20261026 (M4 port of the .60 ai-player-reset-watcher, Oct 20 2026).
-// What it keeps from the old watcher: when an operator's /bobreset teleports Bob onto the door plate
-// (-819.5 124 565.5), Bob gets ONE system note in memory.json and a `reset:<action>` lesson in lessons.json,
+// What it keeps from the old watcher: when an operator's /bobreset teleports Bob onto the verified
+// door plate, Bob gets ONE system note in memory.json and a `reset:<action>` lesson in lessons.json,
 // and a "[ai-player] reset: ..." line goes to the Mindcraft log. Detector constants are unchanged
 // (jump > 20 blocks within 3 s, landing within 1 block / 1.5 y of the door, 3 min cooldown).
 // What changed: no process restart. The old watcher stopped/started the service to "start fresh"; here the
@@ -79,7 +79,8 @@ export function readRequest(file, uid = process.getuid?.()) {
     const req = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!req || typeof req !== 'object' || req.v !== 1 || !KINDS.has(req.kind)) throw new Error('bad request');
     return { v: 1, kind: req.kind, reason: cleanText(req.reason) || 'manual', note: cleanText(req.note), lesson: req.lesson === true,
-        by: cleanText(req.by).slice(0, 40) || 'unknown', ts: Number.isFinite(req.ts) ? req.ts : 0, place: cleanText(req.place).replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40) };
+        by: cleanText(req.by).slice(0, 40) || 'unknown', ts: Number.isFinite(req.ts) ? req.ts : 0, place: cleanText(req.place).replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40),
+        approved: req.approved === true };
 }
 
 export class ResetRecovery {
@@ -158,8 +159,11 @@ export class ResetRecovery {
             return this.agent.stuckHome.request({ force: req.reason === 'force', by: req.by });
         }
         if (req.kind === 'claim-property') {
+            if (req.approved !== true) {
+                return 'refused: claim-property requires approved:true (Randy)';
+            }
             this.log('claim-property: operator requested GriefPrevention claim; this is not automatic and still needs Randy approval if used live');
-            const r = await claimProperty(this.agent);
+            const r = await claimProperty(this.agent, { approved: true });
             if (typeof r === 'string') return r;
             const steps = (r?.steps || []).join('; ');
             return `claim-property ${r?.ok ? 'covers claim' : 'unconfirmed'}; ${steps}${r?.approval ? '; ' + r.approval : ''}`;

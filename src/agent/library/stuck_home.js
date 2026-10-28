@@ -1,4 +1,4 @@
-import { getActiveHome, isLegacyHilltopPos, isVerifiedHome } from './bob_home.js';
+import { essentialsHomeReady, getActiveHome, isLegacyHilltopPos, isVerifiedHome } from './bob_home.js';
 // [ai-player] stuck-home-20261026 (approved by Randy, Oct 26 2026 1:56 PM ET: "Go with /home house set at his
 // door, block cheat mode, and restart Bob").
 // Code-only self-rescue: when Bob is near a verified home but cannot walk to it, send the fixed Essentials
@@ -29,7 +29,7 @@ export { HOME_CMD };
 export function doorOf(home = getActiveHome()) {
     return isVerifiedHome(home) ? home.entrance : null;
 }
-export const DOOR = { get x() { return doorOf()?.x; }, get y() { return doorOf()?.y; }, get z() { return doorOf()?.z; } };
+export const DOOR = { get x() { return doorOf()?.x ?? null; }, get y() { return doorOf()?.y ?? null; }, get z() { return doorOf()?.z ?? null; } };
 // pr20-reconciled-20261027: no distance limit in the note.
 export const STUCK_HOME_NOTE = 'You were stuck, so /home house brought you to your front door. Start fresh: check your inventory, avoid the route and spot where you got stuck, then pick a reachable destination and continue your own activity wherever it is safe and permitted.';
 export const DEFAULTS = Object.freeze({
@@ -51,6 +51,7 @@ export function distTo(p, t = doorOf()) {
 export function decide(s, now, cfg = DEFAULTS) {
     if (s.busy) return { go: false, why: 'already teleporting' };
     if (s.noHome) return { go: false, why: 'no verified home' };
+    if (s.noEssentialsHome) return { go: false, why: 'Essentials /home house is not set at the verified door' };
     if (s.dist == null) return { go: false, why: 'no position' };
     if (s.dist <= cfg.atDoorDist) return { go: false, why: 'already at the door' };
     if (cfg.radius && s.dist > cfg.radius) return { go: false, why: `${Math.round(s.dist)} blocks from the door (> ${cfg.radius})` }; // radius null/0 = unlimited
@@ -132,7 +133,7 @@ export class StuckHome {
 
     _status(extra = {}) {
         const t = this.now(), door = this._door(), d = distTo(this._pos(), door);
-        return { dist: d, noHome: !door, fails: this.fails, goalActive: this.goalActive(), stalledMs: this.best == null ? 0 : t - this.bestAt,
+        return { dist: d, noHome: !door, noEssentialsHome: !essentialsHomeReady(this._home()), fails: this.fails, goalActive: this.goalActive(), stalledMs: this.best == null ? 0 : t - this.bestAt,
             lastAttemptMs: this.state.last_attempt_ms, lastDamageMs: this.lastDamageMs, combat: this._combat(), busy: this.busy, ...extra };
     }
 
@@ -188,6 +189,10 @@ export class StuckHome {
         try {
             const door = this._door();
             if (!door) { this.log('TELEPORT refused: no verified home'); return 'not sent: no verified home'; }
+            if (!essentialsHomeReady(this._home())) {
+                this.log('TELEPORT refused: Essentials /home house still points at the retired hilltop; /sethome house at the verified door first');
+                return 'not sent: Essentials /home house is not set at the verified door';
+            }
             this.state.last_attempt_ms = this.now(); this.state.attempts = (this.state.attempts || 0) + 1; this.state.last_reason = why; this.save();
             this.log(`TELEPORT: ${why}; at ${fmt(from)} (${Math.round(distTo(from, door) || 0)} blocks from the door), action ${action || '-'}; stopping and sending "${HOME_CMD}"`);
             try { agent.resetRecovery?.detector?.setLastTrigger(this.now()); } catch (_) {} // the 20-block detector must not record it twice
@@ -209,6 +214,7 @@ export class StuckHome {
             if (isLegacyHilltopPos(this._pos(), 16)) {
                 this.state.last_result = 'fail: landed at retired hilltop';
                 this.log('TELEPORT failed: landed at the retired hilltop; treating as failure');
+                try { this.agent.homeState?.markEssentialsSet?.(false); } catch (_) {}
                 result = 'failed: landed at retired hilltop';
             } else if (d != null && d <= cfg.successDist) {
                 this.state.last_result = 'ok'; this.state.successes = (this.state.successes || 0) + 1; this._goalDone();

@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { CLAIM, CLAIM_SURVEY, claimBounds, isInClaim, isKnownUnsafeFoundation } from './bob_claim.js';
 import { discoverHomeFeatures, isLegacyHilltopPos, isVerifiedHome, verifyHomeInWorld } from './bob_home.js';
+import { botGetBlock } from './vec3_util.js';
 
 export const STAGES = Object.freeze([
     'survey', 'select_site', 'gather', 'foundation', 'shelter', 'bed', 'verified_home', 'improvements',
@@ -30,7 +31,16 @@ export function emptyProgress() {
         history: [],
         verifiedHome: false,
         updatedAt: null,
+        placed: [],
     };
+}
+
+function progressKey(p) {
+    if (!p) return '';
+    return JSON.stringify({
+        stage: p.stage, site: p.site, verifiedHome: p.verifiedHome, visitedClaim: p.visitedClaim,
+        materials: p.materials, placed: p.placed,
+    });
 }
 
 export function stageIndex(stage) {
@@ -194,7 +204,9 @@ export function evaluateWorld(ctx) {
     let verified = isVerifiedHome(home);
     if (!verified && getBlock && (site || position)) {
         const features = discoverHomeFeatures(getBlock, site || position, { radius: 12 });
-        if (features && verifyHomeInWorld(getBlock, features).ok) verified = true;
+        if (features && verifyHomeInWorld(getBlock, features, {
+            site, placed: progress.placed || [], requireOwned: true,
+        }).ok) verified = true;
     }
     return { visitedClaim, siteOk, gathered, foundation, shelter, bed, verified };
 }
@@ -279,17 +291,27 @@ export class HomesteadTracker {
         return r;
     }
     observe({ getBlock, inventory, position, home } = {}) {
+        const nowFn = typeof this.now === 'function' ? this.now : () => this.now;
         const evidence = evaluateWorld({
-            getBlock: getBlock || ((x, y, z) => this.agent?.bot?.blockAt?.({ x, y, z, offset() { return this; } })),
+            getBlock: getBlock || botGetBlock(this.agent?.bot),
             inventory, position, progress: this.progress, home,
         });
         const next = applyObservation(this.progress, evidence, {
-            now: this.now(),
+            now: nowFn(),
             materials: countInventory(inventory || {}),
         });
+        if (progressKey(next) === progressKey(this.progress)) return this.progress;
         this.progress = next;
         this.save();
         return next;
+    }
+    recordPlaced(block) {
+        if (!block || ![block.x, block.y, block.z].every(Number.isFinite)) return;
+        const placed = [...(this.progress.placed || []), {
+            x: Math.floor(block.x), y: Math.floor(block.y), z: Math.floor(block.z), name: block.name,
+        }].slice(-200);
+        this.progress = { ...this.progress, placed, updatedAt: Date.now() };
+        this.save();
     }
 }
 
@@ -377,7 +399,9 @@ export function continueHomesteadStep(progress, ctx = {}) {
     }
 
     const features = getBlock && discoverHomeFeatures(getBlock, cur.site, { radius: 12 });
-    const verified = features && verifyHomeInWorld(getBlock, features);
+    const verified = features && verifyHomeInWorld(getBlock, features, {
+        site: cur.site, placed: cur.placed || [], requireOwned: true,
+    });
     if (verified?.ok) {
         cur.stage = 'verified_home';
         cur.verifiedHome = true;
@@ -385,15 +409,19 @@ export function continueHomesteadStep(progress, ctx = {}) {
     }
 
     const plan = starterPlan(cur.site);
-    const missing = plan.filter((pl) => {
-        if (!getBlock) return true;
-        const b = getBlock(pl.x, pl.y, pl.z);
-        const n = String(b?.name || 'air');
-        if (pl.kind === 'door') return !/_door$/.test(n);
-        if (pl.kind === 'bed') return !/_bed$/.test(n);
-        if (pl.kind === 'storage') return !/chest|barrel/.test(n);
-        return n !== pl.name;
-    });
+    const missing = [];
+    for (const pl of plan) {
+        try {
+            if (!getBlock) { missing.push(pl); continue; }
+            const b = getBlock(pl.x, pl.y, pl.z);
+            const n = String(b?.name || 'air');
+            const need = pl.kind === 'door' ? !/_door$/.test(n)
+                : pl.kind === 'bed' ? !/_bed$/.test(n)
+                : pl.kind === 'storage' ? !/chest|barrel/.test(n)
+                : n !== pl.name;
+            if (need) missing.push(pl);
+        } catch (_) { missing.push(pl); }
+    }
     const want = cur.stage === 'shelter' ? ['wall', 'door', 'roof']
         : cur.stage === 'bed' || cur.stage === 'verified_home' ? ['bed', 'storage', 'door']
         : ['foundation'];

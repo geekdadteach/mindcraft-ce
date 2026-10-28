@@ -3,6 +3,7 @@ import * as survival from '../library/survival.js';
 import * as skills from '../library/skills.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
+import { botGetBlock } from '../library/vec3_util.js';
 
 
 function runAsAction (actionFn, resume = false, timeout = -1) {
@@ -553,7 +554,7 @@ export const actionsList = [
             const pos = agent.bot?.entity?.position;
             const inv = {};
             for (const it of agent.bot?.inventory?.items?.() || []) inv[it.name] = (inv[it.name] || 0) + it.count;
-            const getBlock = (x, y, z) => agent.bot?.blockAt?.({ x, y, z });
+            const getBlock = botGetBlock(agent.bot);
             const result = continueHomesteadStep(agent.homestead?.snapshot?.() || {}, {
                 position: pos, inventory: inv, getBlock,
                 home: agent.homeState?.snapshot?.(),
@@ -570,7 +571,10 @@ export const actionsList = [
             }
             if (result.placements?.length && skills.placeBlock) {
                 for (const p of result.placements.slice(0, 8)) {
-                    try { await skills.placeBlock(agent.bot, p.name, p.x, p.y, p.z); } catch (e) {
+                    try {
+                        await skills.placeBlock(agent.bot, p.name, p.x, p.y, p.z);
+                        agent.homestead?.recordPlaced?.(p);
+                    } catch (e) {
                         console.log(`[ai-player] homestead: place ${p.name} at ${p.x} ${p.y} ${p.z} failed (${e.message})`);
                     }
                 }

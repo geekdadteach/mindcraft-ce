@@ -8,14 +8,15 @@ import { EventEmitter } from 'node:events';
 import { DEFAULTS, HOME_CMD, StuckHome, loadConfig } from '../src/agent/library/stuck_home.js';
 import { exampleVerifiedHome, setActiveHome } from '../src/agent/library/bob_home.js';
 
-const DOOR = exampleVerifiedHome().entrance;
+const fixture = exampleVerifiedHome({ essentialsSet: true });
+const DOOR = fixture.entrance;
 function nearDoor({ dx = 12.5, dy = -6, dz = 10.5 } = {}) {
     return { x: DOOR.x + dx, y: DOOR.y + dy, z: DOOR.z + dz };
 }
 
 const T0 = 10_000_000;
 function rig(cfg) {
-    setActiveHome(exampleVerifiedHome());
+    setActiveHome(fixture);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr20-'));
     let t = T0;
     const bot = new EventEmitter();

@@ -16,7 +16,7 @@ export const ENCLOSURE_REQUIRED_TARGETS = 3;
 export function exitWaypoint(home = getActiveHome()) {
     return isVerifiedHome(home) ? home.exitWaypoint : null;
 }
-export const EXIT_WAYPOINT = { get x() { return exitWaypoint()?.x; }, get y() { return exitWaypoint()?.y; }, get z() { return exitWaypoint()?.z; } };
+export const EXIT_WAYPOINT = { get x() { return exitWaypoint()?.x ?? null; }, get y() { return exitWaypoint()?.y ?? null; }, get z() { return exitWaypoint()?.z ?? null; } };
 
 export function exitProbeCells(home = getActiveHome()) {
     const door = houseDoor(home);
@@ -193,4 +193,5 @@ export function logEnclosure(blockers, extra = '') {
     navConsole(`enclosure: boxed in at the house. blockers=${formatBlockers(blockers)}${extra ? ` ${extra}` : ''}`);
 }
 
-export { houseArea as HOUSE_AREA, houseDoor as HOUSE_DOOR, walkingLane as WALKING_LANE, inBox, isInsideHouseArea };
+export { houseArea, houseDoor, walkingLane, inBox, isInsideHouseArea };
+export { HOUSE_AREA, HOUSE_DOOR, WALKING_LANE } from './house_bounds.js';

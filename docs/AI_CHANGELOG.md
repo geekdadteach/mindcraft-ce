@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 live-review fixes (CODED; NOT DEPLOYED)
+- **Goal:** Fix every ranked item from the live-machine review of draft PR #21. Item 1 is a real live bug: `bot.blockAt` was given plain `{x,y,z}` objects; prismarine-world calls `pos.floored()`.
+- **Files:** `src/agent/library/{vec3_util,bob_home,bob_homestead,bob_claim_protect,bob_home_migrate,stuck_home,chat_guard,house_bounds,bob_enclosure,long_memory,reset_recovery,skills}.js`, `src/agent/{agent,commands/actions}.js`, `scripts/migrate_bob_home.js`, profiles, `AGENTS.md`, these docs, tests including new `test/bob_vec3_block.test.js`.
+- **Summary:** Vec3 wrappers + strict mocks; in-claim + Bob-owned home; `/home house` refused until `/sethome house` at the verified door; claim helper walks/verifies/requires `approved:true`; migration lessons + `--bot-stopped` + compact JSON + tight regex; homestead skip-save; null-safe getters; enclosure `HOUSE_AREA` is the house_bounds object; own-claim excluded from keep-away; stale hilltop comments removed. Base `e6e20c8` already merged (no rebase/force).
+- **Tests:** `npm test` on Node 22 (counts recorded after the run). Vec3-strict tests would have caught item 1.
+- **Deploy status:** Draft PR #21 against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Do not merge. Revert the review-fix commit(s) on the PR branch if needed.
+
 ## 2026-10-28 — Claim-first homestead conversion (CODED; NOT DEPLOYED)
 - **Goal:** Finish sections A/B/D of Randy's claim-first homestead handoff: dynamic verified home, construction tracker, recovery without the old `/home`, memory migration, tests. Section C / live servers untouched.
 - **Files:** `src/agent/library/{bob_home,bob_homestead,bob_home_migrate,bob_claim_protect,house_bounds,bob_enclosure,home_route,ai_player_nav,stuck_home,reset_recovery,escape,bob_goal_circuit,long_memory,protected_area,no_go_zones}.js`, `src/agent/{agent,modes}.js`, `src/agent/commands/{actions,queries}.js`, `scripts/migrate_bob_home.js`, profiles, tests listed in the handoff, these docs.

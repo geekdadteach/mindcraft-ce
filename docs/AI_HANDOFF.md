@@ -1,5 +1,18 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 live-review fixes (CODED; unit tests; NOT DEPLOYED)
+- Same branch `cursor/claim-first-homestead-9db4`. Draft PR #21 only. Base `work/bob-home-from-live-20261028` at `e6e20c8` was already an ancestor (merge was a no-op; no rebase, no force-push).
+- Ranked live-review items, all addressed:
+  1. **Vec3 `blockAt`:** `src/agent/library/vec3_util.js` (`vec3`, `botGetBlock`, `strictBlockAt`). `agent.js` observe timer, `!continueHomestead`, homestead observe, and `claimProperty` all pass a Vec3. Tests in `test/bob_vec3_block.test.js` use Vec3-strict mocks that throw on plain objects.
+  2. **Home must be in-claim and Bob-owned:** `isVerifiedHome` / `verifyHomeInWorld` / `discoverHomeFeatures` require the claim; `requireOwned` (site within 16 or a placed door/bed) rejects village/stranger houses.
+  3. **`/home house` still hilltop:** refuse until `essentialsSet`; auto `/sethome house` when standing at the verified entrance; hilltop landing fails and clears the flag.
+  4. **`claimProperty`:** walks to both corners, no y=65 dead logic, no click on missing/non-solid, `/claimslist` requires corner pairs, inbox needs `approved:true`.
+  5. **`long_memory` no longer deletes hilltop places on start;** migration owns cleanup (with backup).
+  6. **`AGENTS.md`** documents claim-first architecture, hilltop retirement, and operator rules.
+  7. **Migration:** death/zone/reset lessons rewritten; `--apply` requires `--bot-stopped`; compact JSON preserved; hilltop regex requires nearby x, not a lone z 564–573.
+  8. **Low:** homestead skip-save; null-safe `HOUSE_AREA`/`DOOR`/`EXIT_WAYPOINT`; enclosure re-exports the house_bounds object; profile keep-away excludes Bob's own claim; stale `-820 124 566` comments removed from `agent.js`, `reset_recovery.js`, `skills.js`.
+- Tests: `npm test` on Node 22. New/extended: `test/bob_vec3_block.test.js`, owned-home, sethome refuse/hilltop-landing, claim walk/approval, migrate bot-stopped/lessons/compact, homestead skip-save. No in-game validation. Do not deploy or merge.
+
 ## 2026-10-28 — Claim-first homestead conversion (CODED; unit tests; NOT DEPLOYED)
 - Branch: `cursor/claim-first-homestead-9db4` off `work/bob-home-from-live-20261028`. Draft PR only. Never merge, never target `main`, never deploy without Randy.
 - What changed: the retired hilltop (`-823 124 568`, door `-820 124 566`, bed `-822 124 569`) is identification-only. Navigation, protection, night-home, stuck-home `/home house`, and reset-teleport all require a **verified home discovered in the world**. Until then they are inert. The 128×128 claim (X -1208..-1081, Z 688..815, center -1144, 752) is property, not a movement fence and not a house.
@@ -11,12 +24,13 @@
   - No claim covers X -1208..-1081, Z 688..815 yet. Bob (MineBobNE) still has old 9×15 claim #19 at the retired house (x -827..-819, z 559..573) and enough claim blocks for 128×128. GP claims are full height and do not confine their owner.
   - Planned method: Bob holds a golden shovel and right-clicks corner blocks at **(-1208, 688)** and **(-1081, 815)**. `/claim <radius>` cannot make exactly 128.
   - ViaProxy fallback (op): `/adminclaims` then `/transferclaim MineBobNE`. Verify with `/claimslist`.
-  - Optional helper in this PR (never starts on its own): recovery-inbox kind `claim-property` calls `claimProperty()` in `src/agent/library/bob_claim_protect.js` (equip golden shovel, click both corners, parse `/claimslist`). **Requires Randy's approval before use on live.** Example file (mode 600) in `run/recovery-inbox/`:
-    `{"v":1,"kind":"claim-property","reason":"approved","by":"randy","ts":<epoch-ms>}`
+  - Optional helper in this PR (never starts on its own): recovery-inbox kind `claim-property` calls `claimProperty()` in `src/agent/library/bob_claim_protect.js` (walk to both corners ~180 apart, golden shovel, click existing surface, parse `/claimslist` corner pairs). **Requires Randy's approval and `"approved": true` before use on live.** Example file (mode 600) in `run/recovery-inbox/`:
+    `{"v":1,"kind":"claim-property","reason":"approved","by":"randy","ts":<epoch-ms>,"approved":true}`
+- **Stuck-home / Essentials:** `/home house` is refused until a verified home exists **and** `/sethome house` has been sent at that entrance (`essentialsSet`). Code sends `/sethome house` when Bob is within 2 blocks of the verified door. Landing at the retired hilltop is a failure.
 - **Live data migration (operator-run, dry-run default, backup first; do not run against live without a copy):**
   - Dry-run: `node scripts/migrate_bob_home.js --dir bots/MineBobNE`
-  - Apply (writes `bots/MineBobNE/migrations/home-<ts>/` then retires hilltop routes/places/lessons/self_prompt): `node scripts/migrate_bob_home.js --dir bots/MineBobNE --apply`
-  - Does not run on bot start. Unrelated knowledge is kept.
+  - Apply: `node scripts/migrate_bob_home.js --dir bots/MineBobNE --apply --bot-stopped` (refuses without `--bot-stopped`; Bob overwrites places/lessons while running)
+  - Does not run on bot start. Unrelated knowledge is kept. Compact JSON stays compact. Death/zone/reset hilltop lessons are rewritten, not only `seed:home`.
 - **Deploy:** do not deploy this branch. Live Bob and the Mac mini `.20` stay on the current snapshot. After Randy reviews the draft PR: backup `bots/MineBobNE`, dry-run migration, create the GP claim (approved method above), then a planned restart of the new tree. Runtime `run/stuck-home.config.json` should keep `"auto"` unset/false unless Randy opts in.
 - **Rollback:** do not merge. If a deploy happens later, restore the previous tree and `bots/MineBobNE/migrations/home-<ts>/` copies; GP claim rollback is a separate server `/abandonclaim` (or equivalent) decision for Randy, not this repo.
 - **Runtime-config concerns:** live `run/stuck-home.config.json` currently uses `"radius": null` (unlimited). After a verified home exists, a 64-block radius is the code default; unlimited remains valid if the ops file keeps `null`. Night-home and unstuck-home env vars must stay unset unless Randy wants those controllers. Farming still needs `BOB_FARM_ENABLED=true` plus in-claim plot bounds; the old hilltop wheat plot is no longer accepted.

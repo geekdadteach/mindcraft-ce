@@ -88,16 +88,8 @@ export class LongMemory {
         this._embedFails = 0; this._embedOffUntil = 0;
         this.stats = { lessons_added: 0, lessons_bumped: 0, places_added: 0, places_expired: 0, skills_saved: 0 };
         for (const [key, text] of SEED_LESSONS) this._addLesson(key, text, 'seed', false);
-        // Retire the abandoned hilltop as a home; preserve all unrelated discoveries.
-        const obsolete = new Set(['house', 'bed', 'house_entrance', 'home']);
-        this.places.data.places = this.places.data.places.filter(p => {
-            if (!obsolete.has(p.type)) return true;
-            if (p.kind === 'fixed') return false;
-            if (isLegacyHilltopPos(p, 20)) return false;
-            return true;
-        });
-        this.lessons.data.lessons = this.lessons.data.lessons.filter(l => l.key !== 'seed:home');
-        this.lessons.save(); this.places.save();
+        // Hilltop place/lesson cleanup is the migration script's job (with a backup). Do not
+        // delete saved knowledge on every start.
         this._backfill();
     }
 

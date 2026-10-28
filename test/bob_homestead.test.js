@@ -90,3 +90,28 @@ test('pickSiteFromSamples skips the cavity and hilltop', () => {
     ]);
     assert.deepEqual(picked, { x: -1120, y: 68, z: 736 });
 });
+
+test('homestead.json is not rewritten when observation is unchanged', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hs-skip-'));
+    const file = path.join(dir, 'homestead.json');
+    let n = 1;
+    const tracker = new HomesteadTracker({ name: 't' }, { file, now: () => n++ });
+    const site = { x: -1120, y: 68, z: 736 };
+    const inv = { oak_planks: 8 };
+    tracker.observe({ position: site, inventory: inv, getBlock: worldGetBlock({}) });
+    assert.equal(fs.existsSync(file), true);
+    const raw1 = fs.readFileSync(file, 'utf8');
+    tracker.observe({ position: site, inventory: inv, getBlock: worldGetBlock({}) });
+    assert.equal(fs.readFileSync(file, 'utf8'), raw1);
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('starter-plan missing filter does not throw when getBlock throws', () => {
+    const site = { x: -1120, y: 68, z: 736 };
+    const inv = { oak_planks: 64, oak_log: 8, oak_door: 1, white_bed: 1, chest: 1 };
+    const step = continueHomesteadStep({ ...emptyProgress(), site, stage: 'foundation' }, {
+        position: site, inventory: inv, getBlock: () => { throw new Error('plain object'); },
+    });
+    assert.ok(Array.isArray(step.placements));
+    assert.ok(step.placements.length > 0);
+});

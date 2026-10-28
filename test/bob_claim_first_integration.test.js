@@ -59,7 +59,7 @@ test('D2-D4: empty claim to verified home, discovered coords, persist across res
     tracker.progress = step.progress; tracker.save();
 
     const getBlock = worldGetBlock(world);
-    const found = homeFromWorld(getBlock, site);
+    const found = homeFromWorld(getBlock, site, { site, requireOwned: true });
     assert.ok(found, 'world verification should discover the built shelter');
     assert.equal(isVerifiedHome(found), true);
     assert.ok(found.door.x !== CLAIM.center.x || found.door.z !== CLAIM.center.z);
@@ -160,6 +160,24 @@ test('home-route walk is inert without a verified house and does not seed hillto
         fs.rmSync(tmpRoot, { recursive: true, force: true });
         setActiveHome(emptyHome());
     }
+});
+
+test('long_memory does not delete hilltop places on start; that is the migration script', () => {
+    const src = fs.readFileSync(new URL('../src/agent/library/long_memory.js', import.meta.url), 'utf8');
+    assert.match(src, /Hilltop place\/lesson cleanup is the migration script/);
+    assert.doesNotMatch(src, /places\.data\.places = P\.filter\(p => !isLegacyHilltopPos/);
+});
+
+test('runtime sources no longer treat -820 124 566 as an active door', () => {
+    for (const f of ['src/agent/agent.js', 'src/agent/library/reset_recovery.js', 'src/agent/library/skills.js']) {
+        const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+        assert.doesNotMatch(src, /-820 124 566/, f);
+    }
+    const agentSrc = fs.readFileSync(new URL('../src/agent/agent.js', import.meta.url), 'utf8');
+    assert.match(agentSrc, /maybeSetEssentialsHome/);
+    assert.match(agentSrc, /sendFixedSetHomeCommand/);
+    const profile = fs.readFileSync(new URL('../profiles/andy-api.json', import.meta.url), 'utf8');
+    assert.match(profile, /your own 128 by 128 claim is yours to use/);
 });
 
 test('verified home is used for navigation helpers once discovered', () => {

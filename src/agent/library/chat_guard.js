@@ -1,10 +1,13 @@
 // [ai-player] stuck-home-20261026: outgoing chat may never be a server command.
 // Andy's replies reach bot.chat() (agent.openChat) and mineflayer turns any chat line, or any 256-char chunk of
 // a long line, that starts with '/' into a chat_command packet. This guard sits on bot._client.chat (below the
-// splitter) and on bot.chat, and drops every outgoing line that starts with '/'. The ONLY command that can
-// still be sent is the fixed '/home house' string, and only through sendFixedHomeCommand() (code, never the LLM).
+// splitter) and on bot.chat, and drops every outgoing line that starts with '/'. The ONLY commands that can
+// still be sent are the fixed '/home house' and '/sethome house' strings, and only through
+// sendFixedHomeCommand() / sendFixedSetHomeCommand() (code, never the LLM).
 // Side effects: mindcraft's login '/skin clear' and bot.whisper() ('/tell ...') are dropped too (both unused here).
 export const HOME_CMD = '/home house';
+export const SET_HOME_CMD = '/sethome house';
+const ALLOWED_CMDS = new Set([HOME_CMD, SET_HOME_CMD]);
 const raws = new WeakMap();
 
 export function isSlashCommand(msg) {
@@ -34,15 +37,19 @@ export function installChatGuard(bot, log = (m) => console.log(`[ai-player] ${m}
             return rawBotChat(message);
         };
     }
-    log('chat-guard: armed (outgoing lines starting with "/" are dropped; only the fixed stuck-home command is allowed)');
+    log('chat-guard: armed (outgoing lines starting with "/" are dropped; only the fixed /home house and /sethome house commands are allowed)');
     return true;
 }
 export function chatGuardArmed(bot) { return raws.has(bot); }
 
-// The one command code may send. No arguments: the string is fixed.
-export function sendFixedHomeCommand(bot) {
+function sendFixedCommand(bot, cmd) {
     const raw = raws.get(bot);
     if (!raw) throw new Error('chat guard not installed');
-    raw(HOME_CMD);
-    return HOME_CMD;
+    if (!ALLOWED_CMDS.has(cmd)) throw new Error('command not on the chat-guard allowlist');
+    raw(cmd);
+    return cmd;
 }
+
+// The only commands code may send. No arguments: the strings are fixed.
+export function sendFixedHomeCommand(bot) { return sendFixedCommand(bot, HOME_CMD); }
+export function sendFixedSetHomeCommand(bot) { return sendFixedCommand(bot, SET_HOME_CMD); }

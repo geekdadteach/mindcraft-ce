@@ -41,6 +41,8 @@ export function emptyHome() {
         seedRoute: null,
         geometry: null,
         verifiedAt: null,
+        essentialsSet: false,
+        essentialsSetAt: null,
     };
 }
 
@@ -70,11 +72,37 @@ function freezeHome(home) {
             })
             : null,
         verifiedAt: home.verifiedAt ?? null,
+        essentialsSet: home.essentialsSet === true,
+        essentialsSetAt: home.essentialsSetAt ?? null,
     });
 }
 
 export function isVerifiedHome(home) {
-    return !!verifiedHomeLocation(home) && !!home.door && !!home.entrance && !!home.bed && !!home.geometry;
+    if (!home?.verified || !home.door || !home.entrance || !home.bed || !home.geometry) return false;
+    if (!verifiedHomeLocation(home)) return false;
+    if (!isInClaim(home.door) || !isInClaim(home.bed) || (home.inside && !isInClaim(home.inside))) return false;
+    if (isLegacyHilltopPos(home.door, 12)) return false;
+    return true;
+}
+
+export function essentialsHomeReady(home = getActiveHome()) {
+    return isVerifiedHome(home) && home.essentialsSet === true && !isLegacyHilltopPos(home.entrance, 16);
+}
+
+function placedMatches(placed, pos, re) {
+    if (!pos || !Array.isArray(placed)) return false;
+    return placed.some((p) => p && Math.floor(p.x) === Math.floor(pos.x)
+        && Math.floor(p.y) === Math.floor(pos.y)
+        && Math.floor(p.z) === Math.floor(pos.z)
+        && re.test(String(p.name || '')));
+}
+
+export function bobBuiltHome(candidate, { site = null, placed = [] } = {}) {
+    if (!candidate?.door) return false;
+    const door = candidate.door;
+    if (site && Math.hypot(door.x - site.x, door.z - site.z) <= 16) return true;
+    if (placedMatches(placed, door, DOOR_RE) || placedMatches(placed, candidate.bed, BED_RE)) return true;
+    return false;
 }
 
 export function sameHomeEntrance(a, b) {
@@ -229,7 +257,7 @@ function inferFacing(getBlock, door) {
 
 export function discoverHomeFeatures(getBlock, origin, { radius = 16 } = {}) {
     if (!origin || typeof getBlock !== 'function') return null;
-    const doors = scanBlocks(getBlock, origin, radius, (n) => DOOR_RE.test(n));
+    const doors = scanBlocks(getBlock, origin, radius, (n) => DOOR_RE.test(n)).filter((d) => isInClaim(d));
     if (!doors.length) return null;
     const door = doors[0];
     const facing = inferFacing(getBlock, door);
@@ -255,10 +283,15 @@ function roofOver(getBlock, pos) {
     return false;
 }
 
-export function verifyHomeInWorld(getBlock, candidate, { requireStorage = true } = {}) {
+export function verifyHomeInWorld(getBlock, candidate, {
+    requireStorage = true, requireOwned = true, site = null, placed = [],
+} = {}) {
     if (!candidate || typeof getBlock !== 'function') return { ok: false, why: 'no candidate' };
     const door = candidate.door, bed = candidate.bed, entrance = candidate.entrance, inside = candidate.inside;
     if (!door || !bed || !entrance || !inside) return { ok: false, why: 'missing door, bed, entrance or interior' };
+    if (!isInClaim(door) || !isInClaim(bed) || !isInClaim(inside))
+        return { ok: false, why: 'home is outside Bob\'s claim' };
+    if (isLegacyHilltopPos(door, 12)) return { ok: false, why: 'retired hilltop is not an active home' };
     let doorBlk = null, bedBlk = null;
     try { doorBlk = getBlock(Math.floor(door.x), Math.floor(door.y), Math.floor(door.z)); } catch (_) {}
     try { bedBlk = getBlock(Math.floor(bed.x), Math.floor(bed.y), Math.floor(bed.z)); } catch (_) {}
@@ -267,15 +300,15 @@ export function verifyHomeInWorld(getBlock, candidate, { requireStorage = true }
     if (!roofOver(getBlock, inside)) return { ok: false, why: 'interior has no roof' };
     if (requireStorage) {
         const storage = candidate.storage;
-        if (!storage) return { ok: false, why: 'no storage' };
+        if (!storage || !isInClaim(storage)) return { ok: false, why: 'no storage' };
         let chestBlk = null;
         try { chestBlk = getBlock(Math.floor(storage.x), Math.floor(storage.y), Math.floor(storage.z)); } catch (_) {}
         if (!CHEST_RE.test(String(chestBlk?.name || ''))) return { ok: false, why: 'storage is not present in the world' };
     }
-    // Never accept the claim center as a stand-in for a house, and never the retired hilltop.
     if (Math.hypot(door.x - CLAIM.center.x, door.z - CLAIM.center.z) < 1.5 && !DOOR_RE.test(String(doorBlk?.name || '')))
         return { ok: false, why: 'claim center is not a house' };
-    if (isLegacyHilltopPos(door, 12)) return { ok: false, why: 'retired hilltop is not an active home' };
+    if (requireOwned && !bobBuiltHome(candidate, { site, placed }))
+        return { ok: false, why: 'home was not built by Bob' };
     return { ok: true, why: 'ok' };
 }
 
@@ -325,8 +358,8 @@ export class HomeRegistry {
         this.agent = agent;
         this.file = file || path.resolve(`bots/${agent?.name || 'MineBobNE'}/verified_home.json`);
         this.home = loadHome(this.file);
-        if (isVerifiedHome(this.home) && isLegacyHilltopPos(this.home.door, 12)) {
-            console.warn('[ai-player] home: refusing to load retired hilltop as a verified home');
+        if (this.home.verified && !isVerifiedHome(this.home)) {
+            console.warn('[ai-player] home: refusing to load a home that is not on the claim or is the retired hilltop');
             this.home = freezeHome(emptyHome());
         }
         setActiveHome(this.home);
@@ -342,8 +375,15 @@ export class HomeRegistry {
         saveHome(this.file, home);
         return true;
     }
-    observeWorld(getBlock, origin) {
-        const found = homeFromWorld(getBlock, origin);
+    markEssentialsSet(on = true, at = Date.now()) {
+        if (on && !isVerifiedHome(this.home)) return false;
+        this.home = freezeHome({ ...this.home, essentialsSet: on === true, essentialsSetAt: on ? at : null });
+        setActiveHome(this.home);
+        saveHome(this.file, this.home);
+        return true;
+    }
+    observeWorld(getBlock, origin, { site = null, placed = [], requireOwned = true } = {}) {
+        const found = homeFromWorld(getBlock, origin, { site, placed, requireOwned });
         if (!found) return this.home;
         this.recordVerified(found);
         return this.home;
@@ -360,12 +400,14 @@ export function homeFileFor(agentName) {
 }
 
 // Test/operator fixture: a verified home on the claim, never the retired hilltop.
-export function exampleVerifiedHome({ door = { x: -1120, y: 68, z: 734 }, facing = 'north', bed, storage } = {}) {
+export function exampleVerifiedHome({
+    door = { x: -1120, y: 68, z: 734 }, facing = 'north', bed, storage, essentialsSet = false,
+} = {}) {
     const features = geometryFromFeatures({
         door,
         facing,
         bed: bed || { x: door.x - 2, y: door.y, z: door.z + 3 },
         storage: storage || { x: door.x + 2, y: door.y, z: door.z + 3 },
     });
-    return freezeHome({ ...emptyHome(), ...features, verified: true, verifiedAt: 1 });
+    return freezeHome({ ...emptyHome(), ...features, verified: true, verifiedAt: 1, essentialsSet });
 }

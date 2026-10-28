@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HOME } from '../src/agent/library/bob_home.js';
+import { HOME, LEGACY_HOME_ENTRANCE, sameHomeEntrance } from '../src/agent/library/bob_home.js';
 import { HOUSE_AREA, HOUSE_PORCH, WALKING_LANE, isInsideHouseArea, protectedAreaAt, isDiggableLaneFill } from '../src/agent/library/house_bounds.js';
 
 test('canonical home geometry matches live snapshot', () => {
@@ -22,4 +22,10 @@ test('porch and plate support stay protected while loose fill is diggable', () =
 test('route seed terminates at canonical entrance', () => {
     assert.deepEqual(HOME.seedRoute.at(-1), [HOME.entrance.x, HOME.entrance.y, HOME.entrance.z]);
     assert.equal(HOME.exitWaypoint.z < HOME.entrance.z, true);
+});
+
+test('legacy home routes remain valid only at their original entrance', () => {
+    assert.equal(sameHomeEntrance(LEGACY_HOME_ENTRANCE), true);
+    assert.equal(sameHomeEntrance({...LEGACY_HOME_ENTRANCE,x:LEGACY_HOME_ENTRANCE.x+10}), false);
+    assert.equal(sameHomeEntrance(null), false);
 });

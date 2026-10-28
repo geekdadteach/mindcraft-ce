@@ -5,5 +5,11 @@ export const HOME = Object.freeze({
     entrance: Object.freeze({x:-819.5,y:124,z:565.5}),
     inside: Object.freeze({x:-819.5,y:124,z:567.5}),
     bed: Object.freeze({x:-822,y:124,z:569}),
-    plateSupport: Object.freeze({x:-820,y:123,z:565})
+    plateSupport: Object.freeze({x:-820,y:123,z:565}),
+    // Physical geometry of the current house. New homes may have different dimensions.
+    geometry: Object.freeze({
+        area: Object.freeze({x1:-827,x2:-816,y1:123,y2:127,z1:566,z2:573}),
+        porch: Object.freeze({x1:-827,x2:-816,y1:123,y2:127,z1:564,z2:565}),
+        walkingLane: Object.freeze({x1:-821,x2:-819,y1:123,y2:126,z1:564,z2:565})
+    })
 });

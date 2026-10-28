@@ -1,3 +1,4 @@
+import { HOME } from './bob_home.js';
 // [ai-player] reset-recovery-20261026 (M4 port of the .60 ai-player-reset-watcher, Oct 20 2026).
 // What it keeps from the old watcher: when an operator's /bobreset teleports Bob onto the door plate
 // (-819.5 124 565.5), Bob gets ONE system note in memory.json and a `reset:<action>` lesson in lessons.json,
@@ -13,7 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { navMemory } from './bob_nav_memory.js'; // nav-on-live-20261026
 
-export const TARGET = { x: -819.5, y: 124, z: 565.5 };
+export const TARGET = HOME.entrance;
 export const COOLDOWN_MS = 180000;
 const SAMPLE_MS = 500, INBOX_POLL_MS = 3000, MAX_REQ_BYTES = 4096, MAX_NOTE = 300;
 const KINDS = new Set(['reset', 'planned-restart', 'note', 'home', 'tphome']); // tphome: stuck-home-20261026

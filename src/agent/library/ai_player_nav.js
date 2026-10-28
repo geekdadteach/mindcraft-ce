@@ -1,3 +1,4 @@
+import { HOME } from './bob_home.js';
 // [ai-player] Oct 20: navigation helpers for Bob (MineBobNE): surface before tree searches, and going home at night.
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
@@ -6,9 +7,9 @@ import { isInsideHouseArea } from './house_bounds.js';
 import { EXIT_WAYPOINT } from './bob_enclosure.js';
 import { navConsole } from './bob_nav_memory.js';
 
-export const HOUSE_ENTRANCE = { x: -819.5, y: 124, z: 565.5 }; // on the outside plate, north of the door
-export const HOUSE_INSIDE = { x: -819.5, y: 124, z: 567.5 };   // on the inside plate, south of the door
-export const HOUSE_BED_HINT = { x: -823, y: 124, z: 568 };
+export const HOUSE_ENTRANCE = HOME.entrance; // on the outside plate, north of the door
+export const HOUSE_INSIDE = HOME.inside;   // on the inside plate, south of the door
+export const HOUSE_BED_HINT = HOME.bed;
 export { EXIT_WAYPOINT, isInsideHouseArea };
 // never dig through anything that looks built (house, chests, beds, doors)
 export const KEEP_BLOCKS = /planks|_log$|_wood$|door|stairs|slab|glass|carpet|_bed$|chest|furnace|crafting_table|fence|torch|wool|banner|lantern|pressure_plate/;
@@ -137,7 +138,8 @@ export function isNightTime(bot) {
 
 export function isInsideHouse(bot) {
     const p = bot.entity.position;
-    return p.z >= 566.8 && p.z <= 572 && p.x >= -827 && p.x <= -817 && Math.abs(p.y - 124) <= 1.5;
+    const a = HOME.geometry.area;
+    return p.z >= a.z1 + 0.8 && p.z <= a.z2 - 1 && p.x >= a.x1 && p.x <= a.x2 - 1 && Math.abs(p.y - HOME.base.y) <= 1.5;
 }
 
 export function findHomeBed(bot) {

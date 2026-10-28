@@ -62,16 +62,46 @@ export function sendFixedClaimsListCommand(bot) { return sendFixedCommand(bot, C
 export const SET_HOME_OK_RE = /\bhome set\b|\bset(?:ting)? (?:your )?home\b|\bhomeset\b/i;
 export const SET_HOME_FAIL_RE = /permission|unknown (or incomplete )?command|cannot set|not allowed|error|cooldown|max(imum)? (number of )?homes|cancelled|denied/i;
 
-// Player chat must never confirm /sethome. Prefer mineflayer messagestr with position
-// 'system'/'game_info' and no sender; ignore the 'chat' event / username / "Name:" prefixes.
-export function isPlayerChatLine(message, position, jsonMsg, sender) {
+// Player chat must never confirm /sethome or fake a /claimslist line.
+// Strict: system lines (GP `world: x…`, claim-block headers, Essentials "Home set.") have no
+// sender. Do not treat every `word: text` line as chat — that is how GP prints claims.
+const MC_NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
+
+export function knownPlayerNames(bot) {
+    const names = new Set();
+    const players = bot?.players;
+    if (players && typeof players === 'object') {
+        for (const [key, p] of Object.entries(players)) {
+            if (key) names.add(String(key));
+            const username = p?.username || p?.name;
+            if (username) names.add(String(username));
+        }
+    }
+    if (bot?.username) names.add(String(bot.username));
+    return names;
+}
+
+function isKnownPlayerName(name, bot) {
+    if (!MC_NAME_RE.test(name)) return false;
+    const lower = name.toLowerCase();
+    for (const n of knownPlayerNames(bot)) {
+        if (String(n).toLowerCase() === lower) return true;
+    }
+    return false;
+}
+
+export function isPlayerChatLine(message, position, jsonMsg, sender, bot) {
     if (sender != null && String(sender).length > 0) return true;
     if (position === 'chat') return true;
     const s = String(message || '').trim();
     if (!s) return false;
-    if (s.startsWith('<')) return true;
-    if (/^\[[^\]]+\]\s+\S+:\s/.test(s)) return true; // [Member] Steve: …
-    if (/^[A-Za-z0-9_]{3,16}:\s/.test(s)) return true; // Steve: …
+    // Vanilla `<Name> message`. GP / Essentials system lines do not use this.
+    if (/^<[A-Za-z0-9_]{3,16}>\s/.test(s) || /^<[^>\n]+>\s/.test(s)) return true;
+    // LuckPerms / similar: `[Member] Steve: …` — never a GP claimslist line.
+    if (/^\[[^\]]+\]\s+[A-Za-z0-9_]{3,16}:\s/.test(s)) return true;
+    // `Name: message` only when Name is an online/known player. "world: x-1208…" is GP, not Steve.
+    const named = /^([A-Za-z0-9_]{3,16}):\s/.exec(s);
+    if (named && named[1].toLowerCase() !== 'world' && isKnownPlayerName(named[1], bot)) return true;
     return false;
 }
 
@@ -83,7 +113,7 @@ export async function confirmSetHome(bot, {
 } = {}) {
     const lines = [];
     const onMsg = (message, position, jsonMsg, sender) => {
-        if (isPlayerChatLine(message, position, jsonMsg, sender)) return;
+        if (isPlayerChatLine(message, position, jsonMsg, sender, bot)) return;
         const s = String(message || '');
         if (s) lines.push(s);
     };

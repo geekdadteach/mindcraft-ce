@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 live bugfix: GP `world:` is system, not player chat (CODED; NOT DEPLOYED)
+- Same draft PR #21 on `cursor/claim-first-homestead-9db4` (previous HEAD `db801d0` is deployed live). Do not merge, do not force-push. Keep the PR a draft.
+- Live verification: `isPlayerChatLine()` treated GriefPrevention `/claimslist` lines such as `world: x-1208, z688 (16384 blocks)` (and the claim-blocks header) as player chat because of a `word: text` heuristic. The helper never saw claim #26 and tried to create a new claim.
+- Fix: player chat is only a known-player sender format (`<Name> …`, `[rank] Name: …`, mineflayer `chat` position / username sender, or `Name: …` when `Name` is in `bot.players`). GP `world:` lines and other system output stay system. A player spoofing a claim or `Home set.` line is still rejected.
+- Tests: `npm test` on Node 22 (count recorded with the commit). Exact live fixtures: claim line, claimslist header, real player chat, spoofed claim line.
+
 ## 2026-10-28 — PR #21 hardening: claimslist wait/overworld, system sethome, session backfill (CODED; NOT DEPLOYED)
 - Same draft PR #21 on `cursor/claim-first-homestead-9db4`. Do not merge, do not force-push. Keep the PR a draft.
 - `/claimslist` wait is **5 s**. A missing or unrecognized reply is **unknown, abort** — never treated as "no claim, create one". A recognized GP reply (even with zero claims) is still required before any create fallback.

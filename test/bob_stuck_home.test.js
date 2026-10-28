@@ -265,10 +265,21 @@ test('confirmSetHome sets the flag only after a server ok reply', async () => {
         now: () => t, timeoutMs: 400,
     });
     assert.equal(fromSystem.ok, true);
+    bot.players = { Steve: { username: 'Steve' } };
+    t = 0;
+    const spoofedName = await confirmSetHome(bot, {
+        wait: async (ms) => { t += ms; if (t >= 100) bot.emit('messagestr', 'Steve: Home set.'); },
+        now: () => t, timeoutMs: 400,
+    });
+    assert.equal(spoofedName.ok, false);
+    assert.equal(spoofedName.why, 'no reply');
     assert.equal(isPlayerChatLine('Home set.', 'chat', {}, 'Steve'), true);
     assert.equal(isPlayerChatLine('[Member] Steve: Home set.'), true);
-    assert.equal(isPlayerChatLine('Steve: Home set.'), true);
+    assert.equal(isPlayerChatLine('Steve: Home set.', undefined, undefined, undefined, bot), true);
+    assert.equal(isPlayerChatLine('Steve: Home set.'), false);
     assert.equal(isPlayerChatLine('Home set.', 'system'), false);
+    assert.equal(isPlayerChatLine('world: x-1208, z688 (16384 blocks)', 'system'), false);
+    assert.equal(isPlayerChatLine('<Steve> Home set.'), true);
 });
 
 test('inbox kind tphome is accepted and routed; force via reason', async () => {

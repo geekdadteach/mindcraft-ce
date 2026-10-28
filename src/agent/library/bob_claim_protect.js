@@ -146,7 +146,7 @@ function defaultChat(bot) {
 async function collectClaimsList(bot, sendList, wait, waitMs = LIST_WAIT_MS) {
     const lines = [];
     const onMsg = (message, position, jsonMsg, sender) => {
-        if (isPlayerChatLine(message, position, jsonMsg, sender)) return;
+        if (isPlayerChatLine(message, position, jsonMsg, sender, bot)) return;
         lines.push(String(message || ''));
     };
     bot?.on?.('messagestr', onMsg);

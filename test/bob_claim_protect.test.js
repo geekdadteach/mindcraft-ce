@@ -9,10 +9,14 @@ import {
 } from '../src/agent/library/bob_claim_protect.js';
 import { claimArea, claimBounds } from '../src/agent/library/bob_claim.js';
 import { ResetRecovery, readRequest } from '../src/agent/library/reset_recovery.js';
-import { CLAIMS_LIST_CMD, installChatGuard, sendFixedClaimsListCommand } from '../src/agent/library/chat_guard.js';
+import { CLAIMS_LIST_CMD, installChatGuard, isPlayerChatLine, sendFixedClaimsListCommand } from '../src/agent/library/chat_guard.js';
 
 const b = claimBounds();
 const area = claimArea();
+const LIVE_CLAIM_LINE = 'world: x-1208, z688 (16384 blocks)';
+const LIVE_CLAIMSLIST_HEADER = '20000 blocks from play + 0 bonus = 20000 total.';
+const LIVE_PLAYER_CHAT = '<Steve> hello there';
+const LIVE_SPOOFED_CLAIM = '<Steve> world: x-1208, z688 (16384 blocks)';
 
 function gp128() {
     return gpClaimsListOutput([
@@ -81,6 +85,9 @@ test('parseClaimsList reads GP 16.18.7 lesser-corner plus area, not both corners
 
     const parsed = parseGpClaimLine('world: x-1208, z688 (-16384 blocks)');
     assert.deepEqual(parsed, { world: 'world', x: -1208, z: 688, area: 16384, line: 'world: x-1208, z688 (-16384 blocks)' });
+    assert.deepEqual(parseGpClaimLine(LIVE_CLAIM_LINE), {
+        world: 'world', x: -1208, z: 688, area: 16384, line: LIVE_CLAIM_LINE,
+    });
 
     assert.equal(parseGpClaimLine('world_nether: x-1208, z688 (-16384 blocks)'), null);
     assert.equal(parseGpClaimLine('world_the_end: x-1208, z688 (-16384 blocks)'), null);
@@ -252,6 +259,51 @@ test('late or unrecognized /claimslist is unknown abort, never create', async ()
     assert.equal(walks.length, 0);
     assert.match(result.steps[0], /reply unknown/);
     assert.equal(result.alreadyExists, undefined);
+});
+
+test('isPlayerChatLine keeps live GP claimslist system lines and rejects player spoofs', () => {
+    const bot = { players: { Steve: { username: 'Steve' }, MineBobNE: { username: 'MineBobNE' } }, username: 'MineBobNE' };
+    assert.equal(isPlayerChatLine(LIVE_CLAIM_LINE, 'system', {}, undefined, bot), false);
+    assert.equal(isPlayerChatLine(LIVE_CLAIMSLIST_HEADER, 'system', {}, undefined, bot), false);
+    assert.equal(isPlayerChatLine('Claims:', 'system', {}, undefined, bot), false);
+    assert.equal(isPlayerChatLine(LIVE_PLAYER_CHAT, undefined, undefined, undefined, bot), true);
+    assert.equal(isPlayerChatLine('Steve: hello there', undefined, undefined, undefined, bot), true);
+    assert.equal(isPlayerChatLine(LIVE_SPOOFED_CLAIM, undefined, undefined, undefined, bot), true);
+    assert.equal(isPlayerChatLine(LIVE_CLAIM_LINE, 'chat', {}, 'Steve', bot), true);
+    assert.equal(isPlayerChatLine(LIVE_CLAIM_LINE, undefined, undefined, 'Steve', bot), true);
+    assert.equal(isPlayerChatLine('Steve: Home set.', undefined, undefined, undefined, bot), true);
+    assert.equal(isPlayerChatLine('Home set.', 'system', {}, undefined, bot), false);
+});
+
+test('live GP claimslist for claim #26 is success; spoofed player claim line is ignored', async () => {
+    const clicks = [];
+    const walks = [];
+    const bot = shovelBot({
+        heldItem: { name: 'dirt' },
+        inventory: { slots: [], items: () => [] },
+        players: { Steve: { username: 'Steve' } },
+        username: 'MineBobNE',
+    });
+    const result = await claimProperty({ name: 'MineBobNE', bot }, {
+        approved: true,
+        activateBlock: async (blk) => { clicks.push(blk); },
+        goto: async (x, y, z) => { walks.push([x, z]); return true; },
+        wait: async () => {},
+        chat: () => {
+            bot.emit('messagestr', LIVE_SPOOFED_CLAIM, 'chat', {}, 'Steve');
+            bot.emit('messagestr', LIVE_CLAIMSLIST_HEADER, 'system');
+            bot.emit('messagestr', 'Claims:', 'system');
+            bot.emit('messagestr', LIVE_CLAIM_LINE, 'system');
+            bot.emit('messagestr', ' = 3616 blocks left to spend', 'system');
+        },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.alreadyExists, true);
+    assert.equal(clicks.length, 0);
+    assert.equal(walks.length, 0);
+    assert.equal(result.claimsList.coversClaim, true);
+    assert.equal(result.claimsList.matching.area, 16384);
+    assert.match(result.steps[0], /nothing to do/);
 });
 
 test('nether covering line is ignored so overworld is not treated as claimed', async () => {

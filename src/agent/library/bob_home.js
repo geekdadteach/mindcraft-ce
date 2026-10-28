@@ -7,6 +7,10 @@ export const HOME = Object.freeze({
     bed: Object.freeze({x:-822,y:124,z:569}),
     plateSupport: Object.freeze({x:-820,y:123,z:565}),
     exitWaypoint: Object.freeze({x:-819.5,y:124,z:562.5}),
+    // Indoor occupancy is narrower than the protected building footprint.
+    indoor: Object.freeze({x1:-827,x2:-817,y1:122.5,y2:125.5,z1:566.8,z2:572}),
+    // Preserve original cave-escape avoidance center; it is not the base marker.
+    escapeCenter: Object.freeze({x:-821,z:568}),
     seedRoute: Object.freeze([[-819.5,123,553.5],[-819.5,123,559.5],[-819.5,123,562.5],[-819.5,124,565.5]].map(p => Object.freeze(p))),
     geometry: Object.freeze({
         area: Object.freeze({x1:-827,x2:-816,y1:123,y2:127,z1:566,z2:573}),

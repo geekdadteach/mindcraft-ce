@@ -6,7 +6,7 @@
 - Claims parser requires the overworld world name `world:` and ignores nether / end lines (`world_nether`, `world_the_end`).
 - `/sethome house` confirmation accepts only system/server `messagestr` lines (position `system`/`game_info`, no sender). Player chat is ignored: mineflayer `chat` position, a username sender, `<Name>` lines, and `Name:` prefixes such as `[Member] Steve: …`.
 - Embedding backfill that runs before the model is ready leaves `emb` unset and retries later in the same session from `LongMemory.observe()`, not only at the next restart.
-- Tests: `npm test` on Node 22 after this hardening (count recorded with the commit). No in-game validation. Do not deploy.
+- Tests: `npm test` on Node 22: **213/213 pass**, 0 fail (was 209/209 before this hardening). No in-game validation. Do not deploy.
 
 ## 2026-10-28 — PR #21 follow-up: live claim #26, sethome confirm, embeddings (CODED; NOT DEPLOYED)
 - Same draft PR #21 on `cursor/claim-first-homestead-9db4`. Do not merge, do not force-push. Operator is creating GriefPrevention **claim #26** for MineBobNE server-side (X -1208..-1081, Z 688..815, full height). The `claim-property` helper is now **fallback only**.

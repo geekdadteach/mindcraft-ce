@@ -4,7 +4,7 @@
 - **Goal:** Four small hardening fixes on draft PR #21. No force-push; keep it a draft.
 - **Files:** `src/agent/library/{bob_claim_protect,chat_guard,long_memory,reset_recovery}.js`, tests, these docs, `AGENTS.md`.
 - **Summary:** `/claimslist` waits ~5 s; unrecognized/late reply aborts as unknown and never creates. Parser requires `world:` and ignores nether/end. `confirmSetHome` accepts only system/server messages (no player chat / `Name:` prefixes). Embedding backfill does not store a null vector; `observe()` retries in-session if the model was not ready at start.
-- **Tests:** `npm test` on Node 22 (count recorded with the commit).
+- **Tests:** `npm test` on Node 22: **213/213 pass**, 0 fail.
 - **Deploy status:** Draft PR #21. Not merged, not deployed. Live Bob untouched.
 - **Rollback:** Do not merge. Revert the hardening commit(s) on the PR branch if needed.
 

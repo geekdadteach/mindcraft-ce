@@ -4,7 +4,7 @@
 - **Goal:** After `db801d0` was deployed, live verification showed `/claimslist` claim lines classified as player chat, so the helper missed claim #26 and tried to create.
 - **Files:** `src/agent/library/{chat_guard,bob_claim_protect}.js`, `test/{bob_claim_protect,bob_stuck_home}.test.js`, these docs.
 - **Summary:** `isPlayerChatLine` is strict: known player sender / `bot.players` names / `<Name>` / `[rank] Name:`, not any `word: text`. GP `world: x-1208, z688 (16384 blocks)` and the claim-blocks header are system. Player spoofs of a claim line or `Home set.` are still ignored for `/sethome` confirm and `/claimslist` collection.
-- **Tests:** `npm test` on Node 22 (count recorded with the commit).
+- **Tests:** `npm test` on Node 22: **215/215 pass**, 0 fail.
 - **Deploy status:** Draft PR #21. Not merged. Do not treat this commit as live until Randy deploys it. Previous HEAD `db801d0` is what is live.
 - **Rollback:** Do not merge. Revert this commit on the PR branch if needed.
 

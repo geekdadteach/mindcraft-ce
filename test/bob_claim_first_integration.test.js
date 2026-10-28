@@ -175,7 +175,7 @@ test('runtime sources no longer treat -820 124 566 as an active door', () => {
     }
     const agentSrc = fs.readFileSync(new URL('../src/agent/agent.js', import.meta.url), 'utf8');
     assert.match(agentSrc, /maybeSetEssentialsHome/);
-    assert.match(agentSrc, /sendFixedSetHomeCommand/);
+    assert.match(agentSrc, /confirmSetHome/);
     const profile = fs.readFileSync(new URL('../profiles/andy-api.json', import.meta.url), 'utf8');
     assert.match(profile, /your own 128 by 128 claim is yours to use/);
 });

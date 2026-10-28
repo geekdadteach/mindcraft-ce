@@ -4,7 +4,7 @@
 - **Goal:** After the live re-validation of PR #21, fix the new problems: real GP `/claimslist` format, shovel-before-click, `/sethome` confirmation, stale lesson embeddings. Operator is creating claim #26 server-side; the helper is fallback-only and must no-op if that claim already covers the 128×128.
 - **Files:** `src/agent/library/{bob_claim,bob_claim_protect,chat_guard,bob_home_migrate,long_memory,reset_recovery}.js`, `src/agent/agent.js`, `scripts/migrate_bob_home.js`, tests, these docs, `AGENTS.md`.
 - **Summary:** Parse GP 16.18.7 `world: x-1208, z688 (-16384 blocks)`; existing covering claim = success / do nothing; shovel required only for the create fallback; chat guard allows `/claimslist` only via the helper sender; `confirmSetHome` waits for a server ok/error/timeout; rewritten lessons drop `emb`; backfill re-embeds missing; `--bot-stopped` probes MindServer/launchctl with `--skip-running-probe`.
-- **Tests:** `npm test` on Node 22 (count recorded after the run).
+- **Tests:** `npm test` on Node 22: **209/209 pass**, 0 fail.
 - **Deploy status:** Draft PR #21. Not merged, not deployed. Live Bob untouched.
 - **Rollback:** Do not merge. Revert the follow-up commit(s) on the PR branch if needed.
 

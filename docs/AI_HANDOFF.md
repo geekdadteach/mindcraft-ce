@@ -5,7 +5,7 @@
 - Claim helper safety (not expanded): `"approved": true`; GP 16.18.7 `/claimslist` format `world: x-1208, z688 (-16384 blocks)` (lesser corner + area, verified in GP source); if that covering claim already exists, success and **do nothing**; otherwise require a golden shovel in hand before any click; `/claimslist` is allowed through the chat guard only via `sendFixedClaimsListCommand`.
 - `/sethome house` no longer sets `essentialsSet` until the server confirms (`Home set.` / similar). No reply or an error = not set. Does not round-trip `/home house` (that can still land at the hilltop).
 - Migration rewrites clear stale `emb`; `backfillMissingEmbeddings` fills missing vectors on start. `--bot-stopped` also probes MindServer `127.0.0.1:8081` and `launchctl gui/502/org.newearth.mindcraft-m4`; `--skip-running-probe` overrides.
-- Tests: `npm test` on Node 22 after this pass. No in-game validation. Do not deploy.
+- Tests: `npm test` on Node 22: **209/209 pass**, 0 fail (was 201/201 before this follow-up). No in-game validation. Do not deploy.
 
 ## 2026-10-28 — PR #21 live-review fixes (CODED; unit tests; NOT DEPLOYED)
 - Same branch `cursor/claim-first-homestead-9db4`. Draft PR #21 only. Base `work/bob-home-from-live-20261028` at `e6e20c8` was already an ancestor (merge was a no-op; no rebase, no force-push).

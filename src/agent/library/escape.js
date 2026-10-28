@@ -1,3 +1,4 @@
+import { HOME } from './bob_home.js';
 // [ai-player] Item 3 (Oct 20 evening): reliable cave escape and failed-route detection.
 // Oct 20: 67 stuck triggers in 2h16m, clustered in the caves under/west of the house; 8 of 9 escalations "did not reach
 // the house entrance or surface" because one long pathfinder goto to a far surface/house goal timed out in the cave.
@@ -11,7 +12,7 @@ import Vec3 from 'vec3';
 import * as nav from './ai_player_nav.js';
 import { superseded } from './skills.js';
 
-const HOUSE_C = { x: -821, z: 568 };       // house centre (do not stair up under it)
+const HOUSE_C = { x: (HOME.geometry.area.x1 + HOME.geometry.area.x2) / 2, z: (HOME.geometry.area.z1 + HOME.geometry.area.z2) / 2 };       // house centre (do not stair up under it)
 const DIRS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
 const LIQUID = /^(lava|water|flowing_lava|flowing_water)$/;
 const FALLING = /sand$|gravel|concrete_powder|anvil|pointed_dripstone/;

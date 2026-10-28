@@ -1,3 +1,4 @@
+import { HOME } from './bob_home.js';
 // [ai-player] Long-term memory for Bob: LESSONS (Reflexion-style, rule-derived), PLACES (observed resources),
 // and a Voyager-style SAVED SKILLS library (verified generated code, embedded description, top-k retrieval).
 // Retrieval scoring follows generative agents (relevance + recency + importance). Everything is best-effort:
@@ -60,7 +61,7 @@ const SEED_LESSONS = [
     ['seed:smelt', 'Smelt raw items (raw_iron, raw_gold), not ore blocks; coal_ore drops coal directly when mined.'],
     ['seed:lognames', 'Log names are specific: oak_log, spruce_log, dark_oak_log, birch_log (never just "log").'],
     ['seed:trees', 'Trees grow on the surface, not in caves; to get logs, go up to the surface first.'],
-    ['seed:home', 'The house at -823 124 568 is your base; once within 3 blocks you are home, so do not shuffle at the door.'],
+    ['seed:home', `The house at ${HOME.base.x} ${HOME.base.y} ${HOME.base.z} is your base; once within 3 blocks you are home, so do not shuffle at the door.`],
 ];
 
 // ---------- place observation ----------
@@ -86,7 +87,7 @@ export class LongMemory {
         this._embedFails = 0; this._embedOffUntil = 0;
         this.stats = { lessons_added: 0, lessons_bumped: 0, places_added: 0, places_expired: 0, skills_saved: 0 };
         for (const [key, text] of SEED_LESSONS) this._addLesson(key, text, 'seed', false);
-        for (const fixed of [['house', HOMESTEAD.x, HOMESTEAD.y, HOMESTEAD.z], ['bed', -822, 124, 569], ['house_entrance', -820, 124, 565]]) {
+        for (const fixed of [['house', HOME.base.x, HOME.base.y, HOME.base.z], ['bed', HOME.bed.x, HOME.bed.y, HOME.bed.z], ['house_entrance', Math.floor(HOME.entrance.x), HOME.entrance.y, Math.floor(HOME.entrance.z)]]) {
             const p = this.places.data.places.find(p => p.type === fixed[0]);
             if (!p) this.places.data.places.push({ type: fixed[0], x: fixed[1], y: fixed[2], z: fixed[3], kind: 'fixed', first: now(), last: now(), seen: 1 });
         }
@@ -243,7 +244,7 @@ export class LongMemory {
                 const ranked = [...best.values()].map(v => ({ ...v, s: keywordScore(query, v.p.type.replace(/_/g, ' ')) * 50 - v.d / 10 }))
                     .sort((a, b) => b.s - a.s).slice(0, 6).sort((a, b) => a.d - b.d);
                 const list = ranked.map(({ p, d }) => `${p.type} ${p.x} ${p.y} ${p.z} (${Math.round(d)}m)`);
-                out += `\nKnown places (nearest of each): house -823 124 568${list.length ? '; ' + list.join('; ') : ''}. !goToRememberedPlace("<type>") goes to the nearest one.`;
+                out += `\nKnown places (nearest of each): house ${HOME.base.x} ${HOME.base.y} ${HOME.base.z}${list.length ? '; ' + list.join('; ') : ''}. !goToRememberedPlace("<type>") goes to the nearest one.`;
             }
             const ms = now() - t0;
             if ((this._blockLogs = (this._blockLogs || 0) + 1) % 5 === 1) console.log(`[ai-player] long-memory block chars=${out.length} lessons=${lessons.length} embed=${qv ? 'ok' : 'keyword'} ms=${ms}`);

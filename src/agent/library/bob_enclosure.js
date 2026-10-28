@@ -17,16 +17,7 @@ export const ENCLOSURE_REQUIRED_TARGETS = 3;
 export const EXIT_WAYPOINT = HOME.exitWaypoint;
 
 // Two-high columns on the porch and just north of the door (the sealed exit).
-export const EXIT_PROBE_CELLS = [
-    { x: -821, y: 124, z: 565 }, { x: -821, y: 125, z: 565 },
-    { x: -820, y: 124, z: 565 }, { x: -820, y: 125, z: 565 },
-    { x: -819, y: 124, z: 565 }, { x: -819, y: 125, z: 565 },
-    { x: -821, y: 124, z: 564 }, { x: -821, y: 125, z: 564 },
-    { x: -820, y: 124, z: 564 }, { x: -820, y: 125, z: 564 },
-    { x: -819, y: 124, z: 564 }, { x: -819, y: 125, z: 564 },
-    { x: -820, y: 124, z: 563 }, { x: -820, y: 125, z: 563 },
-    { x: -820, y: 124, z: 562 }, { x: -820, y: 125, z: 562 },
-];
+export const EXIT_PROBE_CELLS = HOME.exitProbeCells;
 
 const PASSABLE = /^(air|cave_air|void_air)$|pressure_plate$|_door$|fence_gate$|^torch$|^wall_torch$|^ladder$/;
 

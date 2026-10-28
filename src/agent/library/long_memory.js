@@ -1,4 +1,4 @@
-import { HOME } from './bob_home.js';
+import { CLAIM } from './bob_claim.js';
 // [ai-player] Long-term memory for Bob: LESSONS (Reflexion-style, rule-derived), PLACES (observed resources),
 // and a Voyager-style SAVED SKILLS library (verified generated code, embedded description, top-k retrieval).
 // Retrieval scoring follows generative agents (relevance + recency + importance). Everything is best-effort:
@@ -6,7 +6,7 @@ import { HOME } from './bob_home.js';
 import fs from 'fs';
 import path from 'path';
 import { cosineSimilarity } from '../../utils/math.js';
-import { zoneAt, HOMESTEAD } from './no_go_zones.js';
+import { zoneAt } from './no_go_zones.js';
 
 const HOUR = 3600e3;
 const now = () => Date.now();
@@ -61,7 +61,7 @@ const SEED_LESSONS = [
     ['seed:smelt', 'Smelt raw items (raw_iron, raw_gold), not ore blocks; coal_ore drops coal directly when mined.'],
     ['seed:lognames', 'Log names are specific: oak_log, spruce_log, dark_oak_log, birch_log (never just "log").'],
     ['seed:trees', 'Trees grow on the surface, not in caves; to get logs, go up to the surface first.'],
-    ['seed:home', `The house at ${HOME.base.x} ${HOME.base.y} ${HOME.base.z} is your base; once within 3 blocks you are home, so do not shuffle at the door.`],
+    ['seed:claim', `Your property is a 128 by 128 claim centered at X ${CLAIM.center.x}, Z ${CLAIM.center.z}. Build your own home after surveying the ground. The claim center is not a house or bed.`],
 ];
 
 // ---------- place observation ----------
@@ -72,7 +72,7 @@ const PLACE_MOBS = ['cow', 'sheep', 'pig', 'chicken', 'rabbit'];
 const ALIAS = { deepslate_coal_ore: 'coal_ore', deepslate_iron_ore: 'iron_ore', deepslate_gold_ore: 'gold_ore' };
 // [ai-player] Ore remembered far below Bob near the house kept pulling him back into the tunnels under it (Oct 20).
 const DEEP_ORE_DY = 12, DEEP_ORE_HOUSE_R = 40;
-const deepOre = (p, me) => p.kind === 'block' && /_ore$/.test(p.type) && p.y < me.y - DEEP_ORE_DY && Math.hypot(p.x - HOMESTEAD.x, p.z - HOMESTEAD.z) < DEEP_ORE_HOUSE_R;
+const deepOre = (p, me) => p.kind === 'block' && /_ore$/.test(p.type) && p.y < me.y - DEEP_ORE_DY && Math.hypot(p.x - CLAIM.center.x, p.z - CLAIM.center.z) < DEEP_ORE_HOUSE_R;
 const MERGE_DIST = 12, MAX_PLACES = 200, MOB_TTL = 30 * 60e3, BLOCK_TTL = 3 * 24 * HOUR;
 
 export class LongMemory {
@@ -87,13 +87,10 @@ export class LongMemory {
         this._embedFails = 0; this._embedOffUntil = 0;
         this.stats = { lessons_added: 0, lessons_bumped: 0, places_added: 0, places_expired: 0, skills_saved: 0 };
         for (const [key, text] of SEED_LESSONS) this._addLesson(key, text, 'seed', false);
-        for (const fixed of [['house', HOME.base.x, HOME.base.y, HOME.base.z], ['bed', HOME.bed.x, HOME.bed.y, HOME.bed.z], ['house_entrance', Math.floor(HOME.entrance.x), HOME.entrance.y, Math.floor(HOME.entrance.z)]]) {
-            const p = this.places.data.places.find(p => p.type === fixed[0]);
-            if (!p) this.places.data.places.push({ type: fixed[0], x: fixed[1], y: fixed[2], z: fixed[3], kind: 'fixed', first: now(), last: now(), seen: 1 });
-            else if (p.kind === 'fixed' && (p.x !== fixed[1] || p.y !== fixed[2] || p.z !== fixed[3])) {
-                Object.assign(p, {x:fixed[1],y:fixed[2],z:fixed[3],last:now()});
-            }
-        }
+        // Retire the abandoned hilltop as a home; preserve all unrelated discoveries.
+        const obsolete = new Set(['house', 'bed', 'house_entrance']);
+        this.places.data.places = this.places.data.places.filter(p => !obsolete.has(p.type) || p.kind !== 'fixed');
+        this.lessons.data.lessons = this.lessons.data.lessons.filter(l => l.key !== 'seed:home');
         this.lessons.save(); this.places.save();
         this._backfill();
     }
@@ -247,7 +244,7 @@ export class LongMemory {
                 const ranked = [...best.values()].map(v => ({ ...v, s: keywordScore(query, v.p.type.replace(/_/g, ' ')) * 50 - v.d / 10 }))
                     .sort((a, b) => b.s - a.s).slice(0, 6).sort((a, b) => a.d - b.d);
                 const list = ranked.map(({ p, d }) => `${p.type} ${p.x} ${p.y} ${p.z} (${Math.round(d)}m)`);
-                out += `\nKnown places (nearest of each): house ${HOME.base.x} ${HOME.base.y} ${HOME.base.z}${list.length ? '; ' + list.join('; ') : ''}. !goToRememberedPlace("<type>") goes to the nearest one.`;
+                out += `\nKnown places: ${list.join('; ') || 'none yet'}. !goToRememberedPlace("<type>") goes to the nearest one.`;
             }
             const ms = now() - t0;
             if ((this._blockLogs = (this._blockLogs || 0) + 1) % 5 === 1) console.log(`[ai-player] long-memory block chars=${out.length} lessons=${lessons.length} embed=${qv ? 'ok' : 'keyword'} ms=${ms}`);

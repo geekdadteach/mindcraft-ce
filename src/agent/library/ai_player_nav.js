@@ -138,8 +138,8 @@ export function isNightTime(bot) {
 
 export function isInsideHouse(bot) {
     const p = bot.entity.position;
-    const a = HOME.geometry.area;
-    return p.z >= a.z1 + 0.8 && p.z <= a.z2 - 1 && p.x >= a.x1 && p.x <= a.x2 - 1 && Math.abs(p.y - HOME.base.y) <= 1.5;
+    const a = HOME.indoor;
+    return p.z >= a.z1 && p.z <= a.z2 && p.x >= a.x1 && p.x <= a.x2 && p.y >= a.y1 && p.y <= a.y2;
 }
 
 export function findHomeBed(bot) {

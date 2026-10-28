@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — Home consolidation on verified live snapshot (CODED; NOT DEPLOYED)
+- Branch: `work/bob-home-from-live-20261028`, based on sanitized live snapshot `a438d10`; PR #19/#20, main and running Mac unchanged.
+- Centralized house coordinates, door/porch protection geometry, indoor occupancy bounds, cave escape avoidance center, enclosure probe positions, reset target, diagnostics, and fixed memory places in `bob_home.js` and consumers. Indoor detection remains distinct from the protected area. The bed hint is now `-822 124 569` rather than `-823 124 568`, with the same six-block search radius.
+- `home_routes.json` transitions to version 2 with a `home` entrance key when saved. Version-1 data at the unchanged entrance retains its routes; relocation invalidates old waypoints and archives the original file as `home_routes.json.pre-relocation.json` on save. Other saved memory files are not deleted or reset.
+- Regression tests now reside in `test/bob_home_geometry.test.js`. `npm test` uses `node --test "test/**/*.test.js"` so the root `zz-lm-test.mjs` embedding probe is not run.
+- Developer independently verified earlier HEAD `54d6e4b`: 157/157 tests via unscoped `node --test` (includes unrelated root embedding probe); PR #20 suites remained green, and Bob stayed PID 65846. **The later test relocation, scoped npm test command and documentation commits have not yet been retested.** No live in-game validation or deployment authorization. Keep Bob running unchanged until reviewed.
+- Remaining release gate: `npm test` on current branch, review runtime route persistence on a copy of saved data, then explicit deployment approval. No automatic home behavior switches changed.
+
 ## 2026-10-28 8:47 AM ET — `snapshot/bob-live-m4-20261028`: sanitized snapshot of live Bob on `.20` (record only; NOT merged, NOT deployed)
 - Why: Randy (Oct 28 8:46 AM ET): "publish a snapshot of bobs live code to a separate branch, excluding credentials, private runtime data, and logs. Then I can finish against that exact baseline."
 - Source: Randy's Mac mini `.20`, `~/BobRuntime/cutover/mindcraft-m4` (not a git checkout), read-only tarball taken 2026-10-28 8:47 AM ET (sha256 `b1ea61c8c3abce8464f5685fa33770bb08d90de3c6859437ac284f55edeaf98b`). Bob was not stopped, restarted or signalled.

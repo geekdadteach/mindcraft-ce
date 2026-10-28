@@ -15,7 +15,7 @@ import { superseded } from './skills.js';
 export const ENTRANCE = new Vec3(HOME.entrance.x, HOME.entrance.y, HOME.entrance.z);  // outside pressure plate -820 124 565 (north of the door)
 export const INSIDE = new Vec3(HOME.inside.x, HOME.inside.y, HOME.inside.z);    // inside plate -820 124 567 (door oak -820 124 566, facing south)
 // seed: open ground north of the door, from logged positions (-820 123 559/560, -818 123 565); y is checked at run time
-const SEED = [[-819.5, 123, 553.5], [-819.5, 123, 559.5], [-819.5, 123, 562.5], [-819.5, 124, 565.5]];
+const SEED = HOME.seedRoute;
 const MAX_ROUTES = 8, CRUMB_SPACING = 4, CRUMB_WINDOW_MS = 120e3;
 
 export class HomeRoutes {

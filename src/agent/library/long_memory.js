@@ -90,6 +90,9 @@ export class LongMemory {
         for (const fixed of [['house', HOME.base.x, HOME.base.y, HOME.base.z], ['bed', HOME.bed.x, HOME.bed.y, HOME.bed.z], ['house_entrance', Math.floor(HOME.entrance.x), HOME.entrance.y, Math.floor(HOME.entrance.z)]]) {
             const p = this.places.data.places.find(p => p.type === fixed[0]);
             if (!p) this.places.data.places.push({ type: fixed[0], x: fixed[1], y: fixed[2], z: fixed[3], kind: 'fixed', first: now(), last: now(), seen: 1 });
+            else if (p.kind === 'fixed' && (p.x !== fixed[1] || p.y !== fixed[2] || p.z !== fixed[3])) {
+                Object.assign(p, {x:fixed[1],y:fixed[2],z:fixed[3],last:now()});
+            }
         }
         this.lessons.save(); this.places.save();
         this._backfill();

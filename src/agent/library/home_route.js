@@ -6,7 +6,7 @@
 // are recorded whenever Bob actually walks on the surface to the door (bots/<name>/home_routes.json).
 // No world changes: walking movements first; built blocks are never dug (escapeMovements protects them).
 import fs from 'fs';
-import { HOME } from './bob_home.js';
+import { HOME, LEGACY_HOME_ENTRANCE, sameHomeEntrance } from './bob_home.js';
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import * as nav from './ai_player_nav.js';
@@ -26,9 +26,9 @@ export class HomeRoutes {
         try { if (fs.existsSync(this.file)) this.data = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch (e) { console.warn(`[ai-player] home-route: load failed (${e.message})`); }
         // Existing version-1 routes are retained only for the unchanged home.
         // On relocation, discard stale waypoints but keep the original file untouched until save().
-        const previous = this.data.home || {x:-819.5,y:124,z:565.5};
+        const previous = this.data.home || LEGACY_HOME_ENTRANCE;
         this.needsArchive = false;
-        if (previous.x !== HOME.entrance.x || previous.y !== HOME.entrance.y || previous.z !== HOME.entrance.z) {
+        if (!sameHomeEntrance(previous)) {
             console.warn('[ai-player] home-route: home changed; invalidating routes for previous entrance');
             this.needsArchive = true;
             this.data.routes = [];

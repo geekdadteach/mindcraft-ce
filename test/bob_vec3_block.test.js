@@ -45,6 +45,7 @@ test('HomeRegistry.observeWorld uses Vec3-strict blockAt', () => {
 
 test('claimProperty blockAt path rejects plain objects and uses Vec3', async () => {
     const seen = [];
+    const listeners = [];
     const bot = {
         blockAt: strictBlockAt((x, y, z) => {
             seen.push([x, y, z]);
@@ -55,8 +56,9 @@ test('claimProperty blockAt path rejects plain objects and uses Vec3', async () 
             };
         }),
         activateBlock: async () => {},
-        on() {},
+        on(ev, fn) { listeners.push([ev, fn]); },
         removeListener() {},
+        emit(ev, ...args) { for (const [e, fn] of listeners) if (e === ev) fn(...args); },
         entity: { position: { x: -1208, y: 65, z: 688 } },
         heldItem: { name: 'golden_shovel' },
         inventory: { items: () => [{ name: 'golden_shovel' }], slots: [{ name: 'golden_shovel' }] },
@@ -66,7 +68,7 @@ test('claimProperty blockAt path rejects plain objects and uses Vec3', async () 
         approved: true,
         goto: async () => true,
         wait: async () => {},
-        chat: () => {},
+        chat: () => { bot.emit('messagestr', '20000 blocks from play + 0 bonus = 20000 total.\nClaims:\n = 20000 blocks left to spend'); },
     });
     assert.equal(result.refused, undefined);
     assert.ok(seen.length >= 2, 'looked up corner blocks via Vec3');

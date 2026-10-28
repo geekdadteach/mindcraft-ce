@@ -13,7 +13,7 @@ const DOOR = fixture.entrance;
 function nearDoor({ dx = 12.5, dy = -6, dz = 10.5 } = {}) {
     return { x: DOOR.x + dx, y: DOOR.y + dy, z: DOOR.z + dz };
 }
-import { installChatGuard, isSlashCommand, stripCommandPrefix, sendFixedHomeCommand, sendFixedSetHomeCommand, sendFixedClaimsListCommand, confirmSetHome } from '../src/agent/library/chat_guard.js';
+import { installChatGuard, isSlashCommand, stripCommandPrefix, sendFixedHomeCommand, sendFixedSetHomeCommand, sendFixedClaimsListCommand, confirmSetHome, isPlayerChatLine } from '../src/agent/library/chat_guard.js';
 import { ResetRecovery, readRequest } from '../src/agent/library/reset_recovery.js';
 
 const T0 = 10_000_000;
@@ -241,6 +241,34 @@ test('confirmSetHome sets the flag only after a server ok reply', async () => {
     });
     assert.equal(ok.ok, true);
     assert.equal(ok.why, 'server confirmed');
+
+    t = 0;
+    sent.length = 0;
+    const fromChatEvent = await confirmSetHome(bot, {
+        wait: async (ms) => { t += ms; if (t >= 100) bot.emit('messagestr', 'Home set.', 'chat', {}, 'Steve'); },
+        now: () => t, timeoutMs: 400,
+    });
+    assert.equal(fromChatEvent.ok, false);
+    assert.equal(fromChatEvent.why, 'no reply');
+
+    t = 0;
+    const fromNamePrefix = await confirmSetHome(bot, {
+        wait: async (ms) => { t += ms; if (t >= 100) bot.emit('messagestr', '[Member] Steve: Home set.'); },
+        now: () => t, timeoutMs: 400,
+    });
+    assert.equal(fromNamePrefix.ok, false);
+    assert.equal(fromNamePrefix.why, 'no reply');
+
+    t = 0;
+    const fromSystem = await confirmSetHome(bot, {
+        wait: async (ms) => { t += ms; if (t >= 100) bot.emit('messagestr', 'Home set.', 'system', {}, undefined); },
+        now: () => t, timeoutMs: 400,
+    });
+    assert.equal(fromSystem.ok, true);
+    assert.equal(isPlayerChatLine('Home set.', 'chat', {}, 'Steve'), true);
+    assert.equal(isPlayerChatLine('[Member] Steve: Home set.'), true);
+    assert.equal(isPlayerChatLine('Steve: Home set.'), true);
+    assert.equal(isPlayerChatLine('Home set.', 'system'), false);
 });
 
 test('inbox kind tphome is accepted and routed; force via reason', async () => {

@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-    CLAIM_PLUGIN, claimCorners, claimProperty, gpClaimsListOutput, holdingGoldenShovel,
-    parseClaimsList, parseGpClaimLine,
+    CLAIM_PLUGIN, LIST_WAIT_MS, claimCorners, claimProperty, gpClaimsListOutput, holdingGoldenShovel,
+    isGpClaimsListReply, parseClaimsList, parseGpClaimLine,
 } from '../src/agent/library/bob_claim_protect.js';
 import { claimArea, claimBounds } from '../src/agent/library/bob_claim.js';
 import { ResetRecovery, readRequest } from '../src/agent/library/reset_recovery.js';
@@ -21,6 +21,14 @@ function gp128() {
     ]);
 }
 
+function gpNone() {
+    return gpClaimsListOutput([]);
+}
+
+function gpOther() {
+    return gpClaimsListOutput([{ world: 'world', x: -827, z: 559, area: 135 }]);
+}
+
 function shovelBot(extra = {}) {
     const listeners = [];
     const bot = {
@@ -30,7 +38,7 @@ function shovelBot(extra = {}) {
         async activateBlock() {},
         on(ev, fn) { listeners.push([ev, fn]); },
         removeListener() {},
-        emit(ev, m) { for (const [e, fn] of listeners) if (e === ev) fn(m); },
+        emit(ev, ...args) { for (const [e, fn] of listeners) if (e === ev) fn(...args); },
         ...extra,
     };
     return bot;
@@ -73,6 +81,18 @@ test('parseClaimsList reads GP 16.18.7 lesser-corner plus area, not both corners
 
     const parsed = parseGpClaimLine('world: x-1208, z688 (-16384 blocks)');
     assert.deepEqual(parsed, { world: 'world', x: -1208, z: 688, area: 16384, line: 'world: x-1208, z688 (-16384 blocks)' });
+
+    assert.equal(parseGpClaimLine('world_nether: x-1208, z688 (-16384 blocks)'), null);
+    assert.equal(parseGpClaimLine('world_the_end: x-1208, z688 (-16384 blocks)'), null);
+    const nether = parseClaimsList(gpClaimsListOutput([
+        { world: 'world_nether', x: b.x1, z: b.z1, area },
+        { world: 'world_the_end', x: b.x1, z: b.z1, area },
+    ]));
+    assert.equal(nether.claims.length, 0);
+    assert.equal(nether.coversClaim, false);
+    assert.equal(isGpClaimsListReply(gpNone()), true);
+    assert.equal(isGpClaimsListReply(''), false);
+    assert.equal(LIST_WAIT_MS, 5000);
 });
 
 test('claimProperty refuses without approved:true', async () => {
@@ -110,7 +130,7 @@ test('claimProperty aborts before clicking without a golden shovel in hand', asy
         getBlock: (x, y, z) => ({ name: y < 65 ? 'grass_block' : 'air', boundingBox: y < 65 ? 'block' : 'empty', x, y, z }),
         activateBlock: async (blk) => { clicks.push(blk); },
         equip: async () => {},
-        chat: () => {},
+        chat: () => { bot.emit('messagestr', gpNone()); },
         goto: async (x, y, z) => { walks.push([x, z]); return true; },
         wait: async () => {},
     });
@@ -134,9 +154,7 @@ test('fallback create walks to both corners then clicks with a shovel', async ()
         chat: (m) => {
             chats.push(m);
             lists += 1;
-            bot.emit('messagestr', lists === 1
-                ? gpClaimsListOutput([{ world: 'world', x: -827, z: 559, area: 135 }])
-                : gp128());
+            bot.emit('messagestr', lists === 1 ? gpOther() : gp128());
         },
         goto: async (x, y, z) => { walks.push([x, z]); return true; },
         wait: async () => {},
@@ -155,13 +173,14 @@ test('fallback create walks to both corners then clicks with a shovel', async ()
 
 test('claimProperty does not click a missing block', async () => {
     const clicks = [];
-    const result = await claimProperty({ name: 'MineBobNE', bot: shovelBot() }, {
+    const bot = shovelBot();
+    const result = await claimProperty({ name: 'MineBobNE', bot }, {
         approved: true,
         getBlock: () => null,
         activateBlock: async (blk) => { clicks.push(blk); },
         goto: async () => true,
         wait: async () => {},
-        chat: () => {},
+        chat: () => { bot.emit('messagestr', gpNone()); },
     });
     assert.equal(clicks.length, 0);
     assert.ok(result.steps.some((s) => /no surface|no solid/.test(s)));
@@ -193,7 +212,7 @@ test('inbox kind claim-property requires approved:true and wires bot functions',
         history: { async add() {}, async save() {} },
         escape: { gotoChecked: async () => true },
     };
-    const rr = new ResetRecovery(agent, { inboxDir: dir });
+    const rr = new ResetRecovery(agent, { inboxDir: dir, wait: async () => {} });
     const f = path.join(dir, 'claim.json');
     fs.writeFileSync(f, JSON.stringify({ v: 1, kind: 'claim-property', reason: 'please', by: 'operator', ts: 1 }), { mode: 0o600 });
     const req = readRequest(f);
@@ -205,11 +224,54 @@ test('inbox kind claim-property requires approved:true and wires bot functions',
     const req2 = readRequest(f);
     assert.equal(req2.approved, true);
     const result = await rr.handle(req2);
-    assert.match(String(result), /golden_shovel is not in hand/);
+    assert.match(String(result), /reply unknown/);
+    assert.doesNotMatch(String(result), /fallback create/);
     assert.equal(clicks.length, 0, 'inbox path must not click with dirt in hand');
     assert.equal(chats.length, 0);
 
     const src = fs.readFileSync(new URL('../src/agent/agent.js', import.meta.url), 'utf8');
     assert.doesNotMatch(src, /claimProperty\(/);
     fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('late or unrecognized /claimslist is unknown abort, never create', async () => {
+    const clicks = [];
+    const walks = [];
+    const bot = shovelBot();
+    const result = await claimProperty({ name: 'MineBobNE', bot }, {
+        approved: true,
+        getBlock: (x, y, z) => ({ name: y < 65 ? 'grass_block' : 'air', boundingBox: y < 65 ? 'block' : 'empty', x, y, z }),
+        activateBlock: async (blk) => { clicks.push(blk); },
+        goto: async (x, y, z) => { walks.push([x, z]); return true; },
+        wait: async () => {},
+        chat: () => {},
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.aborted, true);
+    assert.equal(clicks.length, 0);
+    assert.equal(walks.length, 0);
+    assert.match(result.steps[0], /reply unknown/);
+    assert.equal(result.alreadyExists, undefined);
+});
+
+test('nether covering line is ignored so overworld is not treated as claimed', async () => {
+    const clicks = [];
+    const bot = shovelBot({ heldItem: { name: 'dirt' }, inventory: { slots: [], items: () => [] } });
+    const result = await claimProperty({ name: 'MineBobNE', bot }, {
+        approved: true,
+        activateBlock: async (blk) => { clicks.push(blk); },
+        goto: async () => true,
+        wait: async () => {},
+        chat: () => {
+            bot.emit('messagestr', gpClaimsListOutput([
+                { world: 'world_nether', x: b.x1, z: b.z1, area },
+            ]));
+        },
+        equip: async () => {},
+    });
+    assert.equal(result.claimsList.coversClaim, false);
+    assert.equal(result.alreadyExists, undefined);
+    assert.ok(result.steps.some((s) => /fallback create/.test(s)));
+    assert.ok(result.aborted);
+    assert.equal(clicks.length, 0);
 });

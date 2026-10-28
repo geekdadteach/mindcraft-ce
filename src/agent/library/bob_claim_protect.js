@@ -9,7 +9,7 @@
 import pf from 'mineflayer-pathfinder';
 import { CLAIM, claimArea, claimBounds } from './bob_claim.js';
 import { botGetBlock } from './vec3_util.js';
-import { CLAIMS_LIST_CMD, chatGuardArmed, sendFixedClaimsListCommand } from './chat_guard.js';
+import { CLAIMS_LIST_CMD, chatGuardArmed, isPlayerChatLine, sendFixedClaimsListCommand } from './chat_guard.js';
 
 export const CLAIM_PLUGIN = Object.freeze({
     name: 'GriefPrevention',
@@ -30,12 +30,29 @@ export function claimCorners(claim = CLAIM) {
 }
 
 // GP 16.18.7 lesser-corner listing. The minus before area is ContinueBlockMath.
-const GP_CLAIM_LINE_RE = /(?:^|\n)([^:\n]+):\s*x(-?\d+),\s*z(-?\d+)\s*\((-)?(\d+)\s*blocks\)/gi;
+// Overworld only: require the world name "world:". Ignore nether / end (world_nether, world_the_end).
+export const OVERWORLD_WORLD = 'world';
+export const LIST_WAIT_MS = 5000;
+const GP_CLAIM_LINE_RE = /(?:^|\n)(world):\s*x(-?\d+),\s*z(-?\d+)\s*\((-)?(\d+)\s*blocks\)/gi;
+
+export function isOverworldWorld(name) {
+    return String(name || '').trim().toLowerCase() === OVERWORLD_WORLD;
+}
 
 export function parseGpClaimLine(line) {
-    const m = /^\s*([^:]+):\s*x(-?\d+),\s*z(-?\d+)\s*\((-)?(\d+)\s*blocks\)\s*$/i.exec(String(line || '').trim());
+    const m = /^\s*(world):\s*x(-?\d+),\s*z(-?\d+)\s*\((-)?(\d+)\s*blocks\)\s*$/i.exec(String(line || '').trim());
     if (!m) return null;
     return { world: m[1].trim(), x: Number(m[2]), z: Number(m[3]), area: Number(m[5]), line: String(line).trim() };
+}
+
+// A recognized GP /claimslist reply, even with zero claims. Anything else after the wait is unknown.
+export function isGpClaimsListReply(text) {
+    const s = String(text || '');
+    if (/blocks from play/i.test(s)) return true;
+    if (/\bClaims:/i.test(s)) return true;
+    if (/blocks left to spend/i.test(s)) return true;
+    if (/\bworld:\s*x-?\d+,\s*z-?\d+\s*\(-?\d+\s*blocks\)/i.test(s)) return true;
+    return false;
 }
 
 export function gpClaimsListLine({ world = 'world', x, z, area }) {
@@ -61,7 +78,9 @@ export function parseClaimsList(text, { username = 'MineBobNE', claim = CLAIM } 
     GP_CLAIM_LINE_RE.lastIndex = 0;
     let m;
     while ((m = GP_CLAIM_LINE_RE.exec(raw))) {
-        claims.push({ world: m[1].trim(), x: Number(m[2]), z: Number(m[3]), area: Number(m[5]), line: m[0].trim() });
+        const world = m[1].trim();
+        if (!isOverworldWorld(world)) continue;
+        claims.push({ world, x: Number(m[2]), z: Number(m[3]), area: Number(m[5]), line: m[0].trim() });
     }
     const b = claimBounds(claim);
     const wantArea = claimArea(claim);
@@ -124,17 +143,21 @@ function defaultChat(bot) {
     };
 }
 
-async function collectClaimsList(bot, sendList, wait) {
+async function collectClaimsList(bot, sendList, wait, waitMs = LIST_WAIT_MS) {
     const lines = [];
-    const onMsg = (m) => { lines.push(String(m || '')); };
+    const onMsg = (message, position, jsonMsg, sender) => {
+        if (isPlayerChatLine(message, position, jsonMsg, sender)) return;
+        lines.push(String(message || ''));
+    };
     bot?.on?.('messagestr', onMsg);
     try {
         sendList(CLAIM_PLUGIN.listCommand);
-        await wait(800);
+        await wait(waitMs);
     } finally {
         bot?.removeListener?.('messagestr', onMsg);
     }
-    return lines.join('\n');
+    const raw = lines.join('\n');
+    return { raw, recognized: isGpClaimsListReply(raw) };
 }
 
 function resultShape({ ok, refused, aborted, alreadyExists, steps, parsed, corners }) {
@@ -170,7 +193,15 @@ export async function claimProperty(agent, {
     }
     const bot = agent?.bot;
     const sendList = typeof chat === 'function' ? chat : defaultChat(bot);
-    const listed = parseClaimsList(await collectClaimsList(bot, sendList, wait), { username });
+    const listedRaw = await collectClaimsList(bot, sendList, wait);
+    const listed = parseClaimsList(listedRaw.raw, { username });
+    if (!listedRaw.recognized) {
+        return resultShape({
+            ok: false, aborted: true,
+            steps: ['aborted: /claimslist reply unknown; not treating as no claim'],
+            parsed: listed, corners,
+        });
+    }
     if (listed.coversClaim) {
         return resultShape({
             ok: true, alreadyExists: true,
@@ -224,6 +255,11 @@ export async function claimProperty(agent, {
         steps.push(`clicked ${c.x} ${y - 1} ${c.z}`);
         await wait(400);
     }
-    const parsed = parseClaimsList(await collectClaimsList(bot, sendList, wait), { username });
+    const afterRaw = await collectClaimsList(bot, sendList, wait);
+    const parsed = parseClaimsList(afterRaw.raw, { username });
+    if (!afterRaw.recognized) {
+        steps.push('aborted: /claimslist reply unknown after create; not treating as success');
+        return resultShape({ ok: false, aborted: true, steps, parsed, corners });
+    }
     return resultShape({ ok: parsed.coversClaim, steps, parsed, corners });
 }

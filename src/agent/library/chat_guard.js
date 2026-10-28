@@ -62,6 +62,19 @@ export function sendFixedClaimsListCommand(bot) { return sendFixedCommand(bot, C
 export const SET_HOME_OK_RE = /\bhome set\b|\bset(?:ting)? (?:your )?home\b|\bhomeset\b/i;
 export const SET_HOME_FAIL_RE = /permission|unknown (or incomplete )?command|cannot set|not allowed|error|cooldown|max(imum)? (number of )?homes|cancelled|denied/i;
 
+// Player chat must never confirm /sethome. Prefer mineflayer messagestr with position
+// 'system'/'game_info' and no sender; ignore the 'chat' event / username / "Name:" prefixes.
+export function isPlayerChatLine(message, position, jsonMsg, sender) {
+    if (sender != null && String(sender).length > 0) return true;
+    if (position === 'chat') return true;
+    const s = String(message || '').trim();
+    if (!s) return false;
+    if (s.startsWith('<')) return true;
+    if (/^\[[^\]]+\]\s+\S+:\s/.test(s)) return true; // [Member] Steve: …
+    if (/^[A-Za-z0-9_]{3,16}:\s/.test(s)) return true; // Steve: …
+    return false;
+}
+
 export async function confirmSetHome(bot, {
     send = sendFixedSetHomeCommand,
     wait = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -69,9 +82,10 @@ export async function confirmSetHome(bot, {
     now = Date.now,
 } = {}) {
     const lines = [];
-    const onMsg = (m) => {
-        const s = String(m || '');
-        if (!s.startsWith('<')) lines.push(s);
+    const onMsg = (message, position, jsonMsg, sender) => {
+        if (isPlayerChatLine(message, position, jsonMsg, sender)) return;
+        const s = String(message || '');
+        if (s) lines.push(s);
     };
     bot?.on?.('messagestr', onMsg);
     try {

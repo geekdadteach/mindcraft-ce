@@ -84,7 +84,7 @@ export function readRequest(file, uid = process.getuid?.()) {
 }
 
 export class ResetRecovery {
-    constructor(agent, { inboxDir = process.env.BOB_RECOVERY_INBOX || path.resolve('run/recovery-inbox'), now = Date.now } = {}) {
+    constructor(agent, { inboxDir = process.env.BOB_RECOVERY_INBOX || path.resolve('run/recovery-inbox'), now = Date.now, wait } = {}) {
         this.agent = agent; this.now = now;
         this.inbox = inboxDir; this.done = path.join(inboxDir, 'done');
         this.detector = createDetector({ target: () => teleportTarget(this.agent?.homeState?.snapshot?.() || getActiveHome()) });
@@ -92,6 +92,7 @@ export class ResetRecovery {
         this.stats = { teleports: 0, suppressed: 0, inbox_ok: 0, inbox_bad: 0 };
         this.lastResetAt = -Infinity;
         this._busy = false;
+        this._wait = wait;
     }
     log(msg) { console.log(`[ai-player] ${msg}`); }
 
@@ -163,7 +164,10 @@ export class ResetRecovery {
                 return 'refused: claim-property requires approved:true (Randy)';
             }
             this.log('claim-property: fallback only; operator is creating claim #26 server-side. Still requires approved:true');
-            const r = await claimProperty(this.agent, { approved: true });
+            const r = await claimProperty(this.agent, {
+                approved: true,
+                ...(this._wait ? { wait: this._wait } : {}),
+            });
             if (typeof r === 'string') return r;
             const steps = (r?.steps || []).join('; ');
             const status = r?.alreadyExists ? 'already covers claim' : (r?.ok ? 'covers claim' : (r?.aborted ? 'aborted' : 'unconfirmed'));

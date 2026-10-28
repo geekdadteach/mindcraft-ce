@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { applyHomeMigration, botLooksStopped, lessonMigration, planHomeMigration, probeBobRunning } from '../src/agent/library/bob_home_migrate.js';
-import { backfillMissingEmbeddings } from '../src/agent/library/long_memory.js';
+import { backfillMissingEmbeddings, LongMemory } from '../src/agent/library/long_memory.js';
 
 function write(dir, name, data) {
     fs.writeFileSync(path.join(dir, name), JSON.stringify(data, null, 2));
@@ -148,6 +148,44 @@ test('backfillMissingEmbeddings fills only lessons that have no emb', async () =
     assert.deepEqual(items[0].emb, [3]);
     assert.deepEqual(items[1].emb, [0]);
     assert.deepEqual(items[2].emb, [5]);
+});
+
+test('backfillMissingEmbeddings leaves items unset when embed is not ready', async () => {
+    const items = [{ key: 'a', text: 'one', emb: null }];
+    const n = await backfillMissingEmbeddings(items, async () => null);
+    assert.equal(n, 0);
+    assert.equal(items[0].emb, null);
+});
+
+test('embedding backfill retries later in the session when the model was not ready', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lm-bf-'));
+    const prev = process.cwd();
+    process.chdir(root);
+    try {
+        fs.mkdirSync(path.join(root, 'bots', 't', 'learned_skills'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'bots', 't', 'lessons.json'), JSON.stringify({
+            version: 1,
+            lessons: [{ key: 'need', text: 'need embed', kind: 'fail', count: 1, first: 1, last: 1, emb: null }],
+        }));
+        let ready = false;
+        const memory = new LongMemory({
+            name: 't',
+            prompter: { embedding_model: { embed: async () => (ready ? [1, 2, 3] : null) } },
+            bot: null,
+        });
+        await memory._backfillPromise;
+        const need = memory.lessons.data.lessons.find((l) => l.key === 'need');
+        assert.equal(need.emb, null);
+        assert.equal(memory._backfillPending, true);
+        ready = true;
+        memory.observe();
+        await memory._backfillPromise;
+        assert.deepEqual(need.emb, [1, 2, 3]);
+        assert.equal(memory._backfillPending, false);
+    } finally {
+        process.chdir(prev);
+        fs.rmSync(root, { recursive: true, force: true });
+    }
 });
 
 test('--bot-stopped still refuses if the running probe says Bob is up', () => {

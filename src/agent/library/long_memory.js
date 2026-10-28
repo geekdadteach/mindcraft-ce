@@ -23,10 +23,16 @@ export async function backfillMissingEmbeddings(items, embed, { textKey = 'text'
     let filled = 0;
     for (const item of items || []) {
         if (!item || item.emb) continue;
-        item.emb = await embed(item[textKey]);
+        const v = await embed(item[textKey]);
+        if (!Array.isArray(v) || v.length === 0) continue;
+        item.emb = v;
         filled++;
     }
     return filled;
+}
+
+export function itemsMissingEmbeddings(items) {
+    return (items || []).some((item) => item && !item.emb);
 }
 
 class JsonStore {
@@ -100,7 +106,9 @@ export class LongMemory {
         for (const [key, text] of SEED_LESSONS) this._addLesson(key, text, 'seed', false);
         // Hilltop place/lesson cleanup is the migration script's job (with a backup). Do not
         // delete saved knowledge on every start.
-        this._backfill();
+        this._backfillPending = true;
+        this._backfillBusy = false;
+        this._backfillPromise = this._backfill();
     }
 
     // ---------- embeddings (never throws) ----------
@@ -109,7 +117,7 @@ export class LongMemory {
         if (!model?.embed || now() < this._embedOffUntil) return null;
         try {
             const v = await Promise.race([model.embed(String(text).slice(0, 2000)), new Promise((_, r) => setTimeout(() => r(new Error('embed timeout')), 3000))]);
-            if (!Array.isArray(v) || v.length === 0) throw new Error('empty embedding');
+            if (!Array.isArray(v) || v.length === 0) return null;
             this._embedFails = 0; return v;
         } catch (e) {
             if (++this._embedFails >= 3) { this._embedOffUntil = now() + 5 * 60e3; this._embedFails = 0; }
@@ -118,9 +126,17 @@ export class LongMemory {
         }
     }
     async _backfill() {
-        await backfillMissingEmbeddings(this.lessons.data.lessons, (t) => this.embed(t));
-        await backfillMissingEmbeddings(this.skills.data.skills, (t) => this.embed(t), { textKey: 'description' });
-        this.lessons.save(); this.skills.save();
+        if (this._backfillBusy || !this._backfillPending) return;
+        this._backfillBusy = true;
+        try {
+            await backfillMissingEmbeddings(this.lessons.data.lessons, (t) => this.embed(t));
+            await backfillMissingEmbeddings(this.skills.data.skills, (t) => this.embed(t), { textKey: 'description' });
+            this._backfillPending = itemsMissingEmbeddings(this.lessons.data.lessons)
+                || itemsMissingEmbeddings(this.skills.data.skills);
+            this.lessons.save(); this.skills.save();
+        } finally {
+            this._backfillBusy = false;
+        }
     }
     _rel(qv, query, item, text) { return (qv && item.emb && item.emb.length === qv.length) ? cosineSimilarity(qv, item.emb) : keywordScore(query, text); }
 
@@ -132,7 +148,7 @@ export class LongMemory {
         else {
             l = { key, text, kind, count: 1, first: now(), last: now(), emb: null }; L.push(l); this.stats.lessons_added++;
             console.log(`[ai-player] lesson learned: ${text}`);
-            if (embed) this.embed(text).then(v => { l.emb = v; this.lessons.save(); });
+            if (embed) this.embed(text).then(v => { if (Array.isArray(v) && v.length) { l.emb = v; this.lessons.save(); } });
             if (L.length > 150) { L.sort((a, b) => (b.kind === 'seed') - (a.kind === 'seed') || b.last - a.last); L.length = 150; }
         }
         this.lessons.save();
@@ -164,6 +180,7 @@ export class LongMemory {
 
     // ---------- PLACES ----------
     observe() {
+        if (this._backfillPending && !this._backfillBusy) this._backfillPromise = this._backfill();
         const bot = this.agent.bot;
         try {
             if (!bot?.entity?.position || !bot.registry) return;

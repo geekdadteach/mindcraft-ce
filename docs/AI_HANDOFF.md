@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 hardening: claimslist wait/overworld, system sethome, session backfill (CODED; NOT DEPLOYED)
+- Same draft PR #21 on `cursor/claim-first-homestead-9db4`. Do not merge, do not force-push. Keep the PR a draft.
+- `/claimslist` wait is **5 s**. A missing or unrecognized reply is **unknown, abort** — never treated as "no claim, create one". A recognized GP reply (even with zero claims) is still required before any create fallback.
+- Claims parser requires the overworld world name `world:` and ignores nether / end lines (`world_nether`, `world_the_end`).
+- `/sethome house` confirmation accepts only system/server `messagestr` lines (position `system`/`game_info`, no sender). Player chat is ignored: mineflayer `chat` position, a username sender, `<Name>` lines, and `Name:` prefixes such as `[Member] Steve: …`.
+- Embedding backfill that runs before the model is ready leaves `emb` unset and retries later in the same session from `LongMemory.observe()`, not only at the next restart.
+- Tests: `npm test` on Node 22 after this hardening (count recorded with the commit). No in-game validation. Do not deploy.
+
 ## 2026-10-28 — PR #21 follow-up: live claim #26, sethome confirm, embeddings (CODED; NOT DEPLOYED)
 - Same draft PR #21 on `cursor/claim-first-homestead-9db4`. Do not merge, do not force-push. Operator is creating GriefPrevention **claim #26** for MineBobNE server-side (X -1208..-1081, Z 688..815, full height). The `claim-property` helper is now **fallback only**.
 - Claim helper safety (not expanded): `"approved": true`; GP 16.18.7 `/claimslist` format `world: x-1208, z688 (-16384 blocks)` (lesser corner + area, verified in GP source); if that covering claim already exists, success and **do nothing**; otherwise require a golden shovel in hand before any click; `/claimslist` is allowed through the chat guard only via `sendFixedClaimsListCommand`.

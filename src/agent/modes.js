@@ -1,3 +1,4 @@
+import { HOME } from './library/bob_home.js';
 import * as skills from './library/skills.js';
 import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
@@ -412,7 +413,7 @@ const modes_list = [
                 }
                 this.holding = true; this.done_day = day;
                 const bed = nav.findHomeBed(bot);
-                if (!bed) { console.log('[ai-player] night: inside, but no bed found near -823 124 568; staying inside'); return; }
+                if (!bed) { console.log('[ai-player] night: inside, but no bed found near configured home; staying inside'); return; }
                 if (bot.entity.position.distanceTo(bed.position.offset(0.5, 0, 0.5)) > 2)
                     await nav.gotoWithin(bot, new pf.goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 1), 20000, nav.walkMovements(bot));
                 try {
@@ -563,7 +564,7 @@ const modes_list = [
 ];
 
 // [ai-player] ---- unstuck escalation and hunger helpers ----
-const HOUSE_ENTRANCE = { x: -819.5, y: 124, z: 565.5 };
+const HOUSE_ENTRANCE = HOME.entrance;
 const STUCK_BLOCK_MS = 5 * 60e3;
 // never dig through anything that looks built (house, chests, beds, doors) while escaping
 const KEEP_BLOCKS = /planks|_log$|_wood$|door|stairs|slab|glass|carpet|_bed$|chest|furnace|crafting_table|fence|torch|wool|banner|lantern/;

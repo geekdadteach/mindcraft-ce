@@ -426,7 +426,7 @@ const modes_list = [
                 }
                 this.holding = true; this.done_day = day;
                 const bed = nav.findHomeBed(bot);
-                if (!bed) { console.log('[ai-player] night: inside, but no bed found near ${HOME.base.x} ${HOME.base.y} ${HOME.base.z}; staying inside'); return; }
+                if (!bed) { console.log(`[ai-player] night: inside, but no bed found near ${HOME.base.x} ${HOME.base.y} ${HOME.base.z}; staying inside`); return; }
                 if (bot.entity.position.distanceTo(bed.position.offset(0.5, 0, 0.5)) > 2)
                     await nav.gotoWithin(bot, new pf.goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 1), 20000, nav.walkMovements(bot));
                 try {

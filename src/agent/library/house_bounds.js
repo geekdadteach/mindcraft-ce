@@ -3,30 +3,15 @@ import { HOME } from './bob_home.js';
 // without node_modules. The dig/pathfinder guard lives in protected_area.js.
 
 export const HOUSE_DOOR = HOME.door;
-export const HOUSE_AREA = {
-    name: 'house',
-    x1: -827, x2: -816,
-    y1: 123, y2: 127,
-    z1: 566, z2: 573
-};
-export const WALKING_LANE = {
-    name: 'door-lane',
-    x1: -821, x2: -819,
-    y1: 123, y2: 126,
-    z1: 564, z2: 565
-};
+export const HOUSE_AREA = { name: 'house', ...HOME.geometry.area };
+export const WALKING_LANE = { name: 'door-lane', ...HOME.geometry.walkingLane };
 
 // [ai-player] nav-on-live-20261026: the porch row in front of the door (z 564..565) holds real house
 // blocks: oak_log posts at -823/-821/-819 124 565 beside the outside pressure plate -820 124 565 (seen
 // in the .20 log), and the plate's support block -820 123 565. The live guard protected z 564..572, so
 // PR #14's box starting at z 566 would have made them breakable. The porch row stays protected; inside
 // the walking lane only loose fill (dirt, gravel, sand...) can be dug, so a sealed porch can still be cleared.
-export const HOUSE_PORCH = {
-    name: 'house-porch',
-    x1: -827, x2: -816,
-    y1: 123, y2: 127,
-    z1: 564, z2: 565
-};
+export const HOUSE_PORCH = { name: 'house-porch', ...HOME.geometry.porch };
 export const PLATE_SUPPORT = HOME.plateSupport;
 export const LANE_FILL = new Set([
     'dirt', 'grass_block', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'mud', 'dirt_path',

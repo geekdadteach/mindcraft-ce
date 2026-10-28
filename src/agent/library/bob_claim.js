@@ -30,3 +30,22 @@ export function verifiedHomeLocation(home) {
     const p = home.position;
     return p && [p.x, p.y, p.z].every(Number.isFinite) ? { x:p.x, y:p.y, z:p.z } : null;
 }
+
+// Survey-derived guidance: advisory only, not preselected house/bed locations.
+export const CLAIM_SURVEY = Object.freeze({
+    biome: 'plains',
+    approximateSurfaceY: 65,
+    suggestedBuildArea: Object.freeze({ x1:-1144, x2:-1097, z1:720, z2:751 }),
+    undergroundVoid: Object.freeze({ x1:-1118, x2:-1107, z1:763, z2:767 }),
+    caveOpenings: Object.freeze([{x:-1150,z:690},{x:-1165,z:713}].map(p=>Object.freeze(p))),
+    pillagerOutpost: Object.freeze({x:-1270,z:650}),
+    suggestedFields: Object.freeze({x1:-1176,x2:-1129,z1:784,z2:815}),
+    suggestedAnimalArea: Object.freeze({x1:-1112,x2:-1081,z1:688,z2:751}),
+    pond: Object.freeze({x:-1179,z:800}),
+});
+
+export function isKnownUnsafeFoundation(pos) {
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return false;
+    const b=CLAIM_SURVEY.undergroundVoid;
+    return pos.x>=b.x1 && pos.x<=b.x2 && pos.z>=b.z1 && pos.z<=b.z2;
+}

@@ -1,4 +1,5 @@
 import { CLAIM } from './bob_claim.js';
+import { isLegacyHilltopPos } from './bob_home.js';
 // [ai-player] Long-term memory for Bob: LESSONS (Reflexion-style, rule-derived), PLACES (observed resources),
 // and a Voyager-style SAVED SKILLS library (verified generated code, embedded description, top-k retrieval).
 // Retrieval scoring follows generative agents (relevance + recency + importance). Everything is best-effort:
@@ -88,8 +89,13 @@ export class LongMemory {
         this.stats = { lessons_added: 0, lessons_bumped: 0, places_added: 0, places_expired: 0, skills_saved: 0 };
         for (const [key, text] of SEED_LESSONS) this._addLesson(key, text, 'seed', false);
         // Retire the abandoned hilltop as a home; preserve all unrelated discoveries.
-        const obsolete = new Set(['house', 'bed', 'house_entrance']);
-        this.places.data.places = this.places.data.places.filter(p => !obsolete.has(p.type) || p.kind !== 'fixed');
+        const obsolete = new Set(['house', 'bed', 'house_entrance', 'home']);
+        this.places.data.places = this.places.data.places.filter(p => {
+            if (!obsolete.has(p.type)) return true;
+            if (p.kind === 'fixed') return false;
+            if (isLegacyHilltopPos(p, 20)) return false;
+            return true;
+        });
         this.lessons.data.lessons = this.lessons.data.lessons.filter(l => l.key !== 'seed:home');
         this.lessons.save(); this.places.save();
         this._backfill();
@@ -145,7 +151,7 @@ export class LongMemory {
         try {
             const cause = String(message).replace(this.agent.name, '').trim().replace(/\s+/g, ' ').slice(0, 80);
             const night = (this.agent.bot?.time?.timeOfDay ?? 0) > 13000;
-            this._addLesson(`death:${cause.split(' ').slice(0, 3).join('_')}`, `You died (${cause})${night ? ' at night' : ''}. ${night ? 'At night stay inside the house or sleep (!goToBed).' : 'Keep health up, eat, and fight with a sword or retreat.'}`, 'fail');
+            this._addLesson(`death:${cause.split(' ').slice(0, 3).join('_')}`, `You died (${cause})${night ? ' at night' : ''}. ${night ? 'At night sleep in your own verified bed if you have one (!goToBed), or make temporary cover. The retired hilltop is not your home.' : 'Keep health up, eat, and fight with a sword or retreat.'}`, 'fail');
         } catch (_) {}
     }
     _lessonScore(l, rel) {
@@ -207,6 +213,11 @@ export class LongMemory {
     nearestPlace(name) {
         const me = this.agent.bot?.entity?.position; if (!me) return null;
         const n = String(name || '').toLowerCase().replace(/^minecraft:/, '');
+        if (/^(house|home|bed|house_entrance)$/.test(n) && isLegacyHilltopPos) {
+            const candsHome = this.places.data.places.filter(p => p.type === n && !isLegacyHilltopPos(p, 20));
+            candsHome.sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z));
+            return candsHome[0] || null;
+        }
         const cands = this.places.data.places.filter(p => p.type === n || p.type === ALIAS[n] || p.type === `${n}_log` || p.type === `${n}_ore` || (n === 'log' && p.type.endsWith('_log')) || (n.endsWith('s') && p.type === n.slice(0, -1)));
         const cost = (p) => Math.hypot(p.x - me.x, p.z - me.z) + (deepOre(p, me) ? 1000 : 0); // [ai-player] deep ore near the house last
         cands.sort((a, b) => cost(a) - cost(b));
@@ -232,6 +243,10 @@ export class LongMemory {
                 if (!dup) lessons.push(l);
             }
             let out = '';
+            try {
+                const hs = this.agent.homestead?.statusText?.();
+                if (hs) out += 'Settlement facts: ' + hs + '\n';
+            } catch (_) {}
             if (lessons.length) out += 'Lessons learned (from your own experience):\n' + lessons.map(l => `- ${l.text}${l.count > 1 ? ` (x${l.count})` : ''}`).join('\n');
             const me = this.agent.bot?.entity?.position;
             if (me) {

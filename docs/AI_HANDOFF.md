@@ -1,5 +1,27 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — Claim-first homestead conversion (CODED; unit tests; NOT DEPLOYED)
+- Branch: `cursor/claim-first-homestead-9db4` off `work/bob-home-from-live-20261028`. Draft PR only. Never merge, never target `main`, never deploy without Randy.
+- What changed: the retired hilltop (`-823 124 568`, door `-820 124 566`, bed `-822 124 569`) is identification-only. Navigation, protection, night-home, stuck-home `/home house`, and reset-teleport all require a **verified home discovered in the world**. Until then they are inert. The 128×128 claim (X -1208..-1081, Z 688..815, center -1144, 752) is property, not a movement fence and not a house.
+- Homestead stages `survey → select_site → gather → foundation → shelter → bed → verified_home → improvements` live in `src/agent/library/bob_homestead.js`. A 30s timer only observes/verifies; it does not build. Andy continues via `!continueHomestead`. `!homesteadStatus` reports facts, not orders.
+- Cave-pocket escape: 8 headings, nearby air-column scan, up to 3 relocations. No house or hilltop fallback.
+- PR #20 opt-in switches stay off: stuck-home auto (`run/stuck-home.config.json` `"auto": true` or `BOB_STUCK_HOME_AUTO=1`), night-home (`BOB_NIGHT_HOME=1`), unstuck walk-home (`BOB_UNSTUCK_HOME=1`). Manual `tphome` still needs a verified door.
+- **GriefPrevention claim (operator step; needs Randy approval; do not auto-run):**
+  - Plugin (operator read-only check of the game server; this repo did not touch the live server): Paper + GriefPrevention 16.18.7 only. LuckPerms, CoreProtect, custom NewEarthRules (safe zones disable hostile mobs — **do not use for Bob's claim**). WorldGuard is not installed.
+  - No claim covers X -1208..-1081, Z 688..815 yet. Bob (MineBobNE) still has old 9×15 claim #19 at the retired house (x -827..-819, z 559..573) and enough claim blocks for 128×128. GP claims are full height and do not confine their owner.
+  - Planned method: Bob holds a golden shovel and right-clicks corner blocks at **(-1208, 688)** and **(-1081, 815)**. `/claim <radius>` cannot make exactly 128.
+  - ViaProxy fallback (op): `/adminclaims` then `/transferclaim MineBobNE`. Verify with `/claimslist`.
+  - Optional helper in this PR (never starts on its own): recovery-inbox kind `claim-property` calls `claimProperty()` in `src/agent/library/bob_claim_protect.js` (equip golden shovel, click both corners, parse `/claimslist`). **Requires Randy's approval before use on live.** Example file (mode 600) in `run/recovery-inbox/`:
+    `{"v":1,"kind":"claim-property","reason":"approved","by":"randy","ts":<epoch-ms>}`
+- **Live data migration (operator-run, dry-run default, backup first; do not run against live without a copy):**
+  - Dry-run: `node scripts/migrate_bob_home.js --dir bots/MineBobNE`
+  - Apply (writes `bots/MineBobNE/migrations/home-<ts>/` then retires hilltop routes/places/lessons/self_prompt): `node scripts/migrate_bob_home.js --dir bots/MineBobNE --apply`
+  - Does not run on bot start. Unrelated knowledge is kept.
+- **Deploy:** do not deploy this branch. Live Bob and the Mac mini `.20` stay on the current snapshot. After Randy reviews the draft PR: backup `bots/MineBobNE`, dry-run migration, create the GP claim (approved method above), then a planned restart of the new tree. Runtime `run/stuck-home.config.json` should keep `"auto"` unset/false unless Randy opts in.
+- **Rollback:** do not merge. If a deploy happens later, restore the previous tree and `bots/MineBobNE/migrations/home-<ts>/` copies; GP claim rollback is a separate server `/abandonclaim` (or equivalent) decision for Randy, not this repo.
+- **Runtime-config concerns:** live `run/stuck-home.config.json` currently uses `"radius": null` (unlimited). After a verified home exists, a 64-block radius is the code default; unlimited remains valid if the ops file keeps `null`. Night-home and unstuck-home env vars must stay unset unless Randy wants those controllers. Farming still needs `BOB_FARM_ENABLED=true` plus in-claim plot bounds; the old hilltop wheat plot is no longer accepted.
+- Tests: `npm test` (`node --test "test/**/*.test.js"`) on Node 22. New coverage in `test/bob_homestead.test.js`, `test/bob_home_migrate.test.js`, `test/bob_escape_pocket.test.js`, `test/bob_claim_protect.test.js`, `test/bob_claim_first_integration.test.js` (D1–D7).
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

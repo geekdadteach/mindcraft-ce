@@ -1,33 +1,53 @@
-import { HOME } from './bob_home.js';
+import { getActiveHome, isVerifiedHome } from './bob_home.js';
 // [ai-player] Oct 20: navigation helpers for Bob (MineBobNE): surface before tree searches, and going home at night.
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import * as skills from './skills.js';
 import { isInsideHouseArea } from './house_bounds.js';
-import { EXIT_WAYPOINT } from './bob_enclosure.js';
+import { EXIT_WAYPOINT, exitWaypoint } from './bob_enclosure.js';
 import { navConsole } from './bob_nav_memory.js';
 
-export const HOUSE_ENTRANCE = HOME.entrance; // on the outside plate, north of the door
-export const HOUSE_INSIDE = HOME.inside;   // on the inside plate, south of the door
-export const HOUSE_BED_HINT = HOME.bed;
+export function houseEntrance(home = getActiveHome()) { return isVerifiedHome(home) ? home.entrance : null; }
+export function houseInside(home = getActiveHome()) { return isVerifiedHome(home) ? home.inside : null; }
+export function houseBedHint(home = getActiveHome()) { return isVerifiedHome(home) ? home.bed : null; }
+export const HOUSE_ENTRANCE = { get x() { return houseEntrance()?.x; }, get y() { return houseEntrance()?.y; }, get z() { return houseEntrance()?.z; } };
+export const HOUSE_INSIDE = { get x() { return houseInside()?.x; }, get y() { return houseInside()?.y; }, get z() { return houseInside()?.z; } };
+export const HOUSE_BED_HINT = { get x() { return houseBedHint()?.x; }, get y() { return houseBedHint()?.y; }, get z() { return houseBedHint()?.z; } };
 export { EXIT_WAYPOINT, isInsideHouseArea };
 // never dig through anything that looks built (house, chests, beds, doors)
 export const KEEP_BLOCKS = /planks|_log$|_wood$|door|stairs|slab|glass|carpet|_bed$|chest|furnace|crafting_table|fence|torch|wool|banner|lantern|pressure_plate/;
 const SEE_THROUGH = /^(air|cave_air|void_air|water|lava)$|leaves|vine|glass|torch|_carpet$|^short_grass$|^tall_grass$|^snow$|moss_carpet|glow_lichen|spore_blossom|azalea|dripleaf|cave_vines|hanging_roots/;
 
+function newMovements(bot) {
+    try {
+        return new pf.Movements(bot);
+    } catch {
+        // Unit tests (and a bot without a loaded registry) still need a movements object.
+        return {
+            canDig: false,
+            allow1by1towers: false,
+            allowParkour: false,
+            allowSprinting: false,
+            canOpenDoors: true,
+            maxDropDown: 1,
+            blocksCantBreak: new Set(),
+        };
+    }
+}
+
 export function escapeMovements(bot) {
-    const m = new pf.Movements(bot);
+    const m = newMovements(bot);
     m.canDig = true;
     m.allow1by1towers = true;
     m.allowParkour = false;
     m.allowSprinting = false;
     if (bot.health <= 4) m.maxDropDown = 2;
-    for (const b of bot.registry.blocksArray) if (KEEP_BLOCKS.test(b.name)) m.blocksCantBreak.add(b.id);
+    for (const b of bot.registry?.blocksArray || []) if (KEEP_BLOCKS.test(b.name)) m.blocksCantBreak.add(b.id);
     return m;
 }
 
 export function walkMovements(bot) {
-    const m = new pf.Movements(bot);
+    const m = newMovements(bot);
     m.canDig = false;
     m.allowParkour = false;
     m.canOpenDoors = true;
@@ -46,9 +66,11 @@ export async function gotoWithin(bot, goal, ms, movements = null) {
     return ok;
 }
 
-export function homeDistance(bot) {
-    const p = bot.entity.position;
-    return Math.hypot(p.x - HOUSE_ENTRANCE.x, p.z - HOUSE_ENTRANCE.z);
+export function homeDistance(bot, home = getActiveHome()) {
+    const p = bot?.entity?.position;
+    const e = houseEntrance(home);
+    if (!p || !e) return Infinity;
+    return Math.hypot(p.x - e.x, p.z - e.z);
 }
 
 // Underground = natural solid blocks (stone, dirt...) somewhere above the head, and little sky light.
@@ -136,26 +158,31 @@ export function isNightTime(bot) {
     return (tod >= 12542 && tod <= 23460) || (bot.thunderState ?? 0) > 0;
 }
 
-export function isInsideHouse(bot) {
-    const p = bot.entity.position;
-    const a = HOME.indoor;
+export function isInsideHouse(bot, home = getActiveHome()) {
+    if (!isVerifiedHome(home) || !home.indoor) return false;
+    const p = bot?.entity?.position;
+    if (!p) return false;
+    const a = home.indoor;
     return p.z >= a.z1 && p.z <= a.z2 && p.x >= a.x1 && p.x <= a.x2 && p.y >= a.y1 && p.y <= a.y2;
 }
 
-export function findHomeBed(bot) {
-    const hint = new Vec3(HOUSE_BED_HINT.x, HOUSE_BED_HINT.y, HOUSE_BED_HINT.z);
+export function findHomeBed(bot, home = getActiveHome()) {
+    const hintPos = houseBedHint(home);
+    if (!hintPos || !bot?.findBlocks) return null;
+    const hint = new Vec3(hintPos.x, hintPos.y, hintPos.z);
     const beds = bot.findBlocks({ matching: (b) => b && /_bed$/.test(b.name), maxDistance: 32, count: 8, point: hint })
         .filter(p => p.distanceTo(hint) <= 6);
     return beds.length ? bot.blockAt(beds[0]) : null;
 }
 
-// Walk home and in through the door (north to south). Returns true when inside.
-export async function goHomeInside(bot) {
-    if (isInsideHouse(bot)) return true;
-    const E = HOUSE_ENTRANCE, I = HOUSE_INSIDE;
+// Walk home and in through the door. Returns true when inside. No-ops without a verified house.
+export async function goHomeInside(bot, home = getActiveHome()) {
+    if (!isVerifiedHome(home)) return false;
+    if (isInsideHouse(bot, home)) return true;
+    const E = houseEntrance(home), I = houseInside(home);
+    if (!E || !I) return false;
     const nearE = bot.entity.position.distanceTo(new Vec3(E.x, E.y, E.z)) <= 2;
     if (!nearE) {
-        // underground (the lush cave under the house) walking paths wedge; dig out first (built blocks are protected)
         const under = isUnderground(bot);
         const goal = new pf.goals.GoalNear(E.x, E.y, E.z, 1);
         console.log(`[ai-player] night: heading for the outside plate ${under ? '(underground: dig-out route)' : '(walking)'}`);
@@ -165,22 +192,25 @@ export async function goHomeInside(bot) {
     }
     if (bot.interrupt_code) return false;
     await gotoWithin(bot, new pf.goals.GoalBlock(Math.floor(I.x), I.y, Math.floor(I.z)), 20000, walkMovements(bot));
-    return isInsideHouse(bot);
+    return isInsideHouse(bot, home);
 }
 
 // One scripted walk through the door to a waypoint a few blocks north of the porch.
 // Walking first (doors already work); if the porch is sealed, one destructive attempt
 // that can dig the walking lane but not walls, roof or the door.
-export async function tryScriptedHouseExit(bot) {
+export async function tryScriptedHouseExit(bot, home = getActiveHome()) {
     const from = bot?.entity?.position;
     if (!from) return { ok: false, reason: 'no_position' };
-    if (!isInsideHouseArea(from) && !isInsideHouse(bot))
+    if (!isVerifiedHome(home)) return { ok: true, reason: 'no_verified_home' };
+    if (!isInsideHouseArea(from, home) && !isInsideHouse(bot, home))
         return { ok: true, reason: 'already_outside' };
 
-    navConsole(`enclosure: scripted exit through the door toward ${EXIT_WAYPOINT.x} ${EXIT_WAYPOINT.y} ${EXIT_WAYPOINT.z}`);
-    skills.log(bot, `Trying a scripted exit through the front door to ${EXIT_WAYPOINT.x} ${EXIT_WAYPOINT.y} ${EXIT_WAYPOINT.z}.`);
+    const W = exitWaypoint(home);
+    const E = houseEntrance(home), I = houseInside(home);
+    if (!W || !E || !I) return { ok: false, reason: 'no_verified_home' };
+    navConsole(`enclosure: scripted exit through the door toward ${W.x} ${W.y} ${W.z}`);
+    skills.log(bot, `Trying a scripted exit through the front door to ${W.x} ${W.y} ${W.z}.`);
 
-    const E = HOUSE_ENTRANCE, I = HOUSE_INSIDE, W = EXIT_WAYPOINT;
     if (bot.interrupt_code) return { ok: false, reason: 'interrupted' };
 
     await gotoWithin(
@@ -214,7 +244,7 @@ export async function tryScriptedHouseExit(bot) {
         ) || ok;
     }
 
-    const outside = !isInsideHouse(bot) && !isInsideHouseArea(bot.entity.position);
+    const outside = !isInsideHouse(bot, home) && !isInsideHouseArea(bot.entity.position, home);
     if (outside) {
         navConsole(`enclosure: scripted exit reached ${bot.entity.position.floored()}`);
         skills.log(bot, `Exited through the door to ${Math.floor(bot.entity.position.x)} ${Math.floor(bot.entity.position.y)} ${Math.floor(bot.entity.position.z)}. Do not retry the original unreachable target.`);

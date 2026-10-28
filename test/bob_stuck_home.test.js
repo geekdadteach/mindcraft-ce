@@ -5,12 +5,29 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { decide, DEFAULTS, DOOR, HOME_CMD, StuckHome, STUCK_HOME_NOTE, loadConfig } from '../src/agent/library/stuck_home.js';
+import { decide, DEFAULTS, doorOf, HOME_CMD, StuckHome, STUCK_HOME_NOTE, loadConfig } from '../src/agent/library/stuck_home.js';
+import { emptyHome, exampleVerifiedHome, setActiveHome } from '../src/agent/library/bob_home.js';
+
+const fixture = exampleVerifiedHome();
+const DOOR = fixture.entrance;
+function nearDoor({ dx = 12.5, dy = -6, dz = 10.5 } = {}) {
+    return { x: DOOR.x + dx, y: DOOR.y + dy, z: DOOR.z + dz };
+}
 import { installChatGuard, isSlashCommand, stripCommandPrefix, sendFixedHomeCommand } from '../src/agent/library/chat_guard.js';
 import { ResetRecovery, readRequest } from '../src/agent/library/reset_recovery.js';
 
 const T0 = 10_000_000;
 const base = { dist: 15, fails: 0, goalActive: false, stalledMs: 0, lastAttemptMs: 0, lastDamageMs: -Infinity, combat: false, busy: false };
+
+test('without a verified home, teleport is refused', async () => {
+    setActiveHome(emptyHome());
+    const r = rig();
+    setActiveHome(emptyHome());
+    r.agent.homeState = { snapshot: () => emptyHome() };
+    assert.match(await r.sh.request({ by: 'test' }), /no verified home/);
+    assert.deepEqual(r.rec.sent, []);
+    fs.rmSync(r.dir, { recursive: true, force: true });
+});
 
 test('command string is fixed', () => {
     assert.equal(HOME_CMD, '/home house');
@@ -48,10 +65,11 @@ test('rate limit: 10 min, force 35 s, manual still needs radius/combat', () => {
 });
 
 function rig({ teleportTo = DOOR, chat = null, auto = true } = {}) { // pr20-reconciled: auto opt-in for trigger tests
+    setActiveHome(fixture);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-'));
     let t = T0;
     const bot = new EventEmitter();
-    bot.entity = { position: { x: -807, y: 118, z: 576 } };
+    bot.entity = { position: nearDoor() };
     bot.health = 20;
     bot.pathfinder = { stop() {}, setGoal() {} }; bot.clearControlStates = () => {};
     const rec = { sent: [], notes: [], lessons: [], stops: 0, resets: [] };
@@ -82,7 +100,7 @@ test('3 failed walk-home attempts -> one /home house, note+lesson via recordRese
     const saved = JSON.parse(fs.readFileSync(path.join(r.dir, 'stuck_home.json'), 'utf8'));
     assert.equal(saved.last_result, 'ok');
     // a new process (restart) still honours the 10-min backoff
-    r.bot.entity.position = { x: -807, y: 118, z: 576 };
+    r.bot.entity.position = nearDoor();
     const sh2 = new StuckHome(r.agent, { file: path.join(r.dir, 'stuck_home.json'), now: r.clock.get, send: () => assert.fail('must not send') });
     sh2.fails = 3;
     assert.equal(sh2.maybeTrigger(), null);
@@ -112,7 +130,7 @@ test('no progress for 2 min with a home goal triggers; progress resets it', asyn
     const r = rig();
     r.sh.markHomeGoal();
     r.clock.add(60_000); assert.equal(r.sh.tick(), null);
-    r.bot.entity.position = { x: -810, y: 120, z: 572 }; // > 2 blocks closer
+    r.bot.entity.position = nearDoor({ dx: 9.5, dy: -4, dz: 6.5 }); // > 2 blocks closer to the verified door
     assert.equal(r.sh.tick(), null);
     r.sh.markHomeGoal();
     r.clock.add(119_000); assert.equal(r.sh.tick(), null);
@@ -167,11 +185,14 @@ test('inbox kind tphome is accepted and routed; force via reason', async () => {
     fs.writeFileSync(f, JSON.stringify({ v: 1, kind: 'tphome', reason: 'force', by: 'discord', ts: 1 }), { mode: 0o600 });
     const req = readRequest(f);
     assert.equal(req.kind, 'tphome');
+    setActiveHome(emptyHome());
+    assert.match(await new ResetRecovery({}, { inboxDir: dir }).handle(req), /disabled until Bob has built and verified a home/);
+    setActiveHome(fixture);
     const calls = [];
-    const rr = new ResetRecovery({ stuckHome: { request: async (o) => { calls.push(o); return 'ok'; } } }, { inboxDir: dir });
+    const rr = new ResetRecovery({ stuckHome: { request: async (o) => { calls.push(o); return 'ok'; } }, homeState: { snapshot: () => fixture } }, { inboxDir: dir });
     assert.equal(await rr.handle(req), 'ok');
     assert.deepEqual(calls, [{ force: true, by: 'discord' }]);
-    assert.match(await new ResetRecovery({}, { inboxDir: dir }).handle(req), /not installed/);
+    assert.match(await new ResetRecovery({ homeState: { snapshot: () => fixture } }, { inboxDir: dir }).handle(req), /not installed/);
     fs.rmSync(dir, { recursive: true, force: true });
 });
 

@@ -1,9 +1,9 @@
-import { HOME } from './bob_home.js';
+import { getActiveHome, isLegacyHilltopPos, isVerifiedHome } from './bob_home.js';
 // [ai-player] stuck-home-20261026 (approved by Randy, Oct 26 2026 1:56 PM ET: "Go with /home house set at his
 // door, block cheat mode, and restart Bob").
-// Code-only self-rescue: when Bob is near home but cannot walk to it, send the fixed Essentials command
-// '/home house' (home set by the server admin at the door -819.5 124 565.5). The LLM never controls this:
-// no command, no argument, no text from the model reaches it.
+// Code-only self-rescue: when Bob is near a verified home but cannot walk to it, send the fixed Essentials
+// command '/home house'. The LLM never controls this: no command, no argument, no text from the model reaches it.
+// Without a verified home this path is inert: the retired hilltop is not a destination.
 // Fires only when ALL hold:
 //   - within cfg.radius blocks of the door (default 64; run/stuck-home.config.json "radius": null or 0 = unlimited,
 //     nodistance-20261026), and not already at it;
@@ -26,7 +26,10 @@ import path from 'path';
 import { HOME_CMD, sendFixedHomeCommand, chatGuardArmed } from './chat_guard.js';
 export { HOME_CMD };
 
-export const DOOR = HOME.entrance;
+export function doorOf(home = getActiveHome()) {
+    return isVerifiedHome(home) ? home.entrance : null;
+}
+export const DOOR = { get x() { return doorOf()?.x; }, get y() { return doorOf()?.y; }, get z() { return doorOf()?.z; } };
 // pr20-reconciled-20261027: no distance limit in the note.
 export const STUCK_HOME_NOTE = 'You were stuck, so /home house brought you to your front door. Start fresh: check your inventory, avoid the route and spot where you got stuck, then pick a reachable destination and continue your own activity wherever it is safe and permitted.';
 export const DEFAULTS = Object.freeze({
@@ -38,14 +41,16 @@ export const DEFAULTS = Object.freeze({
 const COMBAT = /^mode:(self_preservation|self_defense|cowardice|ranged_threat|hunting)$/;
 const FAIL_CHAT = /permission|not have access|unknown (or incomplete )?command|not found|does ?n[o']t exist|no home|cancel|before next teleport|cooldown|error/i;
 
-export function distTo(p, t = DOOR) {
-    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return null;
+export function distTo(p, t = doorOf()) {
+    if (!p || !t || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return null;
+    if (![t.x, t.y, t.z].every(Number.isFinite)) return null;
     return Math.hypot(p.x - t.x, p.y - t.y, p.z - t.z);
 }
 
 // Pure decision. s: { dist, fails, goalActive, stalledMs, lastAttemptMs, lastDamageMs, combat, busy, manual, force }
 export function decide(s, now, cfg = DEFAULTS) {
     if (s.busy) return { go: false, why: 'already teleporting' };
+    if (s.noHome) return { go: false, why: 'no verified home' };
     if (s.dist == null) return { go: false, why: 'no position' };
     if (s.dist <= cfg.atDoorDist) return { go: false, why: 'already at the door' };
     if (cfg.radius && s.dist > cfg.radius) return { go: false, why: `${Math.round(s.dist)} blocks from the door (> ${cfg.radius})` }; // radius null/0 = unlimited
@@ -101,6 +106,8 @@ export class StuckHome {
         catch (e) { this.log(`could not save ${this.file} (${e.message})`); }
     }
     _pos() { const p = this.agent.bot?.entity?.position; return p ? { x: p.x, y: p.y, z: p.z } : null; }
+    _home() { return this.agent.homeState?.snapshot?.() || getActiveHome(); }
+    _door() { return doorOf(this._home()); }
     _combat() { return COMBAT.test(this.agent.actions?.currentActionLabel || ''); }
     goalActive() { return !!this.agent.home?.walking || this.now() < this.goalUntil; }
 
@@ -124,14 +131,14 @@ export class StuckHome {
     }
 
     _status(extra = {}) {
-        const t = this.now(), d = distTo(this._pos());
-        return { dist: d, fails: this.fails, goalActive: this.goalActive(), stalledMs: this.best == null ? 0 : t - this.bestAt,
+        const t = this.now(), door = this._door(), d = distTo(this._pos(), door);
+        return { dist: d, noHome: !door, fails: this.fails, goalActive: this.goalActive(), stalledMs: this.best == null ? 0 : t - this.bestAt,
             lastAttemptMs: this.state.last_attempt_ms, lastDamageMs: this.lastDamageMs, combat: this._combat(), busy: this.busy, ...extra };
     }
 
     tick() {
         try {
-            const t = this.now(), d = distTo(this._pos());
+            const t = this.now(), d = distTo(this._pos(), this._door());
             const hp = this.agent.bot?.health;
             if (Number.isFinite(hp)) { if (this._hp != null && hp < this._hp) this.lastDamageMs = t; this._hp = hp; }
             if (d != null && d <= this.cfg.atDoorDist) { if (this.fails || this.best != null) this._goalDone(); return null; }
@@ -179,8 +186,10 @@ export class StuckHome {
         let result, lines = [];
         const onMsg = (m) => { const s = String(m || ''); if (!s.startsWith('<')) lines.push(s.slice(0, 200)); };
         try {
+            const door = this._door();
+            if (!door) { this.log('TELEPORT refused: no verified home'); return 'not sent: no verified home'; }
             this.state.last_attempt_ms = this.now(); this.state.attempts = (this.state.attempts || 0) + 1; this.state.last_reason = why; this.save();
-            this.log(`TELEPORT: ${why}; at ${fmt(from)} (${Math.round(distTo(from))} blocks from the door), action ${action || '-'}; stopping and sending "${HOME_CMD}"`);
+            this.log(`TELEPORT: ${why}; at ${fmt(from)} (${Math.round(distTo(from, door) || 0)} blocks from the door), action ${action || '-'}; stopping and sending "${HOME_CMD}"`);
             try { agent.resetRecovery?.detector?.setLastTrigger(this.now()); } catch (_) {} // the 20-block detector must not record it twice
             try { agent.actions?.cancelResume?.(); } catch (_) {}
             try { await Promise.race([agent.actions?.stop?.(), this.wait(12000)]); } catch (_) {}
@@ -188,16 +197,20 @@ export class StuckHome {
             bot?.on?.('messagestr', onMsg);
             const sentAt = this.now();
             this.send();
-            let d = distTo(this._pos());
+            let d = distTo(this._pos(), door);
             while (this.now() - sentAt < cfg.warmupMs + cfg.verifyMs) {
                 await this.wait(100);
                 if (agent.actions?.executing) { try { agent.actions.stop(); } catch (_) {} }
                 this._still();
-                d = distTo(this._pos());
+                d = distTo(this._pos(), door);
                 if (d != null && d <= cfg.successDist) break;
                 if (this.now() - sentAt >= cfg.warmupMs && lines.some(l => FAIL_CHAT.test(l))) break;
             }
-            if (d != null && d <= cfg.successDist) {
+            if (isLegacyHilltopPos(this._pos(), 16)) {
+                this.state.last_result = 'fail: landed at retired hilltop';
+                this.log('TELEPORT failed: landed at the retired hilltop; treating as failure');
+                result = 'failed: landed at retired hilltop';
+            } else if (d != null && d <= cfg.successDist) {
                 this.state.last_result = 'ok'; this.state.successes = (this.state.successes || 0) + 1; this._goalDone();
                 this.log(`TELEPORT ok: now at ${fmt(this._pos())} (${d.toFixed(1)} from the door)`);
                 this.holding = false;
@@ -228,7 +241,8 @@ export class StuckHome {
         this._t = setInterval(() => { const p = this.tick(); if (p?.catch) p.catch(e => this.log(`tick failed (${e.message})`)); }, this.cfg.tickMs);
         const last = this.state.last_attempt_ms ? new Date(this.state.last_attempt_ms).toISOString() : 'never';
         const cheat = (() => { try { return bot.modes?.isOn('cheat') ? 'ON' : 'off'; } catch (_) { return '?'; } })();
-        this.log(`armed: automatic ${this.cfg.auto ? 'ON' : 'off (manual only)'}, cmd "${HOME_CMD}", door ${DOOR.x} ${DOOR.y} ${DOOR.z}, radius ${this.cfg.radius ? this.cfg.radius : 'unlimited'}, ${this.cfg.failLimit} fails or ${this.cfg.noProgressMs / 1000} s no progress, backoff ${this.cfg.backoffMs / 1000} s (force ${this.cfg.forceMinMs / 1000} s), hold ${this.cfg.warmupMs} ms, last attempt ${last} (${this.state.last_result || '-'}); chat-guard ${chatGuardArmed(bot) ? 'armed' : 'NOT armed'}; cheat mode ${cheat}`);
+        const door = this._door();
+        this.log(`armed: automatic ${this.cfg.auto ? 'ON' : 'off (manual only)'}, cmd "${HOME_CMD}", door ${door ? `${door.x} ${door.y} ${door.z}` : 'none (no verified home)'}, radius ${this.cfg.radius ? this.cfg.radius : 'unlimited'}, ${this.cfg.failLimit} fails or ${this.cfg.noProgressMs / 1000} s no progress, backoff ${this.cfg.backoffMs / 1000} s (force ${this.cfg.forceMinMs / 1000} s), hold ${this.cfg.warmupMs} ms, last attempt ${last} (${this.state.last_result || '-'}); chat-guard ${chatGuardArmed(bot) ? 'armed' : 'NOT armed'}; cheat mode ${cheat}`);
     }
 }
 

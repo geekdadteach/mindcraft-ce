@@ -1,4 +1,4 @@
-import { HOME } from './library/bob_home.js';
+import { getActiveHome, isVerifiedHome } from './library/bob_home.js';
 import * as skills from './library/skills.js';
 import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
@@ -349,7 +349,7 @@ const modes_list = [
     },
     {
         // [ai-player] Oct 20: Bob ignored "sleep at night" in his self-prompt and looped in the cave. At night: stop the
-        // self-prompt task, go home through the front door (-820 124 565 -> 567), sleep in the house bed, and keep
+        // self-prompt task, go home through the verified front door if one exists, sleep in the house bed, and keep
         // self-prompting paused until morning. If the bed can't be used, stay inside idle (lower modes are held off)
         // and retry the bed every ~2 min. Once per night; a failed trip home is retried after ~2 min.
         // Listed after self_defense and hunger, so those still win.
@@ -383,6 +383,11 @@ const modes_list = [
         update: async function (agent) {
             if (!this.home_at_night) { // pr20-reconciled-20261027: independent exploration; release any hold/pause once
                 if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home off (independent exploration)');
+                this.boot_checked = true;
+                return;
+            }
+            if (!isVerifiedHome(getActiveHome())) {
+                if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home has no verified house');
                 this.boot_checked = true;
                 return;
             }
@@ -426,7 +431,7 @@ const modes_list = [
                 }
                 this.holding = true; this.done_day = day;
                 const bed = nav.findHomeBed(bot);
-                if (!bed) { console.log(`[ai-player] night: inside, but no bed found near ${HOME.base.x} ${HOME.base.y} ${HOME.base.z}; staying inside`); return; }
+                if (!bed) { const h = getActiveHome(); console.log(`[ai-player] night: inside, but no bed found near ${h.bed?.x} ${h.bed?.y} ${h.bed?.z}; staying inside`); return; }
                 if (bot.entity.position.distanceTo(bed.position.offset(0.5, 0, 0.5)) > 2)
                     await nav.gotoWithin(bot, new pf.goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 1), 20000, nav.walkMovements(bot));
                 try {
@@ -577,7 +582,10 @@ const modes_list = [
 ];
 
 // [ai-player] ---- unstuck escalation and hunger helpers ----
-const HOUSE_ENTRANCE = HOME.entrance;
+function houseEntranceNow() {
+    const h = getActiveHome();
+    return isVerifiedHome(h) ? h.entrance : null;
+}
 // pr20-reconciled-20261027: navigation priority (no extra controller; these are the existing pieces):
 //  1. danger: self_preservation / self_defense / cowardice / ranged_threat / hunger modes interrupt anything;
 //  2. normal movement: mineflayer-pathfinder toward the objective the model chose (skills.goToPosition etc.);
@@ -605,7 +613,8 @@ async function escapeStuck(agent, spot, cmds) {
     cmds = [...new Set(cmds.filter(c => c && c.startsWith('!')))];
     agent.stuck_guard = { pos: spot.clone(), until: Date.now() + STUCK_BLOCK_MS, cmds };
     const me = bot.entity.position;
-    const home_d = Math.hypot(me.x - HOUSE_ENTRANCE.x, me.z - HOUSE_ENTRANCE.z);
+    const door = houseEntranceNow();
+    const home_d = door ? Math.hypot(me.x - door.x, me.z - door.z) : Infinity;
     const under = nav.isUnderground(bot);
     console.log(`[ai-player] unstuck: escalating at ${spot} (underground=${under}, health=${Math.round(bot.health)}); blocking ${cmds.join(' ') || '-'} near there for ${STUCK_BLOCK_MS / 60e3} min`);
     let where = null, failed = [];
@@ -614,9 +623,10 @@ async function escapeStuck(agent, spot, cmds) {
         if (r.ok) where = 'open sky (dug a staircase up)'; else failed.push(`climbing out (${r.why})`);
     }
     // pr20-reconciled-20261027: escalation no longer walks Bob home unless BOB_UNSTUCK_HOME=1.
+    // Walk-home also requires a verified house; the retired hilltop is never a fallback.
     if (UNSTUCK_WALK_HOME && !where && home_d < 64 && !nav.isUnderground(bot) && agent.escape?.gotoChecked) {
         if (agent.home?.walkHome) { const ok = await agent.home.walkHome(agent, { inside: false, maxMs: 60000 }); if (ok) where = 'the house entrance'; else failed.push('walking the home route'); }
-        else if (await agent.escape.gotoChecked(agent, new pf.goals.GoalNear(HOUSE_ENTRANCE.x, HOUSE_ENTRANCE.y, HOUSE_ENTRANCE.z, 1), { ms: 40000, label: 'stuck->entrance', movements: nav.walkMovements(bot) })) where = 'the house entrance';
+        else if (await agent.escape.gotoChecked(agent, new pf.goals.GoalNear(door.x, door.y, door.z, 1), { ms: 40000, label: 'stuck->entrance', movements: nav.walkMovements(bot) })) where = 'the house entrance';
         else failed.push('walking to the house entrance');
     }
     const at = bot.entity.position.floored();

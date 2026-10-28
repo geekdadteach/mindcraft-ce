@@ -225,6 +225,14 @@ export const queryList = [
         perform: async function (agent) {
             return "Saved place names: " + agent.memory_bank.getKeys() + (agent.longMemory ? `\nAuto-recorded place types (use with !goToRememberedPlace): ${agent.longMemory.placeTypes()}` : '');
         }
+    },
+    {
+        name: '!homesteadStatus',
+        description: 'Facts about your claim and any verified home. This does not tell you what to build.',
+        perform: function (agent) {
+            const text = agent.homestead?.statusText?.() || 'No homestead tracker.';
+            return pad('HOMESTEAD\n- ' + text);
+        }
     }, 
     {
         name: '!checkBlueprintLevel',

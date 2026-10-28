@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — Claim-first homestead conversion (CODED; NOT DEPLOYED)
+- **Goal:** Finish sections A/B/D of Randy's claim-first homestead handoff: dynamic verified home, construction tracker, recovery without the old `/home`, memory migration, tests. Section C / live servers untouched.
+- **Files:** `src/agent/library/{bob_home,bob_homestead,bob_home_migrate,bob_claim_protect,house_bounds,bob_enclosure,home_route,ai_player_nav,stuck_home,reset_recovery,escape,bob_goal_circuit,long_memory,protected_area,no_go_zones}.js`, `src/agent/{agent,modes}.js`, `src/agent/commands/{actions,queries}.js`, `scripts/migrate_bob_home.js`, profiles, tests listed in the handoff, these docs.
+- **Summary:** Verified home is discovered from world features (door+bed+geometry) and persisted in `bots/<name>/verified_home.json`. Homestead progress in `homestead.json`. Hilltop is never a destination. Optional operator-only GriefPrevention helper (inbox `claim-property`) clicks the 128×128 corners and checks `/claimslist`; it never runs on start. Migration script dry-runs by default.
+- **Claim plugin (from operator read-only check, not a live lookup in this repo):** GriefPrevention 16.18.7 on Paper; no WorldGuard; do not use NewEarthRules safe zones. No claim on the 128×128 yet. Golden-shovel corners (-1208,688) and (-1081,815); fallback `/adminclaims` + `/transferclaim MineBobNE`. **Needs Randy approval before anyone creates the claim.**
+- **Tests:** `npm test` on Node 22. D1–D7 plus geometry, enclosure, escape, migrate, GP helper.
+- **Deploy status:** Draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Do not merge. Revert the PR branch if needed. Migration `--apply` restores from `bots/<name>/migrations/home-<ts>/`.
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

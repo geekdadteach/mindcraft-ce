@@ -1,4 +1,5 @@
-import { HOME } from './library/bob_home.js';
+import { HomeRegistry, getActiveHome, isVerifiedHome } from './library/bob_home.js';
+import { HomesteadTracker } from './library/bob_homestead.js';
 import { History } from './history.js';
 import { Coder } from './coder.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
@@ -35,8 +36,10 @@ import { attachBobBrain } from './library/bob_brain.js';
 
 // [ai-player] read-only: doors, gates and pressure plates around the front door (-820 124 566), for the log
 function frontDoorState(bot) {
+    const home = getActiveHome();
+    if (!isVerifiedHome(home) || !home.door) return '';
     const out = [];
-    for (let x = HOME.door.x - 2; x <= HOME.door.x + 2; x++) for (let y = HOME.door.y; y <= HOME.door.y + 1; y++) for (let z = HOME.door.z - 2; z <= HOME.door.z + 2; z++) {
+    for (let x = home.door.x - 2; x <= home.door.x + 2; x++) for (let y = home.door.y; y <= home.door.y + 1; y++) for (let z = home.door.z - 2; z <= home.door.z + 2; z++) {
         const b = bot.blockAt(new Vec3(x, y, z));
         if (!b || !/_door$|_gate$|pressure_plate/.test(b.name)) continue;
         const p = b.getProperties();
@@ -81,6 +84,8 @@ export class Agent {
         await this.prompter.initExamples();
         // [ai-player] lessons / places / saved skills (bots/<name>/*.json); never fatal
         try { this.longMemory = new LongMemory(this); } catch (e) { console.warn('[ai-player] long-memory disabled:', e.message); this.longMemory = null; }
+        try { this.homeState = new HomeRegistry(this); } catch (e) { console.warn('[ai-player] verified-home disabled:', e.message); this.homeState = null; }
+        try { this.homestead = new HomesteadTracker(this); } catch (e) { console.warn('[ai-player] homestead tracker disabled:', e.message); this.homestead = null; }
         try { this.failures = new Failures(this); } catch (e) { console.warn('[ai-player] failures disabled:', e.message); this.failures = null; } // item 5
 
         // load mem first before doing task
@@ -242,7 +247,23 @@ export class Agent {
 
     async _setupEventHandlers(save_data, init_message) {
         if (this.longMemory && !this._placeTimer) {
-            this._placeTimer = setInterval(() => this.longMemory?.observe(), 30000);
+            this._placeTimer = setInterval(() => {
+                this.longMemory?.observe();
+                try {
+                    const inv = {};
+                    for (const it of this.bot?.inventory?.items?.() || []) inv[it.name] = (inv[it.name] || 0) + it.count;
+                    const origin = this.bot?.entity?.position;
+                    this.homestead?.observe({
+                        getBlock: (x, y, z) => this.bot?.blockAt?.({ x, y, z }),
+                        inventory: inv,
+                        position: origin,
+                        home: this.homeState?.snapshot?.(),
+                    });
+                    if (origin && this.homeState && !this.homeState.hasHome()) {
+                        this.homeState.observeWorld((x, y, z) => this.bot?.blockAt?.({ x, y, z }), origin);
+                    }
+                } catch (_) {}
+            }, 30000);
             if (!this._homeTimer) this._homeTimer = setInterval(() => { try { this.home?.tick(); } catch (_) {} }, 2000); // [ai-player] item 4 breadcrumbs
             setTimeout(() => this.longMemory?.observe(), 5000);
         }

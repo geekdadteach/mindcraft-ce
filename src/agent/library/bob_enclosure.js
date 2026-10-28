@@ -1,12 +1,10 @@
-// [ai-player] Detect being boxed in at the house: several distinct outside
-// targets fail with NoPath from inside the house area in a short window.
-// Scripted door-exit is attempted once; a process reset is last resort only.
+// Detect being boxed in at a verified house. With no verified home this is inert.
 
-import { HOME } from './bob_home.js';
+import { getActiveHome, isVerifiedHome } from './bob_home.js';
 import {
-    HOUSE_AREA,
-    HOUSE_DOOR,
-    WALKING_LANE,
+    houseArea,
+    houseDoor,
+    walkingLane,
     inBox,
     isInsideHouseArea
 } from './house_bounds.js';
@@ -14,38 +12,58 @@ import { coordCellKey, goalPosition, navConsole } from './bob_nav_memory.js';
 
 export const ENCLOSURE_WINDOW_MS = 8 * 60_000;
 export const ENCLOSURE_REQUIRED_TARGETS = 3;
-export const EXIT_WAYPOINT = HOME.exitWaypoint;
 
-// Two-high columns on the porch and just north of the door (the sealed exit).
-export const EXIT_PROBE_CELLS = Object.freeze([
-    ...[1, 2].flatMap(dz => [-1, 0, 1].flatMap(dx => [0, 1].map(dy => ({x:HOME.door.x+dx,y:HOME.door.y+dy,z:HOME.door.z-dz})))),
-    ...[3, 4].flatMap(dz => [0,1].map(dy => ({x:HOME.door.x,y:HOME.door.y+dy,z:HOME.door.z-dz})))
-]);
+export function exitWaypoint(home = getActiveHome()) {
+    return isVerifiedHome(home) ? home.exitWaypoint : null;
+}
+export const EXIT_WAYPOINT = { get x() { return exitWaypoint()?.x; }, get y() { return exitWaypoint()?.y; }, get z() { return exitWaypoint()?.z; } };
+
+export function exitProbeCells(home = getActiveHome()) {
+    const door = houseDoor(home);
+    if (!door) return [];
+    const facing = home.facing || 'north';
+    const out = { north: { dx: 0, dz: -1 }, south: { dx: 0, dz: 1 }, west: { dx: -1, dz: 0 }, east: { dx: 1, dz: 0 } }[facing];
+    const cells = [];
+    for (const dist of [1, 2]) {
+        for (const side of [-1, 0, 1]) {
+            const px = -out.dz, pz = out.dx;
+            for (const dy of [0, 1]) {
+                cells.push({
+                    x: door.x + out.dx * dist + px * side,
+                    y: door.y + dy,
+                    z: door.z + out.dz * dist + pz * side,
+                });
+            }
+        }
+    }
+    for (const dist of [3, 4]) {
+        for (const dy of [0, 1]) {
+            cells.push({ x: door.x + out.dx * dist, y: door.y + dy, z: door.z + out.dz * dist });
+        }
+    }
+    return Object.freeze(cells);
+}
+export const EXIT_PROBE_CELLS = { [Symbol.iterator]: function* () { yield* exitProbeCells(); } };
 
 const PASSABLE = /^(air|cave_air|void_air)$|pressure_plate$|_door$|fence_gate$|^torch$|^wall_torch$|^ladder$/;
 
 const watches = new WeakMap();
 
-export function isOutsideHouseTarget(pos) {
-    if (!pos) return false;
-    return !isInsideHouseArea(pos);
+export function isOutsideHouseTarget(pos, home = getActiveHome()) {
+    if (!pos || !isVerifiedHome(home)) return false;
+    return !isInsideHouseArea(pos, home);
 }
 
-export function inspectExitBlockers(getBlock) {
-    if (typeof getBlock !== 'function') return [];
+export function inspectExitBlockers(getBlock, home = getActiveHome()) {
+    if (typeof getBlock !== 'function' || !isVerifiedHome(home)) return [];
     const blockers = [];
-    for (const cell of EXIT_PROBE_CELLS) {
+    for (const cell of exitProbeCells(home)) {
         let block = null;
         try { block = getBlock(cell.x, cell.y, cell.z); }
         catch (_) { continue; }
         const name = String(block?.name || 'unknown');
         if (PASSABLE.test(name)) continue;
-        blockers.push({
-            x: cell.x,
-            y: cell.y,
-            z: cell.z,
-            name
-        });
+        blockers.push({ x: cell.x, y: cell.y, z: cell.z, name });
     }
     return blockers;
 }
@@ -79,9 +97,12 @@ export class EnclosureWatch {
         }
     }
 
-    record(from, target) {
+    record(from, target, home = getActiveHome()) {
+        if (!isVerifiedHome(home)) {
+            return { enclosed: false, recorded: false, reason: 'no_verified_home', distinctTargets: 0 };
+        }
         const dest = goalPosition(target) || target;
-        if (!isInsideHouseArea(from) || !isOutsideHouseTarget(dest)) {
+        if (!isInsideHouseArea(from, home) || !isOutsideHouseTarget(dest, home)) {
             return {
                 enclosed: this.enclosed,
                 recorded: false,
@@ -146,19 +167,24 @@ export function enclosureWatch(bot, opts) {
     return watch;
 }
 
-export function shouldRefuseOutsideGoal(bot, goal) {
+export function shouldRefuseOutsideGoal(bot, goal, home = getActiveHome()) {
     const from = bot?.entity?.position;
     const dest = goalPosition(goal);
     const watch = bot ? enclosureWatch(bot) : null;
     return !!(watch?.frozen
-        && isInsideHouseArea(from)
-        && isOutsideHouseTarget(dest));
+        && isVerifiedHome(home)
+        && isInsideHouseArea(from, home)
+        && isOutsideHouseTarget(dest, home));
 }
 
-export function describeEnclosure(blockers) {
-    return `You are enclosed in the house area (${HOUSE_AREA.x1}..${HOUSE_AREA.x2} x, ${HOUSE_AREA.z1}..${HOUSE_AREA.z2} z). `
-        + `Door ${HOUSE_DOOR.x} ${HOUSE_DOOR.y} ${HOUSE_DOOR.z}; walking lane `
-        + `${WALKING_LANE.x1}..${WALKING_LANE.x2} x, ${WALKING_LANE.z1}..${WALKING_LANE.z2} z. `
+export function describeEnclosure(blockers, home = getActiveHome()) {
+    const area = houseArea(home);
+    const door = houseDoor(home);
+    const lane = walkingLane(home);
+    if (!area || !door || !lane) return 'No verified house to be enclosed in.';
+    return `You are enclosed in the house area (${area.x1}..${area.x2} x, ${area.z1}..${area.z2} z). `
+        + `Door ${door.x} ${door.y} ${door.z}; walking lane `
+        + `${lane.x1}..${lane.x2} x, ${lane.z1}..${lane.z2} z. `
         + `Blocking cells: ${formatBlockers(blockers)}. `
         + `Stop retrying outside coordinates.`;
 }
@@ -167,4 +193,4 @@ export function logEnclosure(blockers, extra = '') {
     navConsole(`enclosure: boxed in at the house. blockers=${formatBlockers(blockers)}${extra ? ` ${extra}` : ''}`);
 }
 
-export { HOUSE_AREA, HOUSE_DOOR, WALKING_LANE, inBox, isInsideHouseArea };
+export { houseArea as HOUSE_AREA, houseDoor as HOUSE_DOOR, walkingLane as WALKING_LANE, inBox, isInsideHouseArea };

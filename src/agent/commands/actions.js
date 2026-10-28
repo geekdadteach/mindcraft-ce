@@ -188,9 +188,16 @@ export const actionsList = [
                     return;
                 }
             }
-            // [ai-player] stuck-home-20261026: house/home trips feed the stuck-home failure counter
             const homeTrip = /^(house|home)$/i.test(String(name || '').trim());
-            if (homeTrip) agent.stuckHome?.markHomeGoal();
+            if (homeTrip) {
+                const home = agent.homeState?.snapshot?.();
+                if (!home?.verified) {
+                    skills.log(agent.bot, 'No verified home yet. The old hilltop is not a destination. Survey your claim and build, or explore elsewhere.');
+                    return;
+                }
+                pos = [home.entrance.x, home.entrance.y, home.entrance.z];
+                agent.stuckHome?.markHomeGoal();
+            }
             const ok = await skills.goToPosition(agent.bot, pos[0], pos[1], pos[2], 1);
             if (homeTrip) { try { agent.stuckHome?.reportHomeAttempt(ok !== false, 'goToRememberedPlace')?.catch?.(() => {}); } catch (_) {} }
         })
@@ -536,6 +543,40 @@ export const actionsList = [
         perform: runAsAction(async (agent) => {
             const ok = await survival.breedNearbyAnimals(agent);
             if (!ok) console.log('[ai-player] breeding: no safe eligible pair or insufficient feed');
+        })
+    },
+    {
+        name: '!continueHomestead',
+        description: 'Take one deterministic homestead step at your current location: record a survey, choose a safe site you are standing on, or place the next starter-shelter block if you already chose a site and have materials. Does not invent house coordinates.',
+        perform: runAsAction(async (agent) => {
+            const { continueHomesteadStep } = await import('../library/bob_homestead.js');
+            const pos = agent.bot?.entity?.position;
+            const inv = {};
+            for (const it of agent.bot?.inventory?.items?.() || []) inv[it.name] = (inv[it.name] || 0) + it.count;
+            const getBlock = (x, y, z) => agent.bot?.blockAt?.({ x, y, z });
+            const result = continueHomesteadStep(agent.homestead?.snapshot?.() || {}, {
+                position: pos, inventory: inv, getBlock,
+                home: agent.homeState?.snapshot?.(),
+            });
+            if (result.progress && agent.homestead) {
+                agent.homestead.progress = result.progress;
+                agent.homestead.save();
+            }
+            if (result.site && result.progress?.site) {
+                agent.homestead?.chooseSite?.(result.progress.site);
+            }
+            if (result.homeFeatures && agent.homeState?.recordVerified) {
+                agent.homeState.recordVerified(result.homeFeatures);
+            }
+            if (result.placements?.length && skills.placeBlock) {
+                for (const p of result.placements.slice(0, 8)) {
+                    try { await skills.placeBlock(agent.bot, p.name, p.x, p.y, p.z); } catch (e) {
+                        console.log(`[ai-player] homestead: place ${p.name} at ${p.x} ${p.y} ${p.z} failed (${e.message})`);
+                    }
+                }
+            }
+            skills.log(agent.bot, result.message);
+            return result.message;
         })
     },
     {

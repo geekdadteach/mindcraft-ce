@@ -12,7 +12,7 @@ import Vec3 from 'vec3';
 import * as nav from './ai_player_nav.js';
 import { superseded } from './skills.js';
 
-const HOUSE_C = { x: (HOME.geometry.area.x1 + HOME.geometry.area.x2) / 2, z: (HOME.geometry.area.z1 + HOME.geometry.area.z2) / 2 };       // house centre (do not stair up under it)
+const HOUSE_C = HOME.escapeCenter;       // house centre (do not stair up under it)
 const DIRS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
 const LIQUID = /^(lava|water|flowing_lava|flowing_water)$/;
 const FALLING = /sand$|gravel|concrete_powder|anvil|pointed_dripstone/;

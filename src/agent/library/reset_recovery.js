@@ -18,8 +18,9 @@ export const COOLDOWN_MS = 180000;
 const SAMPLE_MS = 500, INBOX_POLL_MS = 3000, MAX_REQ_BYTES = 4096, MAX_NOTE = 300;
 const KINDS = new Set(['reset', 'planned-restart', 'note', 'home', 'tphome']); // tphome: stuck-home-20261026
 
-export const TELEPORT_NOTE = 'You got stuck and were brought back to your house. Start fresh: check your inventory, then go back to gathering within ~60 blocks.';
-export const MANUAL_NOTE = 'You were reset because you seemed stuck. Start fresh: check your inventory, then go back to gathering within ~60 blocks.';
+// pr20-reconciled-20261027: no distance limit; avoid failed routes and keep playing independently.
+export const TELEPORT_NOTE = 'You got stuck and were brought back to your house. Start fresh: check your inventory, avoid the route that failed, then pick a reachable destination and continue your own activity wherever it is safe and permitted.';
+export const MANUAL_NOTE = 'You were reset because you seemed stuck. Start fresh: check your inventory, avoid the route or spot that failed, then pick a reachable destination and continue your own activity wherever it is safe and permitted.';
 
 export function createDetector({ target = TARGET, jump = 20, windowMs = 3000, land = 1.0, landDy = 1.5, cooldownMs = COOLDOWN_MS } = {}) {
     let prev = null, lastTrigger = -Infinity;

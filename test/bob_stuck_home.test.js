@@ -47,7 +47,7 @@ test('rate limit: 10 min, force 35 s, manual still needs radius/combat', () => {
     assert.equal(decide({ ...base, manual: true, force: true, combat: true }, T0).go, false);
 });
 
-function rig({ teleportTo = DOOR, chat = null } = {}) {
+function rig({ teleportTo = DOOR, chat = null, auto = true } = {}) { // pr20-reconciled: auto opt-in for trigger tests
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-'));
     let t = T0;
     const bot = new EventEmitter();
@@ -58,7 +58,7 @@ function rig({ teleportTo = DOOR, chat = null } = {}) {
     const agent = { name: 'MineBobNE', bot, actions: { currentActionLabel: 'mode:night', executing: false, cancelResume() {}, async stop() { rec.stops++; } },
         resetRecovery: { detector: { setLastTrigger(x) { rec.suppressed = x; } }, async recordReset(r) { rec.resets.push(r); } } };
     const sh = new StuckHome(agent, { file: path.join(dir, 'stuck_home.json'), now: () => t, wait: async (ms) => { t += ms; },
-        cfg: { ...DEFAULTS, warmupMs: 3500 },
+        cfg: { ...DEFAULTS, warmupMs: 3500, auto },
         send: () => { rec.sent.push(HOME_CMD); if (chat) bot.emit('messagestr', chat); rec.sentAt = t; if (teleportTo) setTimeout0(); } });
     // move Bob once the warmup has passed (simulated clock)
     const setTimeout0 = () => { const at = t + 3000; const orig = sh.wait; sh.wait = async (ms) => { t += ms; if (t >= at) bot.entity.position = { ...teleportTo, z: teleportTo.z + 1 }; }; };

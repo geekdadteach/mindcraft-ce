@@ -2,7 +2,9 @@ import { HOME } from './bob_home.js';
 // [ai-player] No-go zones enforced in code (not just the prompt).
 // Any pathfinder target (goto / setGoal: goToCoordinates, goToPlayer, followPlayer, collectBlock, generated code, ...)
 // whose x/z lies within NO_GO_RADIUS of a zone centre is refused and logged. Moving away (GoalInvert) is allowed.
-// If Bob is inside a zone (join, respawn, or drifted in), he is walked straight home to the homestead.
+// If Bob is inside a zone (join, respawn, or drifted in), he is walked out of it in short legs.
+// pr20-reconciled-20261027: once he is safely outside every zone (+EXIT_MARGIN) he stops there and carries on with his
+// own activity; the homestead is only the last-resort target when the legs could not get him out.
 import pf from 'mineflayer-pathfinder';
 import { log, goToPosition, goToGoal } from './skills.js';
 
@@ -76,6 +78,13 @@ export function escapeHeading(x, z) {
     return [vx / n, vz / n];
 }
 
+// pr20-reconciled-20261027: where to go after the exit legs. null = already safely out (stay, no home walk).
+export function afterEscapeTarget(x, z) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return HOMESTEAD;
+    const near = NO_GO_ZONES.some(zn => Math.hypot(x - zn.x, z - zn.z) < NO_GO_RADIUS + EXIT_MARGIN);
+    return near ? HOMESTEAD : null;
+}
+
 export function installNoGoZoneGuard(agent) {
     const bot = agent.bot;
     if (!bot?.pathfinder || bot._aiPlayerNoGoGuard) return;
@@ -138,9 +147,9 @@ export function installNoGoZoneGuard(agent) {
         escaping = true;
         lastEscapeAt = Date.now();
         const p = bot.entity.position;
-        console.log(`[ai-player] zone-escape (${reason}): at (${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}), ${Math.round(hit.dist)} blocks from ${hit.zone.name}; walking out and home toward ${HOMESTEAD.x} ${HOMESTEAD.y} ${HOMESTEAD.z}`);
+        console.log(`[ai-player] zone-escape (${reason}): at (${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}), ${Math.round(hit.dist)} blocks from ${hit.zone.name}; walking out of the zone (homestead only if no exit is found)`);
         try {
-            agent.history?.add('system', `You are inside the no-go zone around ${hit.zone.name}. You are being walked straight home to the homestead at ${HOMESTEAD.x} ${HOMESTEAD.y} ${HOMESTEAD.z}; do not go back there.`);
+            agent.history?.add('system', `You are inside the no-go zone around ${hit.zone.name}. You are being walked out of it; once outside, continue your own activity somewhere else that is safe and permitted, and do not go back there.`);
         } catch (_) {}
         Promise.resolve()
             .then(() => agent.actions.runAction('action:zoneEscape', async () => {
@@ -165,10 +174,13 @@ export function installNoGoZoneGuard(agent) {
                     if (moved < 4) alt++; else alt = 0; // blocked: try the next direction
                 }
                 escapeGoal = null;
-                // 2. Out of the zone: continue home.
+                // 2. pr20-reconciled-20261027: safely out (beyond every zone + margin) -> stop here, no home walk.
+                //    Only if the legs could not get him clear is the homestead (known to be outside all zones) used.
                 const q = bot.entity.position;
-                if (!bot.interrupt_code && !zoneAt(q.x, q.z)) {
-                    await goToPosition(bot, HOMESTEAD.x, HOMESTEAD.y, HOMESTEAD.z, 3);
+                const next = afterEscapeTarget(q.x, q.z);
+                if (!bot.interrupt_code && next) {
+                    console.log(`[ai-player] zone-escape: no clear exit after ${MAX_LEGS} legs; falling back to the homestead`);
+                    await goToPosition(bot, next.x, next.y, next.z, 3);
                 }
             }, { timeout: 10 }))
             .catch(err => console.warn('[ai-player] zone-escape error:', err?.message || err))

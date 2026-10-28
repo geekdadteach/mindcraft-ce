@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+### 2026-10-28 8:47 AM ET — Grok Bot — Branch `snapshot/bob-live-m4-20261028`: sanitized live `.20` snapshot
+- **Goal:** Randy (8:46 AM ET) asked for a snapshot of Bob's live code on a separate branch, excluding credentials, private runtime data and logs, as the exact baseline to finish against.
+- **Files:** Over `3d6bd38`: `src/agent/library/{stuck_home,ai_player_nav,reset_recovery,no_go_zones}.js`, `src/agent/modes.js`, `test/bob_stuck_home.test.js`, new `test/bob_pr20_independent.test.js`, `test/bob_pr20_navigation.test.js` (reconciled PR #20 as deployed Oct 27 7:00 PM ET; auto home-teleport/night-home/unstuck-home opt-in only), plus these docs.
+- **Excluded:** `keys.json`, `bots/` runtime data, `logs/`, `cache/`, `run/` (runtime state and ops scripts), `andy_quota_ledger.json`, `M4_CUTOVER_STATUS.json`, `.bak`/`.before-*` backups, `node_modules/`. No deletions.
+- **Secret scan:** pattern grep + gitleaks: clean.
+- **Tests:** `node --test test/` 152/152 (box, Node 20.19.2).
+- **Live state:** Not merged, not deployed. `.20` read only; Bob untouched.
+- **Rollback:** Delete the branch.
+
 ### 2026-10-27 — ChatGPT — Initial sustainable-food guard and balanced relocation (CODED; NOT TESTED)
 - **Goal:** Advance Bob developer orders without deploying or touching server state.
 - **Files:** `src/agent/library/survival.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

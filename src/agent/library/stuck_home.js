@@ -14,6 +14,10 @@ import { HOME } from './bob_home.js';
 // Manual triggers (inbox kind 'tphome', bob-m4-ctl tphome, Discord /bob recover teleport:true) replace the
 // failure condition but keep the other checks; 'force' only lowers the 10-min backoff to 35 s (Essentials
 // teleport-cooldown is 30 s).
+// pr20-reconciled-20261027: automatic triggers (fail count / no progress) are OFF by default so the
+// independent-exploration goal is not hijacked by a teleport home. Opt back in with
+// run/stuck-home.config.json "auto": true or BOB_STUCK_HOME_AUTO=1. Manual requests (inbox tphome,
+// bob-m4-ctl tphome, Discord recover teleport:true) are unchanged and keep every other check.
 // Sequence: stop the action, freeze modes/movement, send, stand still for the Essentials warmup (3 s on .63,
 // cancelled on movement; default hold 3.5 s), then verify by position: within 2 blocks of the door = success
 // -> memory note + reset:<action> lesson (via ResetRecovery.recordReset) + log. Otherwise log and back off.
@@ -23,11 +27,13 @@ import { HOME_CMD, sendFixedHomeCommand, chatGuardArmed } from './chat_guard.js'
 export { HOME_CMD };
 
 export const DOOR = HOME.entrance;
-export const STUCK_HOME_NOTE = 'You were stuck near your house and could not walk home, so you used /home house and are now at your front door. Start fresh: check your inventory, then go back to gathering within ~60 blocks, avoiding the spot where you got stuck.';
+// pr20-reconciled-20261027: no distance limit in the note.
+export const STUCK_HOME_NOTE = 'You were stuck, so /home house brought you to your front door. Start fresh: check your inventory, avoid the route and spot where you got stuck, then pick a reachable destination and continue your own activity wherever it is safe and permitted.';
 export const DEFAULTS = Object.freeze({
     radius: 64, failLimit: 3, failMemoryMs: 30 * 60_000, noProgressMs: 120_000, progressBlocks: 2,
     goalWindowMs: 180_000, backoffMs: 600_000, forceMinMs: 35_000, damageQuietMs: 15_000,
     warmupMs: 3500, verifyMs: 6000, successDist: 2, atDoorDist: 3, tickMs: 5000,
+    auto: false, // pr20-reconciled-20261027: automatic teleport off; manual request() still works
 });
 const COMBAT = /^mode:(self_preservation|self_defense|cowardice|ranged_threat|hunting)$/;
 const FAIL_CHAT = /permission|not have access|unknown (or incomplete )?command|not found|does ?n[o']t exist|no home|cancel|before next teleport|cooldown|error/i;
@@ -64,7 +70,10 @@ export function loadConfig(env = process.env, file = path.resolve('run/stuck-hom
             if (j.radius == null || j.radius === 0) cfg.radius = null;
             else if (Number.isFinite(j.radius) && j.radius > 0) cfg.radius = j.radius;
         }
+        if (j && typeof j.auto === 'boolean') cfg.auto = j.auto; // pr20-reconciled-20261027
     } catch (_) {}
+    if (env.BOB_STUCK_HOME_AUTO === '1') cfg.auto = true;
+    else if (env.BOB_STUCK_HOME_AUTO === '0') cfg.auto = false;
     const w = Number(env.BOB_STUCK_HOME_WARMUP_MS);
     if (env.BOB_STUCK_HOME_WARMUP_MS != null && Number.isFinite(w)) cfg.warmupMs = w;
     cfg.warmupMs = Math.max(0, Math.min(cfg.warmupMs, 15000));
@@ -136,6 +145,10 @@ export class StuckHome {
 
     maybeTrigger() {
         const st = this._status();
+        if (!this.cfg.auto) { // pr20-reconciled-20261027: automatic teleport disabled; only request() teleports
+            if (st.fails >= this.cfg.failLimit || (st.goalActive && st.stalledMs >= this.cfg.noProgressMs)) this._logOnce('auto-off', 'stuck near home; automatic teleport is off (manual tphome still available)', 600_000);
+            return null;
+        }
         const dec = decide(st, this.now(), this.cfg);
         if (!dec.go) {
             if (st.fails >= this.cfg.failLimit || (st.goalActive && st.stalledMs >= this.cfg.noProgressMs)) this._logOnce(dec.why.split(':')[0], `stuck near home but not teleporting: ${dec.why}`);
@@ -215,7 +228,7 @@ export class StuckHome {
         this._t = setInterval(() => { const p = this.tick(); if (p?.catch) p.catch(e => this.log(`tick failed (${e.message})`)); }, this.cfg.tickMs);
         const last = this.state.last_attempt_ms ? new Date(this.state.last_attempt_ms).toISOString() : 'never';
         const cheat = (() => { try { return bot.modes?.isOn('cheat') ? 'ON' : 'off'; } catch (_) { return '?'; } })();
-        this.log(`armed: cmd "${HOME_CMD}", door ${DOOR.x} ${DOOR.y} ${DOOR.z}, radius ${this.cfg.radius ? this.cfg.radius : 'unlimited'}, ${this.cfg.failLimit} fails or ${this.cfg.noProgressMs / 1000} s no progress, backoff ${this.cfg.backoffMs / 1000} s (force ${this.cfg.forceMinMs / 1000} s), hold ${this.cfg.warmupMs} ms, last attempt ${last} (${this.state.last_result || '-'}); chat-guard ${chatGuardArmed(bot) ? 'armed' : 'NOT armed'}; cheat mode ${cheat}`);
+        this.log(`armed: automatic ${this.cfg.auto ? 'ON' : 'off (manual only)'}, cmd "${HOME_CMD}", door ${DOOR.x} ${DOOR.y} ${DOOR.z}, radius ${this.cfg.radius ? this.cfg.radius : 'unlimited'}, ${this.cfg.failLimit} fails or ${this.cfg.noProgressMs / 1000} s no progress, backoff ${this.cfg.backoffMs / 1000} s (force ${this.cfg.forceMinMs / 1000} s), hold ${this.cfg.warmupMs} ms, last attempt ${last} (${this.state.last_result || '-'}); chat-guard ${chatGuardArmed(bot) ? 'armed' : 'NOT armed'}; cheat mode ${cheat}`);
     }
 }
 

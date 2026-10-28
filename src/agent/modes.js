@@ -111,6 +111,11 @@ const modes_list = [
         max_stuck_time: 20,
         prev_dig_block: null,
         update: async function (agent) {
+            // pr20-reconciled-20261027: unstuck's own recovery action (moveAway/nudge/escalation) must not count as
+            // being stuck, or the mode interrupts itself and re-escalates.
+            if (agent.actions.currentActionLabel === 'mode:unstuck') {
+                this.prev_location = null; this.stuck_time = 0; this.last_time = Date.now(); return;
+            }
             if (agent.isIdle()) { 
                 this.prev_location = null;
                 this.stuck_time = 0;
@@ -348,7 +353,9 @@ const modes_list = [
         // and retry the bed every ~2 min. Once per night; a failed trip home is retried after ~2 min.
         // Listed after self_defense and hunger, so those still win.
         name: 'night',
-        description: 'At night go home and sleep in the bed; stay inside until morning. Interrupts all actions.',
+        // pr20-reconciled-20261027: off by default so night does not pause autonomy or force Bob home.
+        // Opt in with BOB_NIGHT_HOME=1 (read at start). Implementation below is kept unchanged.
+        description: 'At night go home and sleep in the bed (only when BOB_NIGHT_HOME=1). Interrupts all actions.',
         interrupts: ['all'],
         on: true,
         active: false,
@@ -360,6 +367,7 @@ const modes_list = [
         boot_checked: false,
         far_logged: null,
         max_action_ms: 180000,
+        home_at_night: nightHomeEnabled(),
         release: function (agent, why) {
             const sp = agent.self_prompter;
             const resume = (this.paused_sp || !this.boot_checked) && sp.isPaused() && !convoManager.inConversation();
@@ -372,6 +380,11 @@ const modes_list = [
             if (sp.isActive()) { sp.setPromptPaused(sp.prompt); sp.stopLoop(); this.paused_sp = true; }
         },
         update: async function (agent) {
+            if (!this.home_at_night) { // pr20-reconciled-20261027: independent exploration; release any hold/pause once
+                if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home off (independent exploration)');
+                this.boot_checked = true;
+                return;
+            }
             const bot = agent.bot;
             if (!nav.isNightTime(bot)) {
                 if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'morning');
@@ -564,6 +577,18 @@ const modes_list = [
 
 // [ai-player] ---- unstuck escalation and hunger helpers ----
 const HOUSE_ENTRANCE = { x: -819.5, y: 124, z: 565.5 };
+// pr20-reconciled-20261027: navigation priority (no extra controller; these are the existing pieces):
+//  1. danger: self_preservation / self_defense / cowardice / ranged_threat / hunger modes interrupt anything;
+//  2. normal movement: mineflayer-pathfinder toward the objective the model chose (skills.goToPosition etc.);
+//  3. one bounded recovery: unstuck (moveAway 10 s + nudge), then one escalation (escape.up climb, 60 s);
+//  4. repeated failure: failures.record + escape.js route blacklist + stuck_guard blocks the same commands near the
+//     spot, and a system note tells the model to choose a different task or place;
+//  5. home only by choice (model command) or operator (bob-m4-ctl home / tphome). Automatic home paths are opt-in:
+//     stuck-home auto teleport (auto / BOB_STUCK_HOME_AUTO), night-home (BOB_NIGHT_HOME), unstuck walk-home (BOB_UNSTUCK_HOME).
+// pr20-reconciled-20261027: opt-in switches for the home-bound behaviours (default off = independent player).
+export function nightHomeEnabled(env = process.env) { return env.BOB_NIGHT_HOME === '1'; }
+export function unstuckWalkHomeEnabled(env = process.env) { return env.BOB_UNSTUCK_HOME === '1'; }
+const UNSTUCK_WALK_HOME = unstuckWalkHomeEnabled();
 const STUCK_BLOCK_MS = 5 * 60e3;
 // never dig through anything that looks built (house, chests, beds, doors) while escaping
 const KEEP_BLOCKS = /planks|_log$|_wood$|door|stairs|slab|glass|carpet|_bed$|chest|furnace|crafting_table|fence|torch|wool|banner|lantern/;
@@ -587,14 +612,15 @@ async function escapeStuck(agent, spot, cmds) {
         const r = await agent.escape.up(agent, { reason: 'stuck', maxMs: 60000 });
         if (r.ok) where = 'open sky (dug a staircase up)'; else failed.push(`climbing out (${r.why})`);
     }
-    if (!where && home_d < 64 && !nav.isUnderground(bot) && agent.escape?.gotoChecked) {
+    // pr20-reconciled-20261027: escalation no longer walks Bob home unless BOB_UNSTUCK_HOME=1.
+    if (UNSTUCK_WALK_HOME && !where && home_d < 64 && !nav.isUnderground(bot) && agent.escape?.gotoChecked) {
         if (agent.home?.walkHome) { const ok = await agent.home.walkHome(agent, { inside: false, maxMs: 60000 }); if (ok) where = 'the house entrance'; else failed.push('walking the home route'); }
         else if (await agent.escape.gotoChecked(agent, new pf.goals.GoalNear(HOUSE_ENTRANCE.x, HOUSE_ENTRANCE.y, HOUSE_ENTRANCE.z, 1), { ms: 40000, label: 'stuck->entrance', movements: nav.walkMovements(bot) })) where = 'the house entrance';
         else failed.push('walking to the house entrance');
     }
     const at = bot.entity.position.floored();
     console.log(`[ai-player] unstuck: escalation ${where ? 'reached ' + where : 'failed (' + failed.join('; ') + ')'}; now at ${at}`);
-    const note = `[stuck] You got stuck at ${spot.x} ${spot.y} ${spot.z}${cmds.length ? ' doing ' + cmds.join(', ') : ''}. ${where ? 'You got out to ' + where : 'Getting out failed: ' + failed.join('; ')} (now at ${at.x} ${at.y} ${at.z}). Those commands are blocked near there for ${STUCK_BLOCK_MS / 60e3} minutes; choose a different task or place${bot.food <= 12 ? ', and get food first (!getFood)' : ''}.`;
+    const note = `[stuck] You got stuck at ${spot.x} ${spot.y} ${spot.z}${cmds.length ? ' doing ' + cmds.join(', ') : ''}. ${where ? 'You got out to ' + where : failed.length ? 'Getting out failed: ' + failed.join('; ') : 'You are on the surface; walk to a different, open area'} (now at ${at.x} ${at.y} ${at.z}). Those commands are blocked near there for ${STUCK_BLOCK_MS / 60e3} minutes; choose a different task or a different reachable place and do not retry the same route${bot.food <= 12 ? ', and get food first (!getFood)' : ''}.`;
     bot.modes.behavior_log += note + '\n';
     try { await agent.history.add('system', note); } catch (e) {}
 }

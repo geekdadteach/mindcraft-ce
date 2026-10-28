@@ -82,6 +82,11 @@ function surfaceTarget(bot) {
 }
 
 const WOOD_RE = /_(log|wood)$/;
+// pr20-reconciled-20261027: helpers for the no-home surface fallback (exported for tests).
+export function surfaceFallbackGoal(t) { return t ? new pf.goals.GoalNear(t.x, t.y, t.z, 2) : null; }
+export function surfaceFailNote(at, type) {
+    return `Navigation failed: could not get up to the surface from ${at.x} ${at.y} ${at.z}, so the ${type} search here is abandoned. Do not retry the same route; choose a different objective or a different reachable place to get wood, wherever it is safe and permitted.`;
+}
 const SURFACE_COOLDOWN_MS = 3 * 60e3;
 
 // Fix 1: before !collectBlocks / !searchForBlock on a *_log or *_wood while underground, go up first.
@@ -105,12 +110,17 @@ export async function surfaceForWood(agent, type) {
     // [ai-player] item 3: climb out step by step (escape.js) instead of one long goto to a far surface block
     const up = agent.escape?.up ? await agent.escape.up(agent, { reason: 'wood', maxMs: 60000 }) : { ok: false };
     if (up.ok && !isUnderground(bot)) where = 'the surface';
-    if (!where && !bot.interrupt_code && homeDistance(bot) < 96 && agent.escape?.gotoChecked &&
-        await agent.escape.gotoChecked(agent, new pf.goals.GoalNear(HOUSE_ENTRANCE.x, HOUSE_ENTRANCE.y, HOUSE_ENTRANCE.z, 1), { ms: 60000, label: 'surface-for-wood home' })) where = 'the house entrance';
+    // pr20-reconciled-20261027: the house is never the fallback. One bounded, progress-checked goto to the open
+    // surface block above (gotoChecked blacklists the route after it fails twice); if that fails too, report the
+    // navigation failure, record it, and abandon this wood objective so the model picks another activity.
+    const surf = surfaceFallbackGoal(t);
+    if (!where && !bot.interrupt_code && surf && agent.escape?.gotoChecked &&
+        await agent.escape.gotoChecked(agent, surf, { ms: 45000, label: 'surface-for-wood surface' }) && !isUnderground(bot)) where = 'the surface';
     const at = bot.entity.position.floored();
-    console.log(`[ai-player] surface-for-wood: ${where ? 'reached ' + where : 'could not get out'} (target=${t}); now at ${at}`);
+    console.log(`[ai-player] surface-for-wood: ${where ? 'reached ' + where : 'could not get out; abandoning this ' + type + ' search (no home fallback)'} (target=${t}); now at ${at}`);
     if (!where) {
-        skills.log(bot, `Could not get up to the surface from ${at.x} ${at.y} ${at.z}; skipped the ${type} search. Do something else for a few minutes.`);
+        try { agent.failures?.record(`surface-for-wood:${type}`, 'surface', at, 'could not reach the surface'); } catch (_) {}
+        skills.log(bot, surfaceFailNote(at, type));
         return false;
     }
     skills.log(bot, `Reached ${where} at ${at.x} ${at.y} ${at.z}; now searching for ${type}.`);

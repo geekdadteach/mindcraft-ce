@@ -2,6 +2,7 @@
 // targets fail with NoPath from inside the house area in a short window.
 // Scripted door-exit is attempted once; a process reset is last resort only.
 
+import { HOME } from './bob_home.js';
 import {
     HOUSE_AREA,
     HOUSE_DOOR,
@@ -13,19 +14,13 @@ import { coordCellKey, goalPosition, navConsole } from './bob_nav_memory.js';
 
 export const ENCLOSURE_WINDOW_MS = 8 * 60_000;
 export const ENCLOSURE_REQUIRED_TARGETS = 3;
-export const EXIT_WAYPOINT = { x: -819.5, y: 124, z: 562.5 };
+export const EXIT_WAYPOINT = HOME.exitWaypoint;
 
 // Two-high columns on the porch and just north of the door (the sealed exit).
-export const EXIT_PROBE_CELLS = [
-    { x: -821, y: 124, z: 565 }, { x: -821, y: 125, z: 565 },
-    { x: -820, y: 124, z: 565 }, { x: -820, y: 125, z: 565 },
-    { x: -819, y: 124, z: 565 }, { x: -819, y: 125, z: 565 },
-    { x: -821, y: 124, z: 564 }, { x: -821, y: 125, z: 564 },
-    { x: -820, y: 124, z: 564 }, { x: -820, y: 125, z: 564 },
-    { x: -819, y: 124, z: 564 }, { x: -819, y: 125, z: 564 },
-    { x: -820, y: 124, z: 563 }, { x: -820, y: 125, z: 563 },
-    { x: -820, y: 124, z: 562 }, { x: -820, y: 125, z: 562 },
-];
+export const EXIT_PROBE_CELLS = Object.freeze([
+    ...[565, 564].flatMap(z => [-821, -820, -819].flatMap(x => [124, 125].map(y => ({x,y,z})))),
+    ...[563, 562].flatMap(z => [124,125].map(y => ({x:-820,y,z})))
+]);
 
 const PASSABLE = /^(air|cave_air|void_air)$|pressure_plate$|_door$|fence_gate$|^torch$|^wall_torch$|^ladder$/;
 

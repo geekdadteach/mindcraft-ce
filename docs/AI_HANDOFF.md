@@ -7,6 +7,7 @@
 - Regression tests now reside in `test/bob_home_geometry.test.js`. `npm test` uses `node --test "test/**/*.test.js"` so the root `zz-lm-test.mjs` embedding probe is not run.
 - Developer independently verified earlier HEAD `54d6e4b`: 157/157 tests via unscoped `node --test` (includes unrelated root embedding probe); PR #20 suites remained green, and Bob stayed PID 65846. **The later test relocation, scoped npm test command and documentation commits have not yet been retested.** No live in-game validation or deployment authorization. Keep Bob running unchanged until reviewed.
 - Remaining release gate: `npm test` on current branch, review runtime route persistence on a copy of saved data, then explicit deployment approval. No automatic home behavior switches changed.
+- 2026-10-28 9:22 AM ET (MM20Bot): fixed `package.json` `test` script quoting (was invalid JSON); retest `npm test` on `.20` (Node 22) PASSED 156/156, 0 fail, 0 skipped; root `zz-lm-test.mjs` not run. Bob untouched (PID 65846).
 
 ## 2026-10-28 8:47 AM ET — `snapshot/bob-live-m4-20261028`: sanitized snapshot of live Bob on `.20` (record only; NOT merged, NOT deployed)
 - Why: Randy (Oct 28 8:46 AM ET): "publish a snapshot of bobs live code to a separate branch, excluding credentials, private runtime data, and logs. Then I can finish against that exact baseline."

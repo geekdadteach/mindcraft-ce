@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+### 2026-10-28 9:22 AM ET — MM20Bot — Fix `npm test` script quoting in `package.json`
+- **Goal:** Randy (9:21 AM ET) asked for the `test` script quoting bug to be fixed on `work/bob-home-from-live-20261028`.
+- **Files:** `package.json` (`"test": "node --test \"test/**/*.test.js\""`; inner quotes escaped, no other change), these docs.
+- **Summary:** Commit `a195897` had unescaped inner quotes, so `package.json` was invalid JSON and `npm test`/`npm ci` failed with `EJSONPARSE`.
+- **Tests:** `npm test` on `.20` (Node 22.23.4, separate checkout `~/BobRuntime/bob-home-validation`): 156/156 pass, 0 fail, 0 skipped; `zz-lm-test.mjs` not run, no Ollama call.
+- **Deploy status:** Not merged, not deployed. Live Bob untouched (PID 65846).
+- **Rollback:** Revert the commit.
+
 ## 2026-10-28 — Home consolidation on verified live snapshot (CODED; NOT DEPLOYED)
 - Branch: `work/bob-home-from-live-20261028`, based on sanitized live snapshot `a438d10`; PR #19/#20, main and running Mac unchanged.
 - Centralized house coordinates, door/porch protection geometry, indoor occupancy bounds, cave escape avoidance center, enclosure probe positions, reset target, diagnostics, and fixed memory places in `bob_home.js` and consumers. Indoor detection remains distinct from the protected area. The bed hint is now `-822 124 569` rather than `-823 124 568`, with the same six-block search radius.

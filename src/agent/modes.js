@@ -1,3 +1,4 @@
+import { HOME } from './library/bob_home.js';
 import * as skills from './library/skills.js';
 import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
@@ -425,7 +426,7 @@ const modes_list = [
                 }
                 this.holding = true; this.done_day = day;
                 const bed = nav.findHomeBed(bot);
-                if (!bed) { console.log('[ai-player] night: inside, but no bed found near -823 124 568; staying inside'); return; }
+                if (!bed) { console.log('[ai-player] night: inside, but no bed found near ${HOME.base.x} ${HOME.base.y} ${HOME.base.z}; staying inside'); return; }
                 if (bot.entity.position.distanceTo(bed.position.offset(0.5, 0, 0.5)) > 2)
                     await nav.gotoWithin(bot, new pf.goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 1), 20000, nav.walkMovements(bot));
                 try {
@@ -576,7 +577,7 @@ const modes_list = [
 ];
 
 // [ai-player] ---- unstuck escalation and hunger helpers ----
-const HOUSE_ENTRANCE = { x: -819.5, y: 124, z: 565.5 };
+const HOUSE_ENTRANCE = HOME.entrance;
 // pr20-reconciled-20261027: navigation priority (no extra controller; these are the existing pieces):
 //  1. danger: self_preservation / self_defense / cowardice / ranged_threat / hunger modes interrupt anything;
 //  2. normal movement: mineflayer-pathfinder toward the objective the model chose (skills.goToPosition etc.);

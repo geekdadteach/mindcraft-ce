@@ -12,6 +12,7 @@ import * as nav from './ai_player_nav.js';
 import { superseded } from './skills.js';
 
 const DIRS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
+const DIAG = [new Vec3(1, 0, 1), new Vec3(1, 0, -1), new Vec3(-1, 0, 1), new Vec3(-1, 0, -1)];
 const LIQUID = /^(lava|water|flowing_lava|flowing_water)$/;
 const FALLING = /sand$|gravel|concrete_powder|anvil|pointed_dripstone/;
 const ROUTE_TTL = 10 * 60e3;
@@ -89,7 +90,38 @@ function dirOrder(bot) {
     // current block cell so repeated failures do not always choose east first.
     const p = bot.entity.position;
     const offset = Math.abs((Math.floor(p.x) * 31 + Math.floor(p.z) * 17)) % DIRS.length;
-    return DIRS.slice(offset).concat(DIRS.slice(0, offset));
+    const cardinals = DIRS.slice(offset).concat(DIRS.slice(0, offset));
+    const dOff = Math.abs((Math.floor(p.x) * 13 + Math.floor(p.z) * 7)) % DIAG.length;
+    return cardinals.concat(DIAG.slice(dOff), DIAG.slice(0, dOff));
+}
+
+export function scanEscapeCells(bot, { radius = 4 } = {}) {
+    if (!bot?.entity?.position || !bot.blockAt) return [];
+    const p = bot.entity.position.floored ? bot.entity.position.floored() : bot.entity.position;
+    const ox = Math.floor(p.x), oy = Math.floor(p.y), oz = Math.floor(p.z);
+    const cells = [];
+    for (let dx = -radius; dx <= radius; dx++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+            if (dx === 0 && dz === 0) continue;
+            const q = { x: ox + dx, y: oy, z: oz + dz };
+            const feet = bot.blockAt(new Vec3(q.x, q.y, q.z));
+            const head = bot.blockAt(new Vec3(q.x, q.y + 1, q.z));
+            const below = bot.blockAt(new Vec3(q.x, q.y - 1, q.z));
+            if (!feet || !head || !below) continue;
+            if (feet.boundingBox !== 'empty' || head.boundingBox !== 'empty') continue;
+            if (below.boundingBox !== 'block') continue;
+            let air = 0, sky = Number(head.skyLight) || 0;
+            for (let y = 2; y <= 8; y++) {
+                const b = bot.blockAt(new Vec3(q.x, q.y + y, q.z));
+                if (!b || b.boundingBox !== 'empty') break;
+                air++;
+                if (Number(b.skyLight) > sky) sky = Number(b.skyLight);
+            }
+            cells.push({ x: q.x, y: q.y, z: q.z, air, sky, d: Math.hypot(dx, dz) });
+        }
+    }
+    cells.sort((a, b) => (b.sky - a.sky) || (b.air - a.air) || (a.d - b.d));
+    return cells;
 }
 
 // Climb to open sky. Returns { ok, why, from, to, steps }.
@@ -104,19 +136,33 @@ export async function escapeUp(agent, { reason = 'escape', maxMs = 60000 } = {})
     };
     const t0 = Date.now(); let steps = 0;
     if (!nav.isUnderground(bot)) return { ok: true, why: 'already outside', from, to: from, steps };
-    try { if (agent.failures?.isBlocked('escapeUp', reason, from)) return res(false, 'escape from this spot failed twice recently'); } catch (_) {}
+    let blocked = false;
+    try { blocked = !!agent.failures?.isBlocked('escapeUp', reason, from); } catch (_) {}
     console.log(`[ai-player] escape-up (${reason}): underground at ${from} (${nav.skyCheck(bot).cover}); climbing a staircase`);
     const gen = bot._actionGen;
-    let pref = null, stalls = 0;
+    let pref = null, stalls = 0, relocations = 0;
     const m = nav.escapeMovements(bot);
     m.allowParkour = false; m.maxDropDown = 1; // no drops while climbing out
+    const relocate = async () => {
+        const cells = scanEscapeCells(bot, { radius: 4 });
+        const best = cells[0];
+        if (!best || relocations >= 3) return false;
+        relocations++;
+        const ok = await gotoChecked(agent, new pf.goals.GoalNear(best.x, best.y, best.z, 1), { ms: 8000, movements: m, noProgressMs: 5000, label: 'escape relocate', record: false });
+        if (ok) { stalls = 0; steps++; return true; }
+        return false;
+    };
+    if (blocked) {
+        const moved = await relocate();
+        if (!moved) return res(false, 'escape from this spot failed twice recently');
+    }
     while (Date.now() - t0 < maxMs) {
         if (bot.interrupt_code || superseded(bot, gen)) return res(false, 'interrupted');
         if (!nav.isUnderground(bot)) return res(true, 'ok');
         const p = bot.entity.position.floored();
         const dirs = dirOrder(bot); if (pref) dirs.unshift(pref);
         let moved = false;
-        for (const d of [...new Set(dirs)]) {
+        for (const d of dirs) {
             if (!stepSafe(bot, p, d)) continue;
             const t = p.plus(d).offset(0, 1, 0);
             const ok = await gotoChecked(agent, new pf.goals.GoalBlock(t.x, t.y, t.z), { ms: 7000, movements: m, noProgressMs: 5000, label: 'escape step', record: false });
@@ -127,7 +173,11 @@ export async function escapeUp(agent, { reason = 'escape', maxMs = 60000 } = {})
             const ok = await gotoChecked(agent, new pf.goals.GoalBlock(p.x, p.y + 1, p.z), { ms: 6000, movements: m, noProgressMs: 5000, label: 'escape pillar', record: false });
             if (ok || bot.entity.position.y >= p.y + 0.9) { moved = true; steps++; }
         }
-        if (moved) stalls = 0; else if (++stalls >= 2) return res(false, 'no safe step up or pillar (liquid, built blocks or no blocks to place)');
+        if (moved) stalls = 0;
+        else if (++stalls >= 2) {
+            if (await relocate()) continue;
+            return res(false, 'no safe step up or pillar (liquid, built blocks or no blocks to place)');
+        }
     }
     return res(false, `still underground after ${maxMs / 1000}s`);
 }

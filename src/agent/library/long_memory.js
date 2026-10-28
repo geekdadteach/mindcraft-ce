@@ -1,4 +1,5 @@
 import { CLAIM } from './bob_claim.js';
+import { isLegacyHilltopPos } from './bob_home.js';
 // [ai-player] Long-term memory for Bob: LESSONS (Reflexion-style, rule-derived), PLACES (observed resources),
 // and a Voyager-style SAVED SKILLS library (verified generated code, embedded description, top-k retrieval).
 // Retrieval scoring follows generative agents (relevance + recency + importance). Everything is best-effort:
@@ -16,6 +17,22 @@ function keywordScore(query, text) {
     const t = words(text); let hit = 0;
     for (const w of new Set(t)) if (q.has(w) || [...q].some(x => x.length > 4 && (w.includes(x) || x.includes(w)))) hit++;
     return hit / Math.sqrt(q.size * Math.max(1, new Set(t).size));
+}
+
+export async function backfillMissingEmbeddings(items, embed, { textKey = 'text' } = {}) {
+    let filled = 0;
+    for (const item of items || []) {
+        if (!item || item.emb) continue;
+        const v = await embed(item[textKey]);
+        if (!Array.isArray(v) || v.length === 0) continue;
+        item.emb = v;
+        filled++;
+    }
+    return filled;
+}
+
+export function itemsMissingEmbeddings(items) {
+    return (items || []).some((item) => item && !item.emb);
 }
 
 class JsonStore {
@@ -87,12 +104,11 @@ export class LongMemory {
         this._embedFails = 0; this._embedOffUntil = 0;
         this.stats = { lessons_added: 0, lessons_bumped: 0, places_added: 0, places_expired: 0, skills_saved: 0 };
         for (const [key, text] of SEED_LESSONS) this._addLesson(key, text, 'seed', false);
-        // Retire the abandoned hilltop as a home; preserve all unrelated discoveries.
-        const obsolete = new Set(['house', 'bed', 'house_entrance']);
-        this.places.data.places = this.places.data.places.filter(p => !obsolete.has(p.type) || p.kind !== 'fixed');
-        this.lessons.data.lessons = this.lessons.data.lessons.filter(l => l.key !== 'seed:home');
-        this.lessons.save(); this.places.save();
-        this._backfill();
+        // Hilltop place/lesson cleanup is the migration script's job (with a backup). Do not
+        // delete saved knowledge on every start.
+        this._backfillPending = true;
+        this._backfillBusy = false;
+        this._backfillPromise = this._backfill();
     }
 
     // ---------- embeddings (never throws) ----------
@@ -101,7 +117,7 @@ export class LongMemory {
         if (!model?.embed || now() < this._embedOffUntil) return null;
         try {
             const v = await Promise.race([model.embed(String(text).slice(0, 2000)), new Promise((_, r) => setTimeout(() => r(new Error('embed timeout')), 3000))]);
-            if (!Array.isArray(v) || v.length === 0) throw new Error('empty embedding');
+            if (!Array.isArray(v) || v.length === 0) return null;
             this._embedFails = 0; return v;
         } catch (e) {
             if (++this._embedFails >= 3) { this._embedOffUntil = now() + 5 * 60e3; this._embedFails = 0; }
@@ -110,9 +126,17 @@ export class LongMemory {
         }
     }
     async _backfill() {
-        for (const l of this.lessons.data.lessons) if (!l.emb) l.emb = await this.embed(l.text);
-        for (const s of this.skills.data.skills) if (!s.emb) s.emb = await this.embed(s.description);
-        this.lessons.save(); this.skills.save();
+        if (this._backfillBusy || !this._backfillPending) return;
+        this._backfillBusy = true;
+        try {
+            await backfillMissingEmbeddings(this.lessons.data.lessons, (t) => this.embed(t));
+            await backfillMissingEmbeddings(this.skills.data.skills, (t) => this.embed(t), { textKey: 'description' });
+            this._backfillPending = itemsMissingEmbeddings(this.lessons.data.lessons)
+                || itemsMissingEmbeddings(this.skills.data.skills);
+            this.lessons.save(); this.skills.save();
+        } finally {
+            this._backfillBusy = false;
+        }
     }
     _rel(qv, query, item, text) { return (qv && item.emb && item.emb.length === qv.length) ? cosineSimilarity(qv, item.emb) : keywordScore(query, text); }
 
@@ -124,7 +148,7 @@ export class LongMemory {
         else {
             l = { key, text, kind, count: 1, first: now(), last: now(), emb: null }; L.push(l); this.stats.lessons_added++;
             console.log(`[ai-player] lesson learned: ${text}`);
-            if (embed) this.embed(text).then(v => { l.emb = v; this.lessons.save(); });
+            if (embed) this.embed(text).then(v => { if (Array.isArray(v) && v.length) { l.emb = v; this.lessons.save(); } });
             if (L.length > 150) { L.sort((a, b) => (b.kind === 'seed') - (a.kind === 'seed') || b.last - a.last); L.length = 150; }
         }
         this.lessons.save();
@@ -145,7 +169,7 @@ export class LongMemory {
         try {
             const cause = String(message).replace(this.agent.name, '').trim().replace(/\s+/g, ' ').slice(0, 80);
             const night = (this.agent.bot?.time?.timeOfDay ?? 0) > 13000;
-            this._addLesson(`death:${cause.split(' ').slice(0, 3).join('_')}`, `You died (${cause})${night ? ' at night' : ''}. ${night ? 'At night stay inside the house or sleep (!goToBed).' : 'Keep health up, eat, and fight with a sword or retreat.'}`, 'fail');
+            this._addLesson(`death:${cause.split(' ').slice(0, 3).join('_')}`, `You died (${cause})${night ? ' at night' : ''}. ${night ? 'At night sleep in your own verified bed if you have one (!goToBed), or make temporary cover. The retired hilltop is not your home.' : 'Keep health up, eat, and fight with a sword or retreat.'}`, 'fail');
         } catch (_) {}
     }
     _lessonScore(l, rel) {
@@ -156,6 +180,7 @@ export class LongMemory {
 
     // ---------- PLACES ----------
     observe() {
+        if (this._backfillPending && !this._backfillBusy) this._backfillPromise = this._backfill();
         const bot = this.agent.bot;
         try {
             if (!bot?.entity?.position || !bot.registry) return;
@@ -207,6 +232,11 @@ export class LongMemory {
     nearestPlace(name) {
         const me = this.agent.bot?.entity?.position; if (!me) return null;
         const n = String(name || '').toLowerCase().replace(/^minecraft:/, '');
+        if (/^(house|home|bed|house_entrance)$/.test(n) && isLegacyHilltopPos) {
+            const candsHome = this.places.data.places.filter(p => p.type === n && !isLegacyHilltopPos(p, 20));
+            candsHome.sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z));
+            return candsHome[0] || null;
+        }
         const cands = this.places.data.places.filter(p => p.type === n || p.type === ALIAS[n] || p.type === `${n}_log` || p.type === `${n}_ore` || (n === 'log' && p.type.endsWith('_log')) || (n.endsWith('s') && p.type === n.slice(0, -1)));
         const cost = (p) => Math.hypot(p.x - me.x, p.z - me.z) + (deepOre(p, me) ? 1000 : 0); // [ai-player] deep ore near the house last
         cands.sort((a, b) => cost(a) - cost(b));
@@ -232,6 +262,10 @@ export class LongMemory {
                 if (!dup) lessons.push(l);
             }
             let out = '';
+            try {
+                const hs = this.agent.homestead?.statusText?.();
+                if (hs) out += 'Settlement facts: ' + hs + '\n';
+            } catch (_) {}
             if (lessons.length) out += 'Lessons learned (from your own experience):\n' + lessons.map(l => `- ${l.text}${l.count > 1 ? ` (x${l.count})` : ''}`).join('\n');
             const me = this.agent.bot?.entity?.position;
             if (me) {

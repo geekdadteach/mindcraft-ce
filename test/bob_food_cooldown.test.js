@@ -101,15 +101,19 @@ test('first recovery attempts cover all four compass directions', () => {
 });
 
 test('farming fails closed unless an explicitly approved plot is configured', () => {
-    const env = {BOB_FARM_ENABLED:'true', BOB_FARM_X1:'-835', BOB_FARM_X2:'-828',
-                 BOB_FARM_Z1:'575', BOB_FARM_Z2:'583'};
-    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, {}), false);
-    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, env), true);
-    assert.equal(inBobFarmArea({x:-823,y:124,z:568}, env), false);
+    const env = {BOB_FARM_ENABLED:'true', BOB_FARM_X1:'-1176', BOB_FARM_X2:'-1160',
+                 BOB_FARM_Z1:'784', BOB_FARM_Z2:'800'};
+    const inPlot = {x:-1170, y:65, z:790};
+    assert.equal(inBobFarmArea(inPlot, {}), false);
+    assert.equal(inBobFarmArea(inPlot, env), true);
+    assert.equal(inBobFarmArea({x:-823,y:124,z:568}, env), false, 'retired hilltop is not a farm');
     assert.equal(inBobFarmArea({x:-750,y:124,z:568}, env), false);
     assert.equal(inBobFarmArea({x:-572,y:69,z:480}, env), false);
-    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, {...env,BOB_FARM_X1:'oops'}), false);
-    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, {...env,BOB_FARM_X1:'-999'}), false);
+    const oldHilltopPlot = {BOB_FARM_ENABLED:'true', BOB_FARM_X1:'-835', BOB_FARM_X2:'-828',
+                            BOB_FARM_Z1:'575', BOB_FARM_Z2:'583'};
+    assert.equal(inBobFarmArea({x:-830,y:124,z:580}, oldHilltopPlot), false, 'old hilltop plot is outside the claim');
+    assert.equal(inBobFarmArea(inPlot, {...env,BOB_FARM_X1:'oops'}), false);
+    assert.equal(inBobFarmArea(inPlot, {...env,BOB_FARM_X1:'-999'}), false);
 });
 
 test('breeding refuses starving, injured or interrupted agents', async () => {

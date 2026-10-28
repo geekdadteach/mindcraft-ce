@@ -1,5 +1,46 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 live bugfix: do not treat GP `world:` as player chat (CODED; NOT DEPLOYED)
+- **Goal:** After `db801d0` was deployed, live verification showed `/claimslist` claim lines classified as player chat, so the helper missed claim #26 and tried to create.
+- **Files:** `src/agent/library/{chat_guard,bob_claim_protect}.js`, `test/{bob_claim_protect,bob_stuck_home}.test.js`, these docs.
+- **Summary:** `isPlayerChatLine` is strict: known player sender / `bot.players` names / `<Name>` / `[rank] Name:`, not any `word: text`. GP `world: x-1208, z688 (16384 blocks)` and the claim-blocks header are system. Player spoofs of a claim line or `Home set.` are still ignored for `/sethome` confirm and `/claimslist` collection.
+- **Tests:** `npm test` on Node 22: **215/215 pass**, 0 fail.
+- **Deploy status:** Draft PR #21. Not merged. Do not treat this commit as live until Randy deploys it. Previous HEAD `db801d0` is what is live.
+- **Rollback:** Do not merge. Revert this commit on the PR branch if needed.
+
+## 2026-10-28 — PR #21 hardening: 5s claimslist, overworld-only, system sethome, session backfill (CODED; NOT DEPLOYED)
+- **Goal:** Four small hardening fixes on draft PR #21. No force-push; keep it a draft.
+- **Files:** `src/agent/library/{bob_claim_protect,chat_guard,long_memory,reset_recovery}.js`, tests, these docs, `AGENTS.md`.
+- **Summary:** `/claimslist` waits ~5 s; unrecognized/late reply aborts as unknown and never creates. Parser requires `world:` and ignores nether/end. `confirmSetHome` accepts only system/server messages (no player chat / `Name:` prefixes). Embedding backfill does not store a null vector; `observe()` retries in-session if the model was not ready at start.
+- **Tests:** `npm test` on Node 22: **213/213 pass**, 0 fail.
+- **Deploy status:** Draft PR #21. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Do not merge. Revert the hardening commit(s) on the PR branch if needed.
+
+## 2026-10-28 — PR #21 follow-up: claim #26 fallback, sethome confirm, embeddings (CODED; NOT DEPLOYED)
+- **Goal:** After the live re-validation of PR #21, fix the new problems: real GP `/claimslist` format, shovel-before-click, `/sethome` confirmation, stale lesson embeddings. Operator is creating claim #26 server-side; the helper is fallback-only and must no-op if that claim already covers the 128×128.
+- **Files:** `src/agent/library/{bob_claim,bob_claim_protect,chat_guard,bob_home_migrate,long_memory,reset_recovery}.js`, `src/agent/agent.js`, `scripts/migrate_bob_home.js`, tests, these docs, `AGENTS.md`.
+- **Summary:** Parse GP 16.18.7 `world: x-1208, z688 (-16384 blocks)`; existing covering claim = success / do nothing; shovel required only for the create fallback; chat guard allows `/claimslist` only via the helper sender; `confirmSetHome` waits for a server ok/error/timeout; rewritten lessons drop `emb`; backfill re-embeds missing; `--bot-stopped` probes MindServer/launchctl with `--skip-running-probe`.
+- **Tests:** `npm test` on Node 22: **209/209 pass**, 0 fail.
+- **Deploy status:** Draft PR #21. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Do not merge. Revert the follow-up commit(s) on the PR branch if needed.
+
+## 2026-10-28 — PR #21 live-review fixes (CODED; NOT DEPLOYED)
+- **Goal:** Fix every ranked item from the live-machine review of draft PR #21. Item 1 is a real live bug: `bot.blockAt` was given plain `{x,y,z}` objects; prismarine-world calls `pos.floored()`.
+- **Files:** `src/agent/library/{vec3_util,bob_home,bob_homestead,bob_claim_protect,bob_home_migrate,stuck_home,chat_guard,house_bounds,bob_enclosure,long_memory,reset_recovery,skills}.js`, `src/agent/{agent,commands/actions}.js`, `scripts/migrate_bob_home.js`, profiles, `AGENTS.md`, these docs, tests including new `test/bob_vec3_block.test.js`.
+- **Summary:** Vec3 wrappers + strict mocks; in-claim + Bob-owned home; `/home house` refused until `/sethome house` at the verified door; claim helper walks/verifies/requires `approved:true`; migration lessons + `--bot-stopped` + compact JSON + tight regex; homestead skip-save; null-safe getters; enclosure `HOUSE_AREA` is the house_bounds object; own-claim excluded from keep-away; stale hilltop comments removed. Base `e6e20c8` already merged (no rebase/force).
+- **Tests:** `npm test` on Node 22: **201/201 pass**, 0 fail. Vec3-strict tests would have caught item 1.
+- **Deploy status:** Draft PR #21 against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Do not merge. Revert the review-fix commit(s) on the PR branch if needed.
+
+## 2026-10-28 — Claim-first homestead conversion (CODED; NOT DEPLOYED)
+- **Goal:** Finish sections A/B/D of Randy's claim-first homestead handoff: dynamic verified home, construction tracker, recovery without the old `/home`, memory migration, tests. Section C / live servers untouched.
+- **Files:** `src/agent/library/{bob_home,bob_homestead,bob_home_migrate,bob_claim_protect,house_bounds,bob_enclosure,home_route,ai_player_nav,stuck_home,reset_recovery,escape,bob_goal_circuit,long_memory,protected_area,no_go_zones}.js`, `src/agent/{agent,modes}.js`, `src/agent/commands/{actions,queries}.js`, `scripts/migrate_bob_home.js`, profiles, tests listed in the handoff, these docs.
+- **Summary:** Verified home is discovered from world features (door+bed+geometry) and persisted in `bots/<name>/verified_home.json`. Homestead progress in `homestead.json`. Hilltop is never a destination. Optional operator-only GriefPrevention helper (inbox `claim-property`) clicks the 128×128 corners and checks `/claimslist`; it never runs on start. Migration script dry-runs by default.
+- **Claim plugin (from operator read-only check, not a live lookup in this repo):** GriefPrevention 16.18.7 on Paper; no WorldGuard; do not use NewEarthRules safe zones. No claim on the 128×128 yet. Golden-shovel corners (-1208,688) and (-1081,815); fallback `/adminclaims` + `/transferclaim MineBobNE`. **Needs Randy approval before anyone creates the claim.**
+- **Tests:** `npm test` on Node 22: 184/184 pass, 0 fail. D1–D7 plus geometry, enclosure, escape, migrate, GP helper. No in-game validation.
+- **Deploy status:** Draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Do not merge. Revert the PR branch if needed. Migration `--apply` restores from `bots/<name>/migrations/home-<ts>/`.
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

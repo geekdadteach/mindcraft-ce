@@ -1,5 +1,62 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 live bugfix: GP `world:` is system, not player chat (CODED; NOT DEPLOYED)
+- Same draft PR #21 on `cursor/claim-first-homestead-9db4` (previous HEAD `db801d0` is deployed live). Do not merge, do not force-push. Keep the PR a draft.
+- Live verification: `isPlayerChatLine()` treated GriefPrevention `/claimslist` lines such as `world: x-1208, z688 (16384 blocks)` (and the claim-blocks header) as player chat because of a `word: text` heuristic. The helper never saw claim #26 and tried to create a new claim.
+- Fix: player chat is only a known-player sender format (`<Name> …`, `[rank] Name: …`, mineflayer `chat` position / username sender, or `Name: …` when `Name` is in `bot.players`). GP `world:` lines and other system output stay system. A player spoofing a claim or `Home set.` line is still rejected.
+- Tests: `npm test` on Node 22: **215/215 pass**, 0 fail (was 213/213). Exact live fixtures: claim line, claimslist header, real player chat, spoofed claim line.
+
+## 2026-10-28 — PR #21 hardening: claimslist wait/overworld, system sethome, session backfill (CODED; NOT DEPLOYED)
+- Same draft PR #21 on `cursor/claim-first-homestead-9db4`. Do not merge, do not force-push. Keep the PR a draft.
+- `/claimslist` wait is **5 s**. A missing or unrecognized reply is **unknown, abort** — never treated as "no claim, create one". A recognized GP reply (even with zero claims) is still required before any create fallback.
+- Claims parser requires the overworld world name `world:` and ignores nether / end lines (`world_nether`, `world_the_end`).
+- `/sethome house` confirmation accepts only system/server `messagestr` lines (position `system`/`game_info`, no sender). Player chat is ignored: mineflayer `chat` position, a username sender, `<Name>` lines, and `Name:` prefixes such as `[Member] Steve: …`.
+- Embedding backfill that runs before the model is ready leaves `emb` unset and retries later in the same session from `LongMemory.observe()`, not only at the next restart.
+- Tests: `npm test` on Node 22: **213/213 pass**, 0 fail (was 209/209 before this hardening). No in-game validation. Do not deploy.
+
+## 2026-10-28 — PR #21 follow-up: live claim #26, sethome confirm, embeddings (CODED; NOT DEPLOYED)
+- Same draft PR #21 on `cursor/claim-first-homestead-9db4`. Do not merge, do not force-push. Operator is creating GriefPrevention **claim #26** for MineBobNE server-side (X -1208..-1081, Z 688..815, full height). The `claim-property` helper is now **fallback only**.
+- Claim helper safety (not expanded): `"approved": true`; GP 16.18.7 `/claimslist` format `world: x-1208, z688 (-16384 blocks)` (lesser corner + area, verified in GP source); if that covering claim already exists, success and **do nothing**; otherwise require a golden shovel in hand before any click; `/claimslist` is allowed through the chat guard only via `sendFixedClaimsListCommand`.
+- `/sethome house` no longer sets `essentialsSet` until the server confirms (`Home set.` / similar). No reply or an error = not set. Does not round-trip `/home house` (that can still land at the hilltop).
+- Migration rewrites clear stale `emb`; `backfillMissingEmbeddings` fills missing vectors on start. `--bot-stopped` also probes MindServer `127.0.0.1:8081` and `launchctl gui/502/org.newearth.mindcraft-m4`; `--skip-running-probe` overrides.
+- Tests: `npm test` on Node 22: **209/209 pass**, 0 fail (was 201/201 before this follow-up). No in-game validation. Do not deploy.
+
+## 2026-10-28 — PR #21 live-review fixes (CODED; unit tests; NOT DEPLOYED)
+- Same branch `cursor/claim-first-homestead-9db4`. Draft PR #21 only. Base `work/bob-home-from-live-20261028` at `e6e20c8` was already an ancestor (merge was a no-op; no rebase, no force-push).
+- Ranked live-review items, all addressed:
+  1. **Vec3 `blockAt`:** `src/agent/library/vec3_util.js` (`vec3`, `botGetBlock`, `strictBlockAt`). `agent.js` observe timer, `!continueHomestead`, homestead observe, and `claimProperty` all pass a Vec3. Tests in `test/bob_vec3_block.test.js` use Vec3-strict mocks that throw on plain objects.
+  2. **Home must be in-claim and Bob-owned:** `isVerifiedHome` / `verifyHomeInWorld` / `discoverHomeFeatures` require the claim; `requireOwned` (site within 16 or a placed door/bed) rejects village/stranger houses.
+  3. **`/home house` still hilltop:** refuse until `essentialsSet`; auto `/sethome house` when standing at the verified entrance; hilltop landing fails and clears the flag.
+  4. **`claimProperty`:** walks to both corners, no y=65 dead logic, no click on missing/non-solid, `/claimslist` requires corner pairs, inbox needs `approved:true`.
+  5. **`long_memory` no longer deletes hilltop places on start;** migration owns cleanup (with backup).
+  6. **`AGENTS.md`** documents claim-first architecture, hilltop retirement, and operator rules.
+  7. **Migration:** death/zone/reset lessons rewritten; `--apply` requires `--bot-stopped`; compact JSON preserved; hilltop regex requires nearby x, not a lone z 564–573.
+  8. **Low:** homestead skip-save; null-safe `HOUSE_AREA`/`DOOR`/`EXIT_WAYPOINT`; enclosure re-exports the house_bounds object; profile keep-away excludes Bob's own claim; stale `-820 124 566` comments removed from `agent.js`, `reset_recovery.js`, `skills.js`.
+- Tests: `npm test` on Node 22: **201/201 pass**, 0 fail (was 184/184 before this review pass). New/extended: `test/bob_vec3_block.test.js`, owned-home, sethome refuse/hilltop-landing, claim walk/approval, migrate bot-stopped/lessons/compact, homestead skip-save. No in-game validation. Do not deploy or merge.
+
+## 2026-10-28 — Claim-first homestead conversion (CODED; unit tests; NOT DEPLOYED)
+- Branch: `cursor/claim-first-homestead-9db4` off `work/bob-home-from-live-20261028`. Draft PR only. Never merge, never target `main`, never deploy without Randy.
+- What changed: the retired hilltop (`-823 124 568`, door `-820 124 566`, bed `-822 124 569`) is identification-only. Navigation, protection, night-home, stuck-home `/home house`, and reset-teleport all require a **verified home discovered in the world**. Until then they are inert. The 128×128 claim (X -1208..-1081, Z 688..815, center -1144, 752) is property, not a movement fence and not a house.
+- Homestead stages `survey → select_site → gather → foundation → shelter → bed → verified_home → improvements` live in `src/agent/library/bob_homestead.js`. A 30s timer only observes/verifies; it does not build. Andy continues via `!continueHomestead`. `!homesteadStatus` reports facts, not orders.
+- Cave-pocket escape: 8 headings, nearby air-column scan, up to 3 relocations. No house or hilltop fallback.
+- PR #20 opt-in switches stay off: stuck-home auto (`run/stuck-home.config.json` `"auto": true` or `BOB_STUCK_HOME_AUTO=1`), night-home (`BOB_NIGHT_HOME=1`), unstuck walk-home (`BOB_UNSTUCK_HOME=1`). Manual `tphome` still needs a verified door.
+- **GriefPrevention claim (operator step; needs Randy approval; do not auto-run):**
+  - Plugin (operator read-only check of the game server; this repo did not touch the live server): Paper + GriefPrevention 16.18.7 only. LuckPerms, CoreProtect, custom NewEarthRules (safe zones disable hostile mobs — **do not use for Bob's claim**). WorldGuard is not installed.
+  - No claim covers X -1208..-1081, Z 688..815 yet. Bob (MineBobNE) still has old 9×15 claim #19 at the retired house (x -827..-819, z 559..573) and enough claim blocks for 128×128. GP claims are full height and do not confine their owner.
+  - Planned method: Bob holds a golden shovel and right-clicks corner blocks at **(-1208, 688)** and **(-1081, 815)**. `/claim <radius>` cannot make exactly 128.
+  - ViaProxy fallback (op): `/adminclaims` then `/transferclaim MineBobNE`. Verify with `/claimslist`.
+  - Optional helper in this PR is a **fallback only** (never starts on its own). Operator-created claim #26 should already cover the 128×128; if `/claimslist` shows that, the helper does nothing. Recovery-inbox kind `claim-property` still needs `"approved": true`, a golden shovel before any click, and the real GP 16.18.7 list format. Example file (mode 600) in `run/recovery-inbox/`:
+    `{"v":1,"kind":"claim-property","reason":"approved","by":"randy","ts":<epoch-ms>,"approved":true}`
+- **Stuck-home / Essentials:** `/home house` is refused until a verified home exists **and** `/sethome house` has been **confirmed by the server** at that entrance (`essentialsSet`). Code sends `/sethome house` when Bob is within 2 blocks of the verified door and waits for the reply. Landing at the retired hilltop is a failure.
+- **Live data migration (operator-run, dry-run default, backup first; do not run against live without a copy):**
+  - Dry-run: `node scripts/migrate_bob_home.js --dir bots/MineBobNE`
+  - Apply: `node scripts/migrate_bob_home.js --dir bots/MineBobNE --apply --bot-stopped` (refuses without `--bot-stopped`; Bob overwrites places/lessons while running)
+  - Does not run on bot start. Unrelated knowledge is kept. Compact JSON stays compact. Death/zone/reset hilltop lessons are rewritten, not only `seed:home`.
+- **Deploy:** do not deploy this branch. Live Bob and the Mac mini `.20` stay on the current snapshot. After Randy reviews the draft PR: backup `bots/MineBobNE`, dry-run migration, create the GP claim (approved method above), then a planned restart of the new tree. Runtime `run/stuck-home.config.json` should keep `"auto"` unset/false unless Randy opts in.
+- **Rollback:** do not merge. If a deploy happens later, restore the previous tree and `bots/MineBobNE/migrations/home-<ts>/` copies; GP claim rollback is a separate server `/abandonclaim` (or equivalent) decision for Randy, not this repo.
+- **Runtime-config concerns:** live `run/stuck-home.config.json` currently uses `"radius": null` (unlimited). After a verified home exists, a 64-block radius is the code default; unlimited remains valid if the ops file keeps `null`. Night-home and unstuck-home env vars must stay unset unless Randy wants those controllers. Farming still needs `BOB_FARM_ENABLED=true` plus in-claim plot bounds; the old hilltop wheat plot is no longer accepted.
+- Tests: `npm test` (`node --test "test/**/*.test.js"`) on Node 22 was **184/184** at the first claim-first commit; the live-review fix pass is **201/201** (see entry above). New coverage in `test/bob_homestead.test.js`, `test/bob_home_migrate.test.js`, `test/bob_escape_pocket.test.js`, `test/bob_claim_protect.test.js`, `test/bob_claim_first_integration.test.js` (D1–D7). No in-game validation.
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

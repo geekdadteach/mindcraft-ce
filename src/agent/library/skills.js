@@ -1204,7 +1204,7 @@ export async function goToGoal(bot, goal) {
         navConsole(`probe inconclusive (${probes}); one destructive attempt, no extra retry`);
 
     // [ai-player] The patched pathfinder opens doors itself (canOpenDoors); this helper then toggled the same
-    // door shut again while Bob stood in the doorway (stuck at -821 124 566, Oct 20). Only run it when the pathfinder can't.
+    // door shut again while Bob stood in the doorway (stuck at the door, Oct 20). Only run it when the pathfinder can't.
     const doorCheckInterval = final_movements.canOpenDoors ? null : startDoorInterval(bot);
 
     bot.pathfinder.setMovements(final_movements);

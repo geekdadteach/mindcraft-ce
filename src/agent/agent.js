@@ -1,3 +1,4 @@
+import { HOME } from './library/bob_home.js';
 import { History } from './history.js';
 import { Coder } from './coder.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
@@ -35,7 +36,7 @@ import { attachBobBrain } from './library/bob_brain.js';
 // [ai-player] read-only: doors, gates and pressure plates around the front door (-820 124 566), for the log
 function frontDoorState(bot) {
     const out = [];
-    for (let x = -822; x <= -818; x++) for (let y = 124; y <= 125; y++) for (let z = 564; z <= 568; z++) {
+    for (let x = HOME.door.x - 2; x <= HOME.door.x + 2; x++) for (let y = HOME.door.y; y <= HOME.door.y + 1; y++) for (let z = HOME.door.z - 2; z <= HOME.door.z + 2; z++) {
         const b = bot.blockAt(new Vec3(x, y, z));
         if (!b || !/_door$|_gate$|pressure_plate/.test(b.name)) continue;
         const p = b.getProperties();

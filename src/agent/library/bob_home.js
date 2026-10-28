@@ -18,3 +18,9 @@ export const HOME = Object.freeze({
         walkingLane: Object.freeze({x1:-821,x2:-819,y1:123,y2:126,z1:564,z2:565})
     })
 });
+
+// Version-1 route files did not record home identity; their known legacy entrance is fixed.
+export const LEGACY_HOME_ENTRANCE = Object.freeze({x:-819.5,y:124,z:565.5});
+export function sameHomeEntrance(a, b = HOME.entrance) {
+    return !!a && [a.x,a.y,a.z].every(Number.isFinite) && a.x === b.x && a.y === b.y && a.z === b.z;
+}

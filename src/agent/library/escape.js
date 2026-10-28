@@ -1,4 +1,3 @@
-import { HOME } from './bob_home.js';
 // [ai-player] Item 3 (Oct 20 evening): reliable cave escape and failed-route detection.
 // Oct 20: 67 stuck triggers in 2h16m, clustered in the caves under/west of the house; 8 of 9 escalations "did not reach
 // the house entrance or surface" because one long pathfinder goto to a far surface/house goal timed out in the cave.
@@ -12,7 +11,6 @@ import Vec3 from 'vec3';
 import * as nav from './ai_player_nav.js';
 import { superseded } from './skills.js';
 
-const HOUSE_C = HOME.escapeCenter;       // house centre (do not stair up under it)
 const DIRS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)];
 const LIQUID = /^(lava|water|flowing_lava|flowing_water)$/;
 const FALLING = /sand$|gravel|concrete_powder|anvil|pointed_dripstone/;
@@ -87,16 +85,11 @@ function stepSafe(bot, p, dir) {
     return true;
 }
 function dirOrder(bot) {
+    // No fixed home or hilltop bias. Rotate preferred escape headings by the
+    // current block cell so repeated failures do not always choose east first.
     const p = bot.entity.position;
-    const dh = Math.hypot(p.x - HOUSE_C.x, p.z - HOUSE_C.z);
-    const score = (d) => {
-        const n = p.plus(d);
-        const away = Math.hypot(n.x - HOUSE_C.x, n.z - HOUSE_C.z) - dh; // > 0: away from the house
-        if (dh < 12) return -away;            // under/near the house: climb away from it
-        if (dh < 64) return away;             // near home: climb toward it
-        return 0;
-    };
-    return [...DIRS].sort((a, b) => score(a) - score(b));
+    const offset = Math.abs((Math.floor(p.x) * 31 + Math.floor(p.z) * 17)) % DIRS.length;
+    return DIRS.slice(offset).concat(DIRS.slice(0, offset));
 }
 
 // Climb to open sky. Returns { ok, why, from, to, steps }.

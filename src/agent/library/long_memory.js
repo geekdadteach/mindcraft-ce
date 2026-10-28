@@ -88,8 +88,9 @@ export class LongMemory {
         this.stats = { lessons_added: 0, lessons_bumped: 0, places_added: 0, places_expired: 0, skills_saved: 0 };
         for (const [key, text] of SEED_LESSONS) this._addLesson(key, text, 'seed', false);
         for (const fixed of [['house', HOMESTEAD.x, HOMESTEAD.y, HOMESTEAD.z], ['bed', HOME.bed.x, HOME.bed.y, HOME.bed.z], ['house_entrance', HOME.door.x, HOME.door.y, HOME.door.z]]) {
-            const p = this.places.data.places.find(p => p.type === fixed[0]);
-            if (!p) this.places.data.places.push({ type: fixed[0], x: fixed[1], y: fixed[2], z: fixed[3], kind: 'fixed', first: now(), last: now(), seen: 1 });
+            const p = this.places.data.places.find(p => p.type === fixed[0] && p.kind === 'fixed');
+            if (p) { p.x = fixed[1]; p.y = fixed[2]; p.z = fixed[3]; p.last = now(); }
+            else this.places.data.places.push({ type: fixed[0], x: fixed[1], y: fixed[2], z: fixed[3], kind: 'fixed', first: now(), last: now(), seen: 1 });
         }
         this.lessons.save(); this.places.save();
         this._backfill();

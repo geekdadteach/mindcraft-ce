@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 follow-up: live claim #26, sethome confirm, embeddings (CODED; NOT DEPLOYED)
+- Same draft PR #21 on `cursor/claim-first-homestead-9db4`. Do not merge, do not force-push. Operator is creating GriefPrevention **claim #26** for MineBobNE server-side (X -1208..-1081, Z 688..815, full height). The `claim-property` helper is now **fallback only**.
+- Claim helper safety (not expanded): `"approved": true`; GP 16.18.7 `/claimslist` format `world: x-1208, z688 (-16384 blocks)` (lesser corner + area, verified in GP source); if that covering claim already exists, success and **do nothing**; otherwise require a golden shovel in hand before any click; `/claimslist` is allowed through the chat guard only via `sendFixedClaimsListCommand`.
+- `/sethome house` no longer sets `essentialsSet` until the server confirms (`Home set.` / similar). No reply or an error = not set. Does not round-trip `/home house` (that can still land at the hilltop).
+- Migration rewrites clear stale `emb`; `backfillMissingEmbeddings` fills missing vectors on start. `--bot-stopped` also probes MindServer `127.0.0.1:8081` and `launchctl gui/502/org.newearth.mindcraft-m4`; `--skip-running-probe` overrides.
+- Tests: `npm test` on Node 22 after this pass. No in-game validation. Do not deploy.
+
 ## 2026-10-28 — PR #21 live-review fixes (CODED; unit tests; NOT DEPLOYED)
 - Same branch `cursor/claim-first-homestead-9db4`. Draft PR #21 only. Base `work/bob-home-from-live-20261028` at `e6e20c8` was already an ancestor (merge was a no-op; no rebase, no force-push).
 - Ranked live-review items, all addressed:
@@ -24,9 +31,9 @@
   - No claim covers X -1208..-1081, Z 688..815 yet. Bob (MineBobNE) still has old 9×15 claim #19 at the retired house (x -827..-819, z 559..573) and enough claim blocks for 128×128. GP claims are full height and do not confine their owner.
   - Planned method: Bob holds a golden shovel and right-clicks corner blocks at **(-1208, 688)** and **(-1081, 815)**. `/claim <radius>` cannot make exactly 128.
   - ViaProxy fallback (op): `/adminclaims` then `/transferclaim MineBobNE`. Verify with `/claimslist`.
-  - Optional helper in this PR (never starts on its own): recovery-inbox kind `claim-property` calls `claimProperty()` in `src/agent/library/bob_claim_protect.js` (walk to both corners ~180 apart, golden shovel, click existing surface, parse `/claimslist` corner pairs). **Requires Randy's approval and `"approved": true` before use on live.** Example file (mode 600) in `run/recovery-inbox/`:
+  - Optional helper in this PR is a **fallback only** (never starts on its own). Operator-created claim #26 should already cover the 128×128; if `/claimslist` shows that, the helper does nothing. Recovery-inbox kind `claim-property` still needs `"approved": true`, a golden shovel before any click, and the real GP 16.18.7 list format. Example file (mode 600) in `run/recovery-inbox/`:
     `{"v":1,"kind":"claim-property","reason":"approved","by":"randy","ts":<epoch-ms>,"approved":true}`
-- **Stuck-home / Essentials:** `/home house` is refused until a verified home exists **and** `/sethome house` has been sent at that entrance (`essentialsSet`). Code sends `/sethome house` when Bob is within 2 blocks of the verified door. Landing at the retired hilltop is a failure.
+- **Stuck-home / Essentials:** `/home house` is refused until a verified home exists **and** `/sethome house` has been **confirmed by the server** at that entrance (`essentialsSet`). Code sends `/sethome house` when Bob is within 2 blocks of the verified door and waits for the reply. Landing at the retired hilltop is a failure.
 - **Live data migration (operator-run, dry-run default, backup first; do not run against live without a copy):**
   - Dry-run: `node scripts/migrate_bob_home.js --dir bots/MineBobNE`
   - Apply: `node scripts/migrate_bob_home.js --dir bots/MineBobNE --apply --bot-stopped` (refuses without `--bot-stopped`; Bob overwrites places/lessons while running)

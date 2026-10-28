@@ -30,7 +30,7 @@ import { installPhysicsGuard, memStatus, heapGuard } from './library/stability.j
 import { escapeUp, gotoChecked } from './library/escape.js';
 import { HomeRoutes } from './library/home_route.js';
 import { installResetRecovery } from './library/reset_recovery.js'; // [ai-player] reset-recovery-20261026
-import { installChatGuard, stripCommandPrefix, sendFixedSetHomeCommand } from './library/chat_guard.js'; // [ai-player] stuck-home-20261026
+import { installChatGuard, stripCommandPrefix, confirmSetHome } from './library/chat_guard.js'; // [ai-player] stuck-home-20261026
 import { installStuckHome } from './library/stuck_home.js'; // [ai-player] stuck-home-20261026
 import { Failures } from './library/failures.js';
 import { attachBobBrain } from './library/bob_brain.js';
@@ -267,7 +267,7 @@ export class Agent {
                             site: hs.site, placed: hs.placed || [], requireOwned: true,
                         });
                     }
-                    this.maybeSetEssentialsHome();
+                    void this.maybeSetEssentialsHome();
                 } catch (_) {}
             }, 30000);
             if (!this._homeTimer) this._homeTimer = setInterval(() => { try { this.home?.tick(); } catch (_) {} }, 2000); // [ai-player] item 4 breadcrumbs
@@ -753,18 +753,30 @@ export class Agent {
 
     // Essentials /home house is still the retired hilltop until Bob stands at a verified
     // entrance and we send the fixed /sethome house. Never send /home house before that.
-    maybeSetEssentialsHome() {
+    // Do not set essentialsSet until the server confirms the home; no reply or an error
+    // means it is not set. Do not round-trip /home house (that can still land at the hilltop).
+    async maybeSetEssentialsHome() {
         try {
+            if (this._sethomeBusy) return false;
             const home = this.homeState?.snapshot?.();
             if (!isVerifiedHome(home) || home.essentialsSet) return false;
             const p = this.bot?.entity?.position;
             const e = home.entrance;
             if (!p || !e) return false;
             if (Math.hypot(p.x - e.x, p.y - e.y, p.z - e.z) > 2) return false;
-            sendFixedSetHomeCommand(this.bot);
-            this.homeState.markEssentialsSet(true);
-            console.log('[ai-player] /sethome house at the verified entrance; Essentials /home house must not stay at the retired hilltop');
-            return true;
+            this._sethomeBusy = true;
+            try {
+                const result = await confirmSetHome(this.bot);
+                if (!result.ok) {
+                    console.log(`[ai-player] /sethome house not confirmed (${result.why}); Essentials /home house stays unset`);
+                    return false;
+                }
+                this.homeState.markEssentialsSet(true);
+                console.log('[ai-player] /sethome house confirmed at the verified entrance; Essentials /home house must not stay at the retired hilltop');
+                return true;
+            } finally {
+                this._sethomeBusy = false;
+            }
         } catch (e) {
             console.log(`[ai-player] sethome skipped (${e.message})`);
             return false;

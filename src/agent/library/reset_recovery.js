@@ -162,11 +162,12 @@ export class ResetRecovery {
             if (req.approved !== true) {
                 return 'refused: claim-property requires approved:true (Randy)';
             }
-            this.log('claim-property: operator requested GriefPrevention claim; this is not automatic and still needs Randy approval if used live');
+            this.log('claim-property: fallback only; operator is creating claim #26 server-side. Still requires approved:true');
             const r = await claimProperty(this.agent, { approved: true });
             if (typeof r === 'string') return r;
             const steps = (r?.steps || []).join('; ');
-            return `claim-property ${r?.ok ? 'covers claim' : 'unconfirmed'}; ${steps}${r?.approval ? '; ' + r.approval : ''}`;
+            const status = r?.alreadyExists ? 'already covers claim' : (r?.ok ? 'covers claim' : (r?.aborted ? 'aborted' : 'unconfirmed'));
+            return `claim-property ${status}; ${steps}${r?.approval ? '; ' + r.approval : ''}`;
         }
         return 'unknown kind';
     }

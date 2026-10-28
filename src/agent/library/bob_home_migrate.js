@@ -90,18 +90,71 @@ export function lessonMigration(l) {
     return { op: 'keep' };
 }
 
-export function botLooksStopped({ botStopped = false, env = process.env } = {}) {
-    if (botStopped === true || env.BOB_MIGRATE_BOT_STOPPED === '1') return { stopped: true, why: 'operator acknowledged bot is stopped' };
-    return { stopped: false, why: 'pass --bot-stopped (or BOB_MIGRATE_BOT_STOPPED=1) after confirming MindServer/Bob is not running; he overwrites places.json and lessons.json from memory' };
+export function botLooksStopped({
+    botStopped = false, skipProbe = false, probe = null, env = process.env,
+} = {}) {
+    if (!(botStopped === true || env.BOB_MIGRATE_BOT_STOPPED === '1')) {
+        return { stopped: false, why: 'pass --bot-stopped (or BOB_MIGRATE_BOT_STOPPED=1) after confirming MindServer/Bob is not running; he overwrites places.json and lessons.json from memory' };
+    }
+    if (skipProbe === true || env.BOB_MIGRATE_SKIP_PROBE === '1') {
+        return { stopped: true, why: 'operator acknowledged bot is stopped (running probe skipped)' };
+    }
+    if (probe?.running) {
+        return { stopped: false, why: `MindServer/launchctl still looks running (${(probe.findings || []).join('; ') || 'probe'})` };
+    }
+    return { stopped: true, why: 'operator acknowledged bot is stopped' };
 }
 
-export function planHomeMigration(botDir, { now = Date.now, botStopped = false, env = process.env } = {}) {
+export async function probeBobRunning({
+    mindserverUrl = process.env.MINDSERVER_PROBE_URL || 'http://127.0.0.1:8081/',
+    launchctlSpec = process.env.BOB_LAUNCHCTL_SPEC || 'gui/502/org.newearth.mindcraft-m4',
+    fetchImpl = globalThis.fetch,
+    execFileImpl = null,
+    timeoutMs = 400,
+} = {}) {
+    const findings = [];
+    let running = false;
+    if (typeof fetchImpl === 'function') {
+        try {
+            const ac = new AbortController();
+            const timer = setTimeout(() => ac.abort(), timeoutMs);
+            const res = await fetchImpl(mindserverUrl, { method: 'GET', signal: ac.signal });
+            clearTimeout(timer);
+            if (res && res.ok) {
+                running = true;
+                findings.push(`MindServer answered ${res.status} at ${mindserverUrl}`);
+            } else findings.push(`MindServer at ${mindserverUrl} status ${res?.status || 'none'}`);
+        } catch (_) {
+            findings.push(`MindServer at ${mindserverUrl} not answering`);
+        }
+    }
+    try {
+        const execFile = execFileImpl || (await import('node:child_process')).execFile;
+        const printed = await new Promise((resolve) => {
+            execFile('launchctl', ['print', launchctlSpec], { timeout: 1500 }, (err, stdout, stderr) => {
+                resolve({ err, stdout: String(stdout || ''), stderr: String(stderr || '') });
+            });
+        });
+        const out = `${printed.stdout}\n${printed.stderr}`;
+        if (!printed.err && /state\s*=\s*running/i.test(out)) {
+            running = true;
+            findings.push(`launchctl ${launchctlSpec} state=running`);
+        } else findings.push(`launchctl ${launchctlSpec} not running or unavailable`);
+    } catch (_) {
+        findings.push('launchctl probe skipped');
+    }
+    return { running, findings };
+}
+
+export function planHomeMigration(botDir, {
+    now = Date.now, botStopped = false, skipProbe = false, probe = null, env = process.env,
+} = {}) {
     const timestamp = typeof now === 'function' ? now() : (Number.isFinite(now) ? now : Date.now());
     const targets = defaultTargets(botDir);
     const actions = [];
     const keep = [];
     const warnings = [];
-    const running = botLooksStopped({ botStopped, env });
+    const running = botLooksStopped({ botStopped, skipProbe, probe, env });
     if (!running.stopped) warnings.push(running.why);
 
     const routes = readJson(targets.home_routes);
@@ -149,7 +202,7 @@ export function planHomeMigration(botDir, { now = Date.now, botStopped = false, 
             const act = lessonMigration(l);
             if (act.op === 'retire') retired.push(l.key);
             else if (act.op === 'rewrite') {
-                next.push({ ...l, text: act.text });
+                next.push({ ...l, text: act.text, emb: null });
                 rewritten.push(l.key);
             } else next.push(l);
         }
@@ -215,11 +268,16 @@ export function planHomeMigration(botDir, { now = Date.now, botStopped = false, 
         keep,
         warnings,
         botStopped: running.stopped,
+        skipProbe,
+        probe,
         dryRunDefault: true,
     };
 }
 
-export function applyHomeMigration(plan, { apply = false, fsApi = fs, botStopped = plan.botStopped } = {}) {
+export function applyHomeMigration(plan, {
+    apply = false, fsApi = fs, botStopped = plan.botStopped,
+    skipProbe = plan.skipProbe, probe = plan.probe,
+} = {}) {
     const backupDir = path.join(plan.botDir, 'migrations', `home-${plan.timestamp}`);
     const report = { backupDir, applied: false, copies: [], writes: [], warnings: plan.warnings || [] };
     if (!apply) {
@@ -227,7 +285,7 @@ export function applyHomeMigration(plan, { apply = false, fsApi = fs, botStopped
         report.message = 'dry-run; no files written. Re-run with --apply --bot-stopped to backup and retire.';
         return report;
     }
-    const running = botLooksStopped({ botStopped });
+    const running = botLooksStopped({ botStopped, skipProbe, probe });
     if (!running.stopped) {
         report.message = `refused: ${running.why}`;
         return report;

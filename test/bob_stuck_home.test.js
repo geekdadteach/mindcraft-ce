@@ -13,7 +13,7 @@ const DOOR = fixture.entrance;
 function nearDoor({ dx = 12.5, dy = -6, dz = 10.5 } = {}) {
     return { x: DOOR.x + dx, y: DOOR.y + dy, z: DOOR.z + dz };
 }
-import { installChatGuard, isSlashCommand, stripCommandPrefix, sendFixedHomeCommand, sendFixedSetHomeCommand } from '../src/agent/library/chat_guard.js';
+import { installChatGuard, isSlashCommand, stripCommandPrefix, sendFixedHomeCommand, sendFixedSetHomeCommand, sendFixedClaimsListCommand, confirmSetHome } from '../src/agent/library/chat_guard.js';
 import { ResetRecovery, readRequest } from '../src/agent/library/reset_recovery.js';
 
 const T0 = 10_000_000;
@@ -199,11 +199,48 @@ test("chat guard: '/' lines never leave, fixed command does", () => {
     assert.deepEqual(sent.slice(-1), ['/home house']);
     assert.equal(sendFixedSetHomeCommand(bot), '/sethome house');
     assert.deepEqual(sent.slice(-1), ['/sethome house']);
+    bot.chat('/claimslist');
+    assert.equal(sent.includes('/claimslist'), false, 'LLM /claimslist is dropped');
+    assert.equal(sendFixedClaimsListCommand(bot), '/claimslist');
+    assert.deepEqual(sent.slice(-1), ['/claimslist']);
     assert.throws(() => sendFixedHomeCommand({ _client: { chat() {} } }), /not installed/);
     assert.ok(isSlashCommand(' /x') && !isSlashCommand('a /x'));
     assert.equal(stripCommandPrefix('//home house'), 'home house');
     assert.equal(stripCommandPrefix(' \u200b / /tp me'), 'tp me');
     assert.equal(stripCommandPrefix('hi /tp'), 'hi /tp');
+});
+
+test('confirmSetHome sets the flag only after a server ok reply', async () => {
+    const sent = [];
+    const bot = new EventEmitter();
+    bot._client = { chat: (m) => sent.push(m) };
+    bot.chat = (m) => bot._client.chat(m);
+    installChatGuard(bot, () => {});
+    let t = 0;
+    const noReply = await confirmSetHome(bot, {
+        wait: async (ms) => { t += ms; }, now: () => t, timeoutMs: 200,
+    });
+    assert.equal(noReply.ok, false);
+    assert.equal(noReply.why, 'no reply');
+    assert.deepEqual(sent, ['/sethome house']);
+
+    t = 0;
+    sent.length = 0;
+    const err = await confirmSetHome(bot, {
+        wait: async (ms) => { t += ms; if (t >= 100) bot.emit('messagestr', 'You do not have permission to use that command.'); },
+        now: () => t, timeoutMs: 400,
+    });
+    assert.equal(err.ok, false);
+    assert.equal(err.why, 'server error');
+
+    t = 0;
+    sent.length = 0;
+    const ok = await confirmSetHome(bot, {
+        wait: async (ms) => { t += ms; if (t >= 100) bot.emit('messagestr', 'Home set.'); },
+        now: () => t, timeoutMs: 400,
+    });
+    assert.equal(ok.ok, true);
+    assert.equal(ok.why, 'server confirmed');
 });
 
 test('inbox kind tphome is accepted and routed; force via reason', async () => {

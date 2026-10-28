@@ -58,13 +58,15 @@ test('claimProperty blockAt path rejects plain objects and uses Vec3', async () 
         on() {},
         removeListener() {},
         entity: { position: { x: -1208, y: 65, z: 688 } },
+        heldItem: { name: 'golden_shovel' },
+        inventory: { items: () => [{ name: 'golden_shovel' }], slots: [{ name: 'golden_shovel' }] },
+        async equip(item) { this.heldItem = item; },
     };
     const result = await claimProperty({ name: 'MineBobNE', bot }, {
         approved: true,
         goto: async () => true,
-        equip: async () => {},
-        chat: () => {},
         wait: async () => {},
+        chat: () => {},
     });
     assert.equal(result.refused, undefined);
     assert.ok(seen.length >= 2, 'looked up corner blocks via Vec3');

@@ -19,6 +19,16 @@ function keywordScore(query, text) {
     return hit / Math.sqrt(q.size * Math.max(1, new Set(t).size));
 }
 
+export async function backfillMissingEmbeddings(items, embed, { textKey = 'text' } = {}) {
+    let filled = 0;
+    for (const item of items || []) {
+        if (!item || item.emb) continue;
+        item.emb = await embed(item[textKey]);
+        filled++;
+    }
+    return filled;
+}
+
 class JsonStore {
     constructor(file, fallback) {
         this.file = file; this.data = fallback; this._timer = null; this._lastBak = 0;
@@ -108,8 +118,8 @@ export class LongMemory {
         }
     }
     async _backfill() {
-        for (const l of this.lessons.data.lessons) if (!l.emb) l.emb = await this.embed(l.text);
-        for (const s of this.skills.data.skills) if (!s.emb) s.emb = await this.embed(s.description);
+        await backfillMissingEmbeddings(this.lessons.data.lessons, (t) => this.embed(t));
+        await backfillMissingEmbeddings(this.skills.data.skills, (t) => this.embed(t), { textKey: 'description' });
         this.lessons.save(); this.skills.save();
     }
     _rel(qv, query, item, text) { return (qv && item.emb && item.emb.length === qv.length) ? cosineSimilarity(qv, item.emb) : keywordScore(query, text); }

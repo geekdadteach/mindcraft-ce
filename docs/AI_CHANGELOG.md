@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-28 — PR #21 follow-up: claim #26 fallback, sethome confirm, embeddings (CODED; NOT DEPLOYED)
+- **Goal:** After the live re-validation of PR #21, fix the new problems: real GP `/claimslist` format, shovel-before-click, `/sethome` confirmation, stale lesson embeddings. Operator is creating claim #26 server-side; the helper is fallback-only and must no-op if that claim already covers the 128×128.
+- **Files:** `src/agent/library/{bob_claim,bob_claim_protect,chat_guard,bob_home_migrate,long_memory,reset_recovery}.js`, `src/agent/agent.js`, `scripts/migrate_bob_home.js`, tests, these docs, `AGENTS.md`.
+- **Summary:** Parse GP 16.18.7 `world: x-1208, z688 (-16384 blocks)`; existing covering claim = success / do nothing; shovel required only for the create fallback; chat guard allows `/claimslist` only via the helper sender; `confirmSetHome` waits for a server ok/error/timeout; rewritten lessons drop `emb`; backfill re-embeds missing; `--bot-stopped` probes MindServer/launchctl with `--skip-running-probe`.
+- **Tests:** `npm test` on Node 22 (count recorded after the run).
+- **Deploy status:** Draft PR #21. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Do not merge. Revert the follow-up commit(s) on the PR branch if needed.
+
 ## 2026-10-28 — PR #21 live-review fixes (CODED; NOT DEPLOYED)
 - **Goal:** Fix every ranked item from the live-machine review of draft PR #21. Item 1 is a real live bug: `bot.blockAt` was given plain `{x,y,z}` objects; prismarine-world calls `pos.floored()`.
 - **Files:** `src/agent/library/{vec3_util,bob_home,bob_homestead,bob_claim_protect,bob_home_migrate,stuck_home,chat_guard,house_bounds,bob_enclosure,long_memory,reset_recovery,skills}.js`, `src/agent/{agent,commands/actions}.js`, `scripts/migrate_bob_home.js`, profiles, `AGENTS.md`, these docs, tests including new `test/bob_vec3_block.test.js`.

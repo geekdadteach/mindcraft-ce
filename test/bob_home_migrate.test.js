@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { applyHomeMigration, lessonMigration, planHomeMigration } from '../src/agent/library/bob_home_migrate.js';
+import { applyHomeMigration, botLooksStopped, lessonMigration, planHomeMigration, probeBobRunning } from '../src/agent/library/bob_home_migrate.js';
+import { backfillMissingEmbeddings } from '../src/agent/library/long_memory.js';
 
 function write(dir, name, data) {
     fs.writeFileSync(path.join(dir, name), JSON.stringify(data, null, 2));
@@ -110,4 +111,60 @@ test('compact lessons.json stays compact and a lone z-number 570 is not a hillto
     assert.equal(/\n\s+"/.test(raw), false);
     assert.match(raw, /note:cow/);
     fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('rewritten lessons drop stale emb so backfill can re-embed them', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-emb-'));
+    write(dir, 'lessons.json', { version: 1, lessons: [
+        { key: 'death:zombie', text: 'At night stay inside the house near the door.', emb: [9, 9, 9] },
+        { key: 'seed:pickaxe', text: 'Mining needs a pickaxe', emb: [1, 2, 3] },
+    ] });
+    const plan = planHomeMigration(dir, { now: 11, botStopped: true });
+    const lessons = plan.actions.find((a) => a.file === 'lessons.json');
+    const death = lessons.write.lessons.find((l) => l.key === 'death:zombie');
+    const pickaxe = lessons.write.lessons.find((l) => l.key === 'seed:pickaxe');
+    assert.equal(death.emb, null);
+    assert.deepEqual(pickaxe.emb, [1, 2, 3]);
+    const filled = await backfillMissingEmbeddings(lessons.write.lessons, async (text) => [text.length]);
+    assert.equal(filled, 1);
+    assert.deepEqual(death.emb, [death.text.length]);
+    assert.deepEqual(pickaxe.emb, [1, 2, 3]);
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('backfillMissingEmbeddings fills only lessons that have no emb', async () => {
+    const items = [
+        { key: 'a', text: 'one', emb: null },
+        { key: 'b', text: 'two', emb: [0] },
+        { key: 'c', text: 'three' },
+    ];
+    const seen = [];
+    const n = await backfillMissingEmbeddings(items, async (text) => {
+        seen.push(text);
+        return [text.length];
+    });
+    assert.equal(n, 2);
+    assert.deepEqual(seen, ['one', 'three']);
+    assert.deepEqual(items[0].emb, [3]);
+    assert.deepEqual(items[1].emb, [0]);
+    assert.deepEqual(items[2].emb, [5]);
+});
+
+test('--bot-stopped still refuses if the running probe says Bob is up', () => {
+    assert.equal(botLooksStopped({ botStopped: true, probe: { running: true, findings: ['MindServer answered 200'] } }).stopped, false);
+    assert.equal(botLooksStopped({ botStopped: true, skipProbe: true, probe: { running: true } }).stopped, true);
+});
+
+test('probeBobRunning treats a MindServer 200 as running', async () => {
+    const running = await probeBobRunning({
+        fetchImpl: async () => ({ ok: true, status: 200 }),
+        execFileImpl: (_cmd, _args, _opts, cb) => cb(new Error('no launchctl')),
+    });
+    assert.equal(running.running, true);
+    assert.ok(running.findings.some((f) => /MindServer/.test(f)));
+    const stopped = await probeBobRunning({
+        fetchImpl: async () => { throw new Error('econnrefused'); },
+        execFileImpl: (_cmd, _args, _opts, cb) => cb(new Error('no launchctl')),
+    });
+    assert.equal(stopped.running, false);
 });

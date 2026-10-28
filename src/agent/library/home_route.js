@@ -27,8 +27,10 @@ export class HomeRoutes {
         // Existing version-1 routes are retained only for the unchanged home.
         // On relocation, discard stale waypoints but keep the original file untouched until save().
         const previous = this.data.home || {x:-819.5,y:124,z:565.5};
+        this.needsArchive = false;
         if (previous.x !== HOME.entrance.x || previous.y !== HOME.entrance.y || previous.z !== HOME.entrance.z) {
             console.warn('[ai-player] home-route: home changed; invalidating routes for previous entrance');
+            this.needsArchive = true;
             this.data.routes = [];
         }
         this.data.version = 2;
@@ -38,7 +40,14 @@ export class HomeRoutes {
         this.walkHome = (agent, opts) => this.walk(opts);
     }
     save() {
-        try { fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.data)); fs.renameSync(this.file + '.tmp', this.file); }
+        try {
+            if (this.needsArchive && fs.existsSync(this.file)) {
+                fs.copyFileSync(this.file, this.file + '.pre-relocation.json');
+                this.needsArchive = false;
+            }
+            fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.data));
+            fs.renameSync(this.file + '.tmp', this.file);
+        }
         catch (e) { console.warn(`[ai-player] home-route: save failed (${e.message})`); }
     }
     // called every 2 s: breadcrumbs while walking on the surface near home; saved as a route when he reaches the door

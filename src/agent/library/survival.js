@@ -8,7 +8,7 @@ import * as world from './world.js';
 import * as mc from '../../utils/mcdata.js';
 import { zoneAt } from './no_go_zones.js';
 import { protectedAreaAt } from './house_bounds.js';
-import { HOME } from './bob_home.js';
+import { isInClaim } from './bob_claim.js';
 import { gotoWithin, walkMovements } from './ai_player_nav.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
@@ -239,7 +239,7 @@ export function inBobFarmArea(position, env = process.env) {
     const [x1,x2,z1,z2] = bounds;
     if (x1 > x2 || z1 > z2 || x2 - x1 > 32 || z2 - z1 > 32) return false;
     const x = Math.floor(position.x), z = Math.floor(position.z);
-    return Math.hypot(x - HOME.base.x, z - HOME.base.z) <= 32 &&
+    return isInClaim({x,z}) &&
         x >= x1 && x <= x2 && z >= z1 && z <= z2 &&
         !zoneAt(x,z) && !protectedAreaAt(position);
 }

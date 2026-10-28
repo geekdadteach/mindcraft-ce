@@ -18,8 +18,8 @@ export const EXIT_WAYPOINT = HOME.exitWaypoint;
 
 // Two-high columns on the porch and just north of the door (the sealed exit).
 export const EXIT_PROBE_CELLS = Object.freeze([
-    ...[565, 564].flatMap(z => [-821, -820, -819].flatMap(x => [124, 125].map(y => ({x,y,z})))),
-    ...[563, 562].flatMap(z => [124,125].map(y => ({x:-820,y,z})))
+    ...[1, 0].flatMap(dz => [-1, 0, 1].flatMap(dx => [0, 1].map(dy => ({x:HOME.door.x+dx,y:HOME.door.y+dy,z:HOME.door.z-dz})))),
+    ...[3, 4].flatMap(dz => [0,1].map(dy => ({x:HOME.door.x,y:HOME.door.y+dy,z:HOME.door.z-dz})))
 ]);
 
 const PASSABLE = /^(air|cave_air|void_air)$|pressure_plate$|_door$|fence_gate$|^torch$|^wall_torch$|^ladder$/;

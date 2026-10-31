@@ -5,6 +5,7 @@
 // Pattern follows Reflexion / Voyager-style failure feedback that the existing long_memory.js already uses for lessons.
 import fs from 'fs';
 import { coordCellLabel } from './bob_nav_memory.js';
+import { isGuardBlockResult } from './bob_survival_gate.js';
 
 const HALF_LIFE_MS = 2 * 3600e3;      // a failure's weight halves every 2 h
 const MAX_AGE_MS = 48 * 3600e3;
@@ -110,6 +111,9 @@ export class Failures {
             const text = String(result ?? '');
             const pos = this.agent.bot?.entity?.position;
             if (!text || /interrupted|^undefined$/i.test(text)) return;
+            // Guard refusals are instructions, not action failures. Do not
+            // feed them into the failure blacklist or the goal circuit.
+            if (isGuardBlockResult(text)) return;
             if (OK_RE.test(text) && !/collected 0/i.test(text)) { this.success(cmd, target, pos); return; }
             const fm = text.match(FAIL_RE);
             if (fm) {

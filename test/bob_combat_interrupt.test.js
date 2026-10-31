@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defendSelf } from '../src/agent/library/skills.js';
 import { selfDefenseTarget, hasMeleeWeapon } from '../src/agent/library/survival.js';
-import { isAggressiveHostile, NEUTRAL_MOBS, NEUTRAL_AGGRO_MS } from '../src/utils/mcdata.js';
+import { isAggressiveHostile, NEUTRAL_MOBS, NEUTRAL_AGGRO_MS, stampLikelyAttacker } from '../src/utils/mcdata.js';
 
 const at = (x, y, z) => ({ x, y, z, distanceTo: (o) => Math.hypot(x - o.x, y - o.y, z - o.z) });
 const mob = (name, pos, type = 'mob') => ({ name, type, position: pos });
@@ -69,4 +69,31 @@ test('isAggressiveHostile keeps normal hostiles and only aggros neutral mobs aft
     wolf._lastDamagedBot = Date.now();
     assert.equal(isAggressiveHostile(wolf), true, 'a provoked wolf is hostile');
     assert.equal(isAggressiveHostile(mob('iron_golem', at(0, 0, 0))), false, 'an iron golem is never hostile');
+});
+
+test('stampLikelyAttacker does not blame a nearby mob for starving, liquid or fall damage', () => {
+    const enderman = mob('enderman', at(2, 64, 0));
+    const base = () => ({ food: 20, entity: { position: at(0, 64, 0), onGround: true }, entities: { e: enderman } });
+
+    // a plain hit next to a mob is stamped
+    assert.equal(stampLikelyAttacker(base()), enderman);
+    assert.ok(Number.isFinite(enderman._lastDamagedBot), 'a mob hit stamps the attacker');
+
+    // starving (food 0) must not stamp
+    delete enderman._lastDamagedBot;
+    const starving = base(); starving.food = 0;
+    assert.equal(stampLikelyAttacker(starving), null);
+    assert.equal(enderman._lastDamagedBot, undefined, 'starving must not stamp');
+
+    // standing in lava must not stamp
+    const lava = base();
+    lava.entity.position = Object.assign(at(0, 64, 0), { offset: (x, y, z) => at(0 + x, 64 + y, 0 + z) });
+    lava.blockAt = () => ({ name: 'lava' });
+    assert.equal(stampLikelyAttacker(lava), null);
+    assert.equal(enderman._lastDamagedBot, undefined, 'lava must not stamp');
+
+    // falling must not stamp
+    const falling = base(); falling.entity.onGround = false; falling.entity.velocity = { y: -0.5 };
+    assert.equal(stampLikelyAttacker(falling), null);
+    assert.equal(enderman._lastDamagedBot, undefined, 'a fall must not stamp');
 });

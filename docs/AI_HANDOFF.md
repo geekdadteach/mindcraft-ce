@@ -1,5 +1,14 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1 follow-up: shelter stay-in hold, dawn exit, mob-only attacker stamping (TESTED; NOT DEPLOYED)
+- Amends the Fix 1 entry below — same draft PR (#27), second commit, same branch. Four review findings.
+- **Stay-in hold:** once `buildShelter` seals Bob in, `night_shelter.js` records the shelter (`markSheltered`) and the `night` mode holds him until dawn — it pauses the self-prompter the same way night-home's hold does, and the `unstuck` and `item_collecting` modes are skipped while sheltered. Travel model commands (`!searchForEntity`, `!collectBlocks`, `!goTo*`, `!getFood`, …) are refused by a new `shelterGuard` wired into `commands/index.js`; eating (`!consume`/`!eat`) is never blocked. `self_preservation` (water/lava/fire) still runs, and `self_defense` only engages a mob actually inside the box (range 2).
+- **Dawn exit:** at daytime the `night` mode calls `shelter.dawnExit` — it digs back only the blocks the shelter itself placed (the cell must still hold the same name), refills a dug pocket when a seal block is held, clears the state, releases the hold and resumes self-prompting.
+- **Attacker stamping:** `stampLikelyAttacker` now skips starving (food 0), lava/fire/water, and falls, so environmental damage no longer makes Bob treat a nearby neutral mob as its attacker.
+- Tests: `test/bob_combat_interrupt.test.js` **5/5**, `test/bob_night_shelter.test.js` **12/12**. Full `npm test` on Node 22: **271/272 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`.
+- UNPROVEN: still no live Minecraft session. `cowardice`/`ranged_threat` were not in the requested skip list and are unchanged. A starving sheltered Bob with no food in inventory cannot `!getFood` (travel is blocked by design); a starving sheltered Bob holding food can still `!consume`.
+
+
 ## 2026-10-31 — Fix 1: combat interrupt, neutral mobs, emergency night shelter (TESTED; NOT DEPLOYED)
 - Report 4.1/4.2, work-order item 1. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. New behaviour is ON by default with env opt-outs. Not merged, not deployed; live Bob / `.20` untouched.
 - **(1a) Interruptible defence** — `src/agent/library/skills.js` `defendSelf()` now checks `bot.interrupt_code || superseded(bot, gen)` right after every await (equip, both `pathfinder.goto` calls, the 500 ms sleep) and calls `bot.pvp.stop()` before returning, so a flee request (self_preservation) is no longer blocked for seconds by an in-progress melee loop.

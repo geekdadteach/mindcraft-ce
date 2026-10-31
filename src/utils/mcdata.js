@@ -214,11 +214,37 @@ export function isAggressiveHostile(mob, now = Date.now()) {
     return Number.isFinite(hit) && now - hit <= NEUTRAL_AGGRO_MS;
 }
 
+// [ai-player] Fix 1e: is Bob standing in lava/fire/water (so the health drop was environmental)?
+function botInLiquidOrFire(bot) {
+    const p = bot?.entity?.position;
+    if (!p || typeof p.offset !== 'function' || typeof bot.blockAt !== 'function') return false;
+    try {
+        for (const d of [[0, -1, 0], [0, 0, 0], [0, 1, 0]]) {
+            const b = bot.blockAt(p.offset(d[0], d[1], d[2]));
+            if (b && /lava|fire|water/.test(String(b.name))) return true;
+        }
+    } catch (_) {}
+    return false;
+}
+
+// [ai-player] Fix 1e: is Bob airborne and not rising (so the health drop was fall damage)?
+function botIsFalling(bot) {
+    const e = bot?.entity;
+    if (!e || e.onGround !== false) return false;
+    const vy = e.velocity?.y;
+    return !Number.isFinite(vy) || vy < 0;
+}
+
 // [ai-player] Fix 1c: when Bob loses health, remember the nearest mob as the likely attacker so a
 // neutral mob that actually hit him is treated as hostile for NEUTRAL_AGGRO_MS. Best-effort only.
 export function stampLikelyAttacker(bot, now = Date.now(), range = 6) {
     const p = bot?.entity?.position;
     if (!p || typeof p.distanceTo !== 'function') return null;
+    // [ai-player] Fix 1e: only stamp when the hit plausibly came from a mob. Starving (food 0), being in
+    // lava/fire/water, or a fall must not make Bob think a nearby neutral mob (e.g. an enderman) attacked him.
+    if (bot.food === 0) return null;
+    if (botInLiquidOrFire(bot)) return null;
+    if (botIsFalling(bot)) return null;
     let best = null, bestD = range;
     for (const e of Object.values(bot.entities || {})) {
         if (!e || e === bot.entity || !e.position || (e.type !== 'mob' && e.type !== 'hostile')) continue;

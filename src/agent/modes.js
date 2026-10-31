@@ -118,6 +118,10 @@ const modes_list = [
             if (agent.actions.currentActionLabel === 'mode:unstuck') {
                 this.prev_location = null; this.stuck_time = 0; this.last_time = Date.now(); return;
             }
+            // [ai-player] Fix 1e: while sealed in the night shelter, being still is expected — do not try to unstick.
+            if (shelter.isSheltered()) {
+                this.prev_location = null; this.stuck_time = 0; this.last_time = Date.now(); return;
+            }
             if (agent.isIdle()) { 
                 this.prev_location = null;
                 this.stuck_time = 0;
@@ -292,7 +296,8 @@ const modes_list = [
             // [ai-player] Fix 1c/1d: neutral mobs (enderman, wolf, ...) are ignored unless they just hit Bob, and
             // an unarmed Bob at <= 10 health does not melee — self_preservation flees instead of feeding a death.
             // survival.selfDefenseTarget holds that decision so it can be tested on its own.
-            const enemy = survival.selfDefenseTarget(agent.bot);
+            // [ai-player] Fix 1e: while sealed in, only fight a mob that is actually inside the box with him.
+            const enemy = survival.selfDefenseTarget(agent.bot, shelter.isSheltered() ? shelter.SHELTER_INSIDE_RANGE : 8);
             if (enemy && await world.isClearPath(agent.bot, enemy)) {
                 say(agent, `Fighting ${enemy.name}!`);
                 execute(this, agent, async () => {
@@ -371,6 +376,7 @@ const modes_list = [
         boot_checked: false,
         far_logged: null,
         next_shelter: 0,
+        exiting: false,
         max_action_ms: 180000,
         home_at_night: nightHomeEnabled(),
         release: function (agent, why) {
@@ -398,7 +404,33 @@ const modes_list = [
             console.log(`[ai-player] night: no verified bed; building the emergency shelter (${why})`);
             execute(this, agent, async () => { await shelter.buildShelter(agent.bot); }, -1, 60000);
         },
+        // [ai-player] Fix 1e: while sealed in, hold like night-home does — pause self-prompting and keep lower
+        // modes off until dawn. Eating (a command) still works; self_preservation and an inside mob's
+        // self_defense still run (they are earlier in the mode list).
+        holdShelter: function (agent) {
+            this.boot_checked = true;
+            this.pauseSelfPrompt(agent);
+            if (!this.holding) console.log('[ai-player] night: sheltered; holding until dawn');
+            this.holding = true;
+        },
+        // [ai-player] Fix 1e: at dawn, pack the shelter up (recover the placed blocks, refill a dug pocket),
+        // then release the hold and resume self-prompting.
+        dawnExit: function (agent) {
+            if (this.exiting) return;
+            this.exiting = true;
+            const bot = agent.bot;
+            console.log('[ai-player] night: dawn; packing up the emergency shelter');
+            execute(this, agent, async () => { await shelter.dawnExit(bot); }, -1, 60000)
+                .then(() => { this.exiting = false; this.release(agent, 'dawn (shelter packed up)'); })
+                .catch(() => { this.exiting = false; this.release(agent, 'dawn (shelter exit error)'); });
+        },
         update: async function (agent) {
+            // [ai-player] Fix 1e: the emergency shelter holds until dawn, whatever BOB_NIGHT_HOME says.
+            if (shelter.isSheltered()) {
+                if (!nav.isNightTime(agent.bot)) this.dawnExit(agent);
+                else this.holdShelter(agent);
+                return;
+            }
             if (!this.home_at_night) { // pr20-reconciled-20261027: independent exploration; release any hold/pause once
                 if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home off (independent exploration)');
                 this.boot_checked = true;
@@ -491,6 +523,7 @@ const modes_list = [
         prev_item: null,
         noticed_at: -1,
         update: async function (agent) {
+            if (shelter.isSheltered()) return; // [ai-player] Fix 1e: stay put while sealed in for the night
             let item = world.getNearestEntityWhere(agent.bot, entity => entity.name === 'item', 8);
             let empty_inv_slots = agent.bot.inventory.emptySlotCount();
             if (item && item !== this.prev_item && await world.isClearPath(agent.bot, item) && empty_inv_slots > 1) {

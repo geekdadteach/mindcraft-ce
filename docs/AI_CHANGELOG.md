@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1 follow-up: shelter hold, dawn exit, mob-only stamping (TESTED; NOT DEPLOYED)
+- **Goal:** Address PR #27 review findings on Fix 1e (the emergency night shelter): hold until dawn, exit cleanly at dawn, and stop non-mob damage from stamping a false attacker.
+- **Files:** `src/agent/library/night_shelter.js`, `src/agent/modes.js`, `src/agent/commands/index.js`, `src/utils/mcdata.js`, `test/bob_combat_interrupt.test.js`, `test/bob_night_shelter.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** while sheltered, the `night` mode holds (pauses self-prompting), `unstuck`/`item_collecting` are skipped, travel commands are refused (eating is always allowed), self_preservation still runs and self_defense only fights a mob inside the box; at dawn `dawnExit` digs back only the shelter's own placed blocks (name must still match), refills a dug pocket if a seal block is held, and releases the hold; `stampLikelyAttacker` skips food 0, lava/fire/water and falls.
+- **Tests:** `test/bob_combat_interrupt.test.js` **5/5**, `test/bob_night_shelter.test.js` **12/12**. Full `npm test` on Node 22: **271/272 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- **Deploy status:** Same draft PR (#27) against `work/bob-home-from-live-20261028`; second commit, no force-push. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the follow-up commit on the PR branch.
+
+
 ## 2026-10-31 — Fix 1: combat interrupt, neutral mobs, emergency night shelter (TESTED; NOT DEPLOYED)
 - **Goal:** Stop the night deaths (report 4.1: 15 deaths, 14 to spiders, all at night) by making defence interruptible, ignoring unprovoked neutral mobs, not meleeing unarmed at low health, and adding an emergency night shelter. Work-order item 1 (report 4.1 + 4.2).
 - **Files:** `src/agent/library/skills.js`, `src/agent/agent.js`, `src/utils/mcdata.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `src/agent/library/night_shelter.js` (new), `test/bob_combat_interrupt.test.js` (new), `test/bob_night_shelter.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

@@ -27,6 +27,43 @@ export const SHELTER_SEAL_BLOCKS = new Set([
     'granite', 'tuff', 'netherrack', 'sand', 'red_sand', 'gravel', 'clay'
 ]);
 
+// How far a mob must be to count as "inside the box with him" while sheltered.
+export const SHELTER_INSIDE_RANGE = 2;
+
+// Commands that would take Bob out of the shelter. Eating and harmless control are never here.
+export const SHELTER_TRAVEL_COMMANDS = new Set([
+    '!searchForEntity', '!searchForBlock', '!searchForBlocks', '!collectBlocks', '!collectBlock',
+    '!gatherWood', '!getFood', '!moveAway', '!followPlayer',
+    '!goToCoordinates', '!goToPlayer', '!goToRememberedPlace', '!goToSurface',
+    '!goToNearestBlock', '!goToNearestEntity', '!goToDefault', '!goToBed', '!goHome',
+]);
+// Never blocked while sheltered: eating (must always work) and harmless control commands.
+export const SHELTER_ALLOWED_COMMANDS = new Set([
+    '!consume', '!eat', '!stop', '!stfu', '!stay', '!inventory', '!stats', '!health',
+]);
+
+// The shelter Bob is sealed in right now, or null: { day, placed: [{x,y,z,name}], dug: [{x,y,z}] }.
+let _shelter = null;
+export function shelterState() { return _shelter; }
+export function isSheltered() { return _shelter !== null; }
+export function markSheltered(info = {}) {
+    _shelter = { day: info.day ?? null, placed: info.placed ?? [], dug: info.dug ?? [] };
+    return _shelter;
+}
+export function clearShelter() { _shelter = null; }
+
+// Guard model commands while sheltered: travel commands are refused, eating is always allowed.
+export function shelterGuard(commandName) {
+    if (!isSheltered()) return null;
+    const cmd = String(commandName || '');
+    if (!cmd || SHELTER_ALLOWED_COMMANDS.has(cmd)) return null;
+    if (SHELTER_TRAVEL_COMMANDS.has(cmd) || /^!goTo/i.test(cmd) || /^!searchFor/i.test(cmd) || /^!collect/i.test(cmd)) {
+        return 'SHELTERED: you are sealed in your night shelter until dawn. Do not travel or try to leave; wait it out. ' +
+            'You may eat from your inventory with !consume("item").';
+    }
+    return null;
+}
+
 // ON by default; only an explicit BOB_NIGHT_SHELTER=0 turns it off.
 export function shelterEnabled(env = process.env) {
     return env?.BOB_NIGHT_SHELTER !== '0';
@@ -111,7 +148,8 @@ function isSolid(bot, pos) {
 }
 
 // Wall in with the held seal block. Returns true once at least two spots are filled.
-export async function wallIn(bot, seal = sealBlockName(bot)) {
+export async function wallIn(bot, seal = sealBlockName(bot), record = {}) {
+    const placed = record.placed || (record.placed = []);
     const base = baseOf(bot);
     if (!base || !seal) return false;
     let filled = 0;
@@ -120,35 +158,109 @@ export async function wallIn(bot, seal = sealBlockName(bot)) {
         if (isSolid(bot, spot)) { filled++; continue; }
         if (blockedForShelter(spot, seal)) continue;
         try {
-            if (await skills.placeBlock(bot, seal, spot.x, spot.y, spot.z, 'side')) filled++;
+            if (await skills.placeBlock(bot, seal, spot.x, spot.y, spot.z, 'side')) {
+                filled++;
+                placed.push({ x: spot.x, y: spot.y, z: spot.z, name: seal });
+            }
         } catch (_) { /* placement is best-effort */ }
     }
     return filled >= 2;
 }
 
 // Fallback when Bob holds nothing to seal with: dig a 1x2 pocket down and cap the top if we can.
-export async function digPocket(bot, seal = sealBlockName(bot)) {
+export async function digPocket(bot, seal = sealBlockName(bot), record = {}) {
+    const dug = record.dug || (record.dug = []);
+    const placed = record.placed || (record.placed = []);
     const base = baseOf(bot);
     if (!base) return false;
-    let dug = 0;
+    let count = 0;
     for (const spot of [{ x: base.x, y: base.y - 1, z: base.z }, { x: base.x, y: base.y - 2, z: base.z }]) {
         if (bot.interrupt_code) break;
-        if (!isSolid(bot, spot)) { dug++; continue; }
+        if (!isSolid(bot, spot)) { count++; continue; }
         if (blockedForShelter(spot, null)) continue;
-        try { await bot.dig(bot.blockAt(new Vec3(spot.x, spot.y, spot.z))); dug++; } catch (_) {}
+        try {
+            await bot.dig(bot.blockAt(new Vec3(spot.x, spot.y, spot.z)));
+            count++;
+            dug.push({ x: spot.x, y: spot.y, z: spot.z });
+        } catch (_) {}
     }
-    if (dug < 1) return false;
+    if (count < 1) return false;
     const cap = { x: base.x, y: base.y, z: base.z };
     if (seal && !blockedForShelter(cap, seal)) {
-        try { await skills.placeBlock(bot, seal, cap.x, cap.y, cap.z, 'bottom'); } catch (_) {}
+        try {
+            if (await skills.placeBlock(bot, seal, cap.x, cap.y, cap.z, 'bottom'))
+                placed.push({ x: cap.x, y: cap.y, z: cap.z, name: seal });
+        } catch (_) {}
     }
     return true;
 }
 
+// ---- Dawn exit ----
+
+// Only the blocks the shelter itself placed may be dug back. A cell that no longer holds the block we
+// put there (someone built over it, or it is gone) is left alone.
+export function placedBlocksToDig(bot, placed = []) {
+    const out = [];
+    for (const p of placed) {
+        try {
+            const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
+            if (b && String(b.name) === p.name) out.push({ pos: p, block: b });
+        } catch (_) {}
+    }
+    return out;
+}
+
+// Dug pocket cells to fill back in: only when Bob still holds a seal block and the cell is empty.
+export function pocketCellsToRefill(bot, dug = []) {
+    if (!sealBlockName(bot)) return [];
+    const out = [];
+    for (const p of dug) {
+        try {
+            const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
+            if (b && b.boundingBox === 'empty') out.push(p);
+        } catch (_) {}
+    }
+    return out;
+}
+
+async function recover(bot, placed, dug) {
+    let removed = 0;
+    for (const { block } of placedBlocksToDig(bot, placed)) {
+        if (bot.interrupt_code) break;
+        try { await bot.dig(block); removed++; } catch (_) {}
+    }
+    const seal = sealBlockName(bot);
+    if (seal) {
+        for (const p of pocketCellsToRefill(bot, dug)) {
+            if (bot.interrupt_code) break;
+            try { await skills.placeBlock(bot, seal, p.x, p.y, p.z, 'bottom'); } catch (_) {}
+        }
+    }
+    return removed;
+}
+
+// At dawn: dig back the blocks the shelter placed (to collect them), refill a dug pocket if a seal
+// block is held, and clear the shelter state. Never digs a block the shelter did not place.
+export async function dawnExit(bot) {
+    const s = _shelter;
+    if (!s) return false;
+    const removed = await recover(bot, s.placed, s.dug);
+    clearShelter();
+    console.log(`[ai-player] shelter: packed up (${removed}/${s.placed.length} placed blocks recovered, ${s.dug.length} pocket cell(s))`);
+    return true;
+}
+
 // The whole shelter step: no-op unless shelterReason says so, then wall in (preferred) or dig down.
+// On success Bob is marked sheltered until dawn.
 export async function buildShelter(bot, opts = {}) {
     if (!shouldShelter(bot, opts)) return false;
     const seal = sealBlockName(bot);
-    if (seal && await wallIn(bot, seal)) return true;
-    return await digPocket(bot, seal);
+    const record = { placed: [], dug: [] };
+    let ok = false;
+    if (seal && await wallIn(bot, seal, record)) ok = true;
+    else ok = await digPocket(bot, seal, record);
+    if (!ok) { await recover(bot, record.placed, record.dug); return false; } // no stray blocks from a failed attempt
+    markSheltered({ day: bot.time?.day ?? null, placed: record.placed, dug: record.dug });
+    console.log(`[ai-player] shelter: sealed in for the night (placed ${record.placed.length}, dug ${record.dug.length})`);
+    return true;
 }

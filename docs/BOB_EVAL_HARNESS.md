@@ -17,6 +17,8 @@ export BOB_EVAL_HARNESS_LOG=/absolute/private/path/bob-eval.jsonl
 export BOB_EVAL_HARNESS_LOG_RAW=1
 # optional: include truncated prompts (long memory / player chat may appear)
 export BOB_EVAL_HARNESS_LOG_PROMPTS=1
+# optional: fall back to the world-state stub (verifier is ON whenever the harness is)
+export BOB_EVAL_GOAL_VERIFIER=0
 ```
 
 Unset, relative, or a path with spaces disables the harness. When disabled,
@@ -54,7 +56,7 @@ Event types:
 - `exec_start` / `exec_end` — duration, result summary, interrupted, timedout, last task state (labelled as not a goal outcome)
 - `history_append` — role, kind, length. Content only with the raw opt-in
 - `task_event` — copy of a lifecycle emit, including `task.finished`
-- `goal_check` — **separate** world-state verdict (`unevaluated` stub by default)
+- `goal_check` — world-state verdict from `bob_goal_verifier.js` (`met` / `not_met` / `progress` / `unevaluated`). Records `verifier`, `verifier_version`, compact `evidence`. Stub only when `BOB_EVAL_GOAL_VERIFIER=0`
 - `turn_end` — reason (`empty_response`, `model_error`, `dropped_by_interrupt`, `repeat_guard`, `command_returned`, `conversation`, …)
 
 ## Goal outcome vs `task.finished`
@@ -63,9 +65,54 @@ Event types:
 without throw, interrupt, or timeout. Live logs show `mode:hunger` succeeding
 with `Could not find food nearby`. The harness records that state on
 `task_event` / `exec_end` / `goal_check.task_finished_state` and always sets
-`task_finished_is_not_goal_outcome: true`. `goal_check.verdict` comes from a
-pluggable world-state verifier (inventory, position, blocks). The default stub
-never returns success.
+`task_finished_is_not_goal_outcome: true`.
+
+## Goal verifier
+
+`src/agent/library/bob_goal_verifier.js` is pure and read-only. It is **on
+whenever the harness is enabled**. Set `BOB_EVAL_GOAL_VERIFIER=0` to keep the
+old `world_state_stub` (never `met`).
+
+It compares a **before** snapshot (captured at `exec_start` / `goal_change`)
+with an **after** snapshot (`exec_end` / `turn_end`). Capture is synchronous,
+try/caught, time-boxed (~8 ms), and allocation-light: inventory counts,
+Bob's position, health, food, dimension, and a small `bot.blockAt` sample of
+already-loaded blocks. It does not pathfind, await the world, chat, or call
+`RepeatGuard.check`, `aiPlayerGuard`, `getBotOutputSummary`,
+`parseCommandMessage` on shared objects, or cooldowns. A throw becomes
+`unevaluated`; the harness keeps running.
+
+Verdicts: `met` | `not_met` | `progress` | `unevaluated`. It **never guesses
+`met`**. No before/after pair, unknown item, unmapped smelt, or vague
+self-prompt → `unevaluated`.
+
+| Kind | Commands / goal text | `met` when |
+| --- | --- | --- |
+| collect | `!collectBlocks`, `!gatherWood`, gather/mine/wood | inventory delta of the target (aliases like coal_ore→coal) meets the requested count |
+| navigate | `!goToCoordinates`, `!goToPlayer`, `!moveAway` | distance to target within closeness, or moved away enough |
+| food | `!getFood`, `!consume`, eat/hunger | food level rose **or** food items were gained |
+| craft | `!craftRecipe`, `!smeltItem` | output item delta (smelt uses a small mapping; unknown → unevaluated) |
+| place | `!placeHere`, build/place | expected block in the nearby sample |
+| attack | `!attack`, hunt/kill | target gone from the loaded sample, or drops gained |
+| survival | heal/survive | health or food rose; death → `not_met` |
+
+Self-prompt text is mapped heuristically to those kinds. Player names are
+used only to compute a distance and are stripped from the logged descriptor.
+Other-player coordinates are not stored.
+
+### Limits
+
+- Loaded world only: no chunk load, no pathfinding, no entity scan beyond
+  `bot.entities` / `bot.players` already in memory.
+- Nearby sample is at most 12 already-loaded blocks around Bob's feet.
+- `!goToPlayer` / `!attack` are `unevaluated` if the target was never in the
+  loaded sample.
+- `!smeltItem` output is a fixed common-item map; anything else is
+  `unevaluated`.
+- Deaths are inferred from health 0 between snapshots, not a death counter.
+- Snapshot budget is ~8 ms; leftover fields stay empty rather than blocking.
+- Action `succeeded` with no world change is `not_met` (the getFood false
+  positive). That is the point.
 
 ## Merge with live `agent.js`
 
@@ -74,9 +121,11 @@ HomesteadTracker, `maybeSetEssentialsHome`) plus harness hooks only. Live
 `commands/actions.js` and `bob_goal_circuit.js` still differ from this
 branch; the harness does not touch them — leave the live copies in place.
 
-Deploy onto live with `docs/deploy/bob-eval-harness-live.patch` (`patch -p1`).
-File list: `docs/deploy/bob-eval-harness-FILES.md`. Do not rebase or
-force-push this branch onto main/develop.
+Deploy the original harness with `docs/deploy/bob-eval-harness-live.patch`
+(`patch -p1`), then the verifier increment
+`docs/deploy/bob-eval-goal-verifier.patch`. File list:
+`docs/deploy/bob-eval-harness-FILES.md`. Do not rebase or force-push this
+branch onto main/develop.
 
 ## Weekly scorecard
 
@@ -87,8 +136,10 @@ short summary to Discord.
 
 Aggregates only: runs/restarts, turns, model calls (lane/model, p50/p95,
 errors, 429, empty), parse buckets, guards, **action** exec outcomes (never
-goal completion), stub `goal_check` verdicts, goal changes, detectable
-deaths, lite vs full, top failure patterns, week-over-week deltas. It never
+goal completion), `goal_check` verdicts by verifier and command with a met
+rate and a gap table of exec-succeeded-but-goal-`not_met`, goal changes,
+detectable deaths, lite vs full, top failure patterns, week-over-week
+deltas. It never
 prints raw prompts, replies, chat, player names other than Bob, other-player
 coordinates, webhook URLs, or secrets.
 

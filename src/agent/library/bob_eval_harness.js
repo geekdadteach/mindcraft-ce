@@ -22,10 +22,19 @@ import {
 } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { isModelErrorReply } from '../../utils/model_errors.js';
+import {
+    VERIFIER_VERSION,
+    captureWorldSnapshot,
+    describeCommand,
+    publicDescriptor,
+    snapshotHintFromDescriptor,
+    verifyGoal,
+} from './bob_goal_verifier.js';
 
 export const EVAL_HARNESS_LOG_ENV = 'BOB_EVAL_HARNESS_LOG';
 export const EVAL_HARNESS_RAW_ENV = 'BOB_EVAL_HARNESS_LOG_RAW';
 export const EVAL_HARNESS_PROMPTS_ENV = 'BOB_EVAL_HARNESS_LOG_PROMPTS';
+export const EVAL_GOAL_VERIFIER_ENV = 'BOB_EVAL_GOAL_VERIFIER';
 
 export const DEFAULT_MAX_LOG_BYTES = 8 * 1024 * 1024;
 export const MAX_LINE_BYTES = 8192;
@@ -95,7 +104,13 @@ export function resolveEvalHarnessConfig(env = process.env) {
         path: raw,
         logRaw: String(env?.[EVAL_HARNESS_RAW_ENV] ?? '') === '1',
         logPrompts: String(env?.[EVAL_HARNESS_PROMPTS_ENV] ?? '') === '1',
+        // Verifier is ON whenever the harness is on. Opt out with =0.
+        goalVerifier: String(env?.[EVAL_GOAL_VERIFIER_ENV] ?? '') !== '0',
     };
+}
+
+export function isGoalVerifierEnabled(env = process.env) {
+    return String(env?.[EVAL_GOAL_VERIFIER_ENV] ?? '') !== '0';
 }
 
 // Infer which existing guard produced a returned string. Do NOT call
@@ -135,22 +150,22 @@ export function snapshotModel(agent, lane, model) {
     }
 }
 
-export function snapshotWorld(agent) {
-    const out = { position: null, health: null, food: null, inventory: [], self_prompt_hash: null };
+export function snapshotWorld(agent, hint = {}) {
+    const out = { position: null, health: null, food: null, inventory: [], self_prompt_hash: null, dimension: null };
     try {
         out.self_prompt_hash = hashText(agent?.self_prompter?.prompt || '');
-        const bot = agent?.bot;
-        const p = bot?.entity?.position;
-        if (p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z))
-            out.position = { x: Math.round(p.x), y: Math.round(p.y), z: Math.round(p.z) };
-        if (Number.isFinite(bot?.health)) out.health = Math.round(bot.health);
-        if (Number.isFinite(bot?.food)) out.food = Math.round(bot.food);
-        const items = typeof bot?.inventory?.items === 'function' ? bot.inventory.items() : [];
-        for (const item of items) {
-            if (out.inventory.length >= 40) break;
-            if (!item?.name) continue;
-            out.inventory.push({ name: String(item.name).slice(0, 40), count: Number(item.count) || 0 });
-        }
+        const snap = captureWorldSnapshot(agent, hint);
+        out.position = snap.position;
+        out.health = snap.health;
+        out.food = snap.food;
+        out.inventory = snap.inventory;
+        out.dimension = snap.dimension;
+        out.nearby_blocks = snap.nearby_blocks;
+        out.target_kind = snap.target_kind;
+        out.target_present = snap.target_present;
+        out.target_distance = snap.target_distance;
+        out.target_nearby = snap.target_nearby;
+        out.ok = snap.ok;
     } catch { /* world snapshot must never throw */ }
     return out;
 }
@@ -357,6 +372,8 @@ export class BobEvalHarness {
         this.log = options.log || defaultLog;
         this.writer = options.writer || (this.enabled ? new EvalHarnessWriter(this.config, options) : null);
         this.goalVerifier = options.goalVerifier || defaultGoalVerifier;
+        this.goalVerifierOn = this.config.goalVerifier !== false;
+        this.agent = options.agent || null;
         this.run_id = options.run_id || `r${process.pid}.${randomBytes(4).toString('hex')}`;
         this.goal_id = null;
         this.turn_id = null;
@@ -368,8 +385,23 @@ export class BobEvalHarness {
         this._lastTaskFinishedState = null;
         this._lastTaskFinishedReason = null;
         this._modelMark = null;
+        this._cmdDesc = null;
+        this._beforeGoal = null;
+        this._beforeCmd = null;
+        this._afterCmd = null;
+        this._afterTurn = null;
         if (this.enabled) {
             try { this.log.log(`[bob-eval] enabled run=${this.run_id}`); } catch { /* ignore */ }
+        }
+    }
+
+    _safeSnap(agent, hint = {}) {
+        try {
+            const src = agent || this.agent;
+            if (!src) return null;
+            return snapshotWorld(src, hint);
+        } catch {
+            return null;
         }
     }
 
@@ -388,7 +420,7 @@ export class BobEvalHarness {
         if (typeof fn === 'function') this.goalVerifier = fn;
     }
 
-    noteGoalChange(prompt, reason) {
+    noteGoalChange(prompt, reason, agent) {
         try {
             if (!this.enabled) return;
             this._goalN += 1;
@@ -396,6 +428,10 @@ export class BobEvalHarness {
             this.task_id = null;
             this._lastTaskFinishedState = null;
             this._lastTaskFinishedReason = null;
+            this._cmdDesc = null;
+            this._beforeCmd = null;
+            this._afterCmd = null;
+            this._beforeGoal = this._safeSnap(agent);
             this._emit('goal_change', {
                 reason: clipText(reason, 40) || 'change',
                 prompt_hash: hashText(prompt || ''),
@@ -457,6 +493,9 @@ export class BobEvalHarness {
         try {
             if (!this.enabled) return;
             if (info.has_command && info.command_name) this._nextCommandId();
+            if (info.has_command && info.command_name)
+                this._cmdDesc = describeCommand(info.command_name, info.args);
+            const pub = publicDescriptor(this._cmdDesc);
             this._emit('parse', {
                 has_command: !!info.has_command,
                 command_name: sanitizeCommandName(info.command_name),
@@ -464,6 +503,8 @@ export class BobEvalHarness {
                 parse_ok: info.parse_ok !== false,
                 arg_count: Number.isFinite(info.arg_count) ? info.arg_count : null,
                 error: info.error ? clipText(info.error, 80) : null,
+                target_item: pub?.item || pub?.block || pub?.entity || null,
+                target_count: Number.isFinite(pub?.count) ? pub.count : null,
             });
         } catch { /* never throw */ }
     }
@@ -480,19 +521,28 @@ export class BobEvalHarness {
         } catch { /* never throw */ }
     }
 
-    noteExecStart(info = {}) {
+    noteExecStart(info = {}, agent) {
         try {
             if (!this.enabled) return;
             if (!this.command_id) this._nextCommandId();
+            this._cmdDesc = describeCommand(info.command_name, info.args);
+            const hint = snapshotHintFromDescriptor(this._cmdDesc);
+            this._beforeCmd = this._safeSnap(agent || info.agent, hint);
+            this._afterCmd = null;
+            const pub = publicDescriptor(this._cmdDesc);
             this._emit('exec_start', {
                 command_name: sanitizeCommandName(info.command_name),
+                target_item: pub?.item || pub?.block || pub?.entity || null,
+                target_count: Number.isFinite(pub?.count) ? pub.count : null,
             });
         } catch { /* never throw */ }
     }
 
-    noteExecEnd(info = {}) {
+    noteExecEnd(info = {}, agent) {
         try {
             if (!this.enabled) return;
+            const hint = snapshotHintFromDescriptor(this._cmdDesc);
+            this._afterCmd = this._safeSnap(agent || info.agent, hint);
             this._emit('exec_end', {
                 duration_ms: Number.isFinite(info.duration_ms) ? info.duration_ms : 0,
                 result_summary: clipText(info.result_summary ?? info.result ?? '', MAX_SUMMARY_CHARS),
@@ -521,9 +571,11 @@ export class BobEvalHarness {
         } catch { /* never throw */ }
     }
 
-    noteTurnEnd(info = {}) {
+    noteTurnEnd(info = {}, agent) {
         try {
             if (!this.enabled) return;
+            const hint = snapshotHintFromDescriptor(this._cmdDesc);
+            this._afterTurn = this._safeSnap(agent || info.agent, hint);
             this._emit('turn_end', {
                 reason: clipText(info.reason, 40) || 'unknown',
             });
@@ -554,31 +606,61 @@ export class BobEvalHarness {
     noteGoalCheck(agent) {
         try {
             if (!this.enabled) return;
-            const world = snapshotWorld(agent);
+            const hint = snapshotHintFromDescriptor(this._cmdDesc);
+            const after = this._afterCmd || this._safeSnap(agent, hint);
+            const before = this._beforeCmd || this._beforeGoal;
             const selfPrompt = String(agent?.self_prompter?.prompt || '').trim();
             const active = typeof agent?.self_prompter?.isActive === 'function'
                 ? agent.self_prompter.isActive()
                 : !!selfPrompt;
-            const verdict = this.goalVerifier(world, {
-                last_task_finished_state: this._lastTaskFinishedState,
-                last_task_finished_reason: this._lastTaskFinishedReason,
-                self_prompt_present: !!selfPrompt && active,
-            }) || defaultGoalVerifier(world, {});
-            // task.finished is copied as context only. The default verifier
-            // never uses it as a goal verdict; a custom verifier must use
-            // world state, not this field.
+            let verdict;
+            if (this.goalVerifierOn && this.goalVerifier === defaultGoalVerifier) {
+                try {
+                    verdict = verifyGoal({
+                        before,
+                        after,
+                        descriptor: publicDescriptor(this._cmdDesc) || {},
+                        goalText: selfPrompt,
+                    });
+                } catch {
+                    verdict = defaultGoalVerifier(after, {
+                        last_task_finished_state: this._lastTaskFinishedState,
+                        last_task_finished_reason: this._lastTaskFinishedReason,
+                        self_prompt_present: !!selfPrompt && active,
+                    });
+                    verdict.verdict = 'unevaluated';
+                    verdict.reason = 'Verifier threw; left unevaluated.';
+                }
+            } else {
+                verdict = this.goalVerifier(after, {
+                    last_task_finished_state: this._lastTaskFinishedState,
+                    last_task_finished_reason: this._lastTaskFinishedReason,
+                    self_prompt_present: !!selfPrompt && active,
+                }) || defaultGoalVerifier(after, {});
+            }
             const locked = { ...verdict };
             locked.task_finished_is_not_goal_outcome = true;
             locked.task_finished_state = this._lastTaskFinishedState;
             locked.task_finished_reason = this._lastTaskFinishedReason;
+            const pub = publicDescriptor(this._cmdDesc);
             this._emit('goal_check', {
                 verdict: clipText(locked.verdict, 40),
-                verdict_source: clipText(locked.verdict_source, 40),
+                verifier: clipText(locked.verifier || locked.verdict_source, 40),
+                verifier_version: clipText(locked.verifier_version || (this.goalVerifierOn ? VERIFIER_VERSION : 'stub'), 16),
+                verdict_source: clipText(locked.verdict_source || locked.verifier, 40),
                 reason: clipText(locked.reason, 160),
+                command_name: sanitizeCommandName(pub?.command),
                 task_finished_is_not_goal_outcome: true,
                 task_finished_state: locked.task_finished_state,
                 task_finished_reason: locked.task_finished_reason,
-                world,
+                evidence: locked.evidence || null,
+                world: {
+                    position: after?.position || null,
+                    health: after?.health ?? null,
+                    food: after?.food ?? null,
+                    dimension: after?.dimension || null,
+                    inventory: Array.isArray(after?.inventory) ? after.inventory.slice(0, 20) : [],
+                },
             });
         } catch { /* never throw */ }
     }
@@ -627,7 +709,7 @@ function sanitizeCommandName(name) {
 export function attachBobEvalHarness(agent, options = {}) {
     if (agent?._evalHarnessAttached && agent.evalHarness) return agent.evalHarness;
     if (agent) agent._evalHarnessAttached = true;
-    const harness = new BobEvalHarness(options);
+    const harness = new BobEvalHarness({ ...options, agent });
     if (agent) agent.evalHarness = harness;
     if (harness.enabled && agent?.bot?.on) {
         agent.bot.on('bob_task_event', (event) => {

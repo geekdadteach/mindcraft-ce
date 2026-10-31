@@ -55,8 +55,11 @@ test('scorecard dry-run reports aggregates, not-goal-completion, and tolerates b
         assert.match(out, /`dropped_by_interrupt`/);
         assert.match(out, /Action results \(NOT goal completion\)/);
         assert.match(out, /task\.finished` \/ `succeeded` is never proof of goal completion/);
-        assert.match(out, /Goal checks \(stub verifier\)/);
-        assert.match(out, /world_state_stub|stub/);
+        assert.match(out, /Goal checks/);
+        assert.match(out, /world-state verifier|food|collect|craft/);
+        assert.match(out, /Met rate/);
+        assert.match(out, /Gap: exec succeeded but goal not_met/);
+        assert.match(out, /`!getFood`/);
         assert.match(out, /Goal changes/);
         assert.match(out, /circuit_switch/);
         assert.match(out, /Detectable death-like events: \*\*2\*\*/);

@@ -248,8 +248,9 @@ test('task.finished succeeded is not recorded as goal success', async () => {
         assert.notEqual(goal.verdict, 'success');
         assert.notEqual(goal.verdict, 'goal_succeeded');
         assert.notEqual(goal.verdict, 'complete');
-        assert.equal(goal.verdict_source, 'world_state_stub');
-        assert.match(goal.verdict, /unevaluated|insufficient_world_state|no_active_goal/);
+        assert.ok(goal.verifier === 'food' || goal.verdict_source === 'world_state_stub' || goal.verifier === 'world_state_stub');
+        assert.match(goal.verdict, /unevaluated|not_met|insufficient_world_state|no_active_goal/);
+        assert.ok(goal.verifier_version);
 
         const fromTask = defaultGoalVerifier(snapshotWorld(agent), {
             last_task_finished_state: 'succeeded',

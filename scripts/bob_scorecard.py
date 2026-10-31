@@ -263,6 +263,10 @@ def analyze(events, malformed, files_read, since, until, log_names):
     exec_totals = Counter()
     goal_verdicts = Counter()
     goal_sources = Counter()
+    goal_by_verifier = defaultdict(Counter)
+    goal_by_command = defaultdict(Counter)
+    goal_gaps = Counter()
+    exec_outcome_by_id = {}
     goal_changes = Counter()
     failures = Counter()
     deaths = 0
@@ -324,14 +328,25 @@ def analyze(events, malformed, files_read, since, until, log_names):
             outcome = action_outcome(event)
             exec_by_cmd[cmd][outcome] += 1
             exec_totals[outcome] += 1
+            if isinstance(cid, str) and cid:
+                exec_outcome_by_id[cid] = outcome
             if outcome in ("failed", "timeout", "interrupted"):
                 failures[f"{cmd}|{outcome}|{coarse_text(event.get('result_summary'), 50)}"] += 1
             elif "could not" in str(event.get("result_summary") or "").lower():
                 failures[f"{cmd}|returned|{coarse_text(event.get('result_summary'), 50)}"] += 1
 
         elif kind == "goal_check":
-            goal_verdicts[coarse_text(event.get("verdict") or "unknown", 40)] += 1
-            goal_sources[coarse_text(event.get("verdict_source") or "unknown", 40)] += 1
+            verdict = coarse_text(event.get("verdict") or "unknown", 40)
+            source = coarse_text(
+                event.get("verifier") or event.get("verdict_source") or "unknown", 40
+            )
+            goal_verdicts[verdict] += 1
+            goal_sources[source] += 1
+            goal_by_verifier[source][verdict] += 1
+            gcmd = sanitize_cmd(event.get("command_name") or cmd_by_id.get(cid))
+            goal_by_command[gcmd][verdict] += 1
+            if exec_outcome_by_id.get(cid) == "succeeded" and verdict == "not_met":
+                goal_gaps[gcmd] += 1
 
         elif kind == "goal_change":
             goal_changes[coarse_text(event.get("reason") or "change", 40)] += 1
@@ -366,6 +381,29 @@ def analyze(events, malformed, files_read, since, until, log_names):
 
     top_fail = [{"pattern": pat, "n": n} for pat, n in failures.most_common(5)]
 
+    def pack_counts(mapping):
+        rows = []
+        for key, counts in sorted(mapping.items(), key=lambda kv: (-sum(kv[1].values()), kv[0])):
+            rows.append({
+                "key": key,
+                "met": counts.get("met", 0),
+                "not_met": counts.get("not_met", 0),
+                "progress": counts.get("progress", 0),
+                "unevaluated": counts.get("unevaluated", 0),
+                "n": sum(counts.values()),
+            })
+        return rows
+
+    evaluated = (
+        goal_verdicts.get("met", 0)
+        + goal_verdicts.get("not_met", 0)
+        + goal_verdicts.get("progress", 0)
+    )
+    met_n = goal_verdicts.get("met", 0)
+    stub_only = bool(goal_sources) and all(
+        src == "world_state_stub" for src in goal_sources
+    )
+
     return {
         "window": {
             "since": since.isoformat() if since else None,
@@ -394,9 +432,17 @@ def analyze(events, malformed, files_read, since, until, log_names):
             "by_command": exec_rows,
         },
         "goal_check": {
-            "stub_verifier": True,
+            "stub_verifier": stub_only,
             "verdicts": dict(goal_verdicts),
             "sources": dict(goal_sources),
+            "met": met_n,
+            "evaluated": evaluated,
+            "met_rate": (met_n / evaluated) if evaluated else None,
+            "by_verifier": pack_counts(goal_by_verifier),
+            "by_command": pack_counts(goal_by_command),
+            "gap_exec_succeeded_goal_not_met": [
+                {"command": c, "n": n} for c, n in goal_gaps.most_common(12)
+            ],
         },
         "goal_changes": dict(goal_changes),
         "deaths": deaths,
@@ -531,13 +577,40 @@ def render_markdown(summary):
     )
 
     gc = summary["goal_check"]
+    rate = gc.get("met_rate")
+    rate_txt = f"{rate * 100:.0f}%" if isinstance(rate, (int, float)) else "n/a"
+    heading = "Goal checks (stub verifier)" if gc.get("stub_verifier") else "Goal checks (world-state verifier)"
     lines += [
         "",
-        "## Goal checks (stub verifier)",
+        f"## {heading}",
         "",
-        "Verdicts come from the current **world-state stub**, not from `task.finished`.",
-        f"- Sources: {', '.join(f'`{k}` ×{v}' for k, v in gc['sources'].items()) or 'none'}",
+        "Verdicts come from world-state snapshots, not from `task.finished`. "
+        "`task.finished` / `succeeded` is never proof of goal completion.",
         f"- Verdicts: {', '.join(f'`{k}` ×{v}' for k, v in gc['verdicts'].items()) or 'none'}",
+        f"- Met rate: **{rate_txt}** "
+        f"({gc.get('met', 0)}/{gc.get('evaluated', 0)} evaluated; unevaluated excluded)",
+        "- By verifier: "
+        + (", ".join(
+            f"`{r['key']}` met {r['met']}/not_met {r['not_met']}/progress {r['progress']}/uneval {r['unevaluated']}"
+            for r in gc.get("by_verifier") or []
+        ) or "none"),
+        "- By command: "
+        + (", ".join(
+            f"`{r['key']}` met {r['met']}/not_met {r['not_met']}/progress {r['progress']}/uneval {r['unevaluated']}"
+            for r in gc.get("by_command") or []
+        ) or "none"),
+        "",
+        "### Gap: exec succeeded but goal not_met",
+    ]
+    gaps = gc.get("gap_exec_succeeded_goal_not_met") or []
+    if not gaps:
+        lines.append("- none")
+    else:
+        lines.append("| command | n |")
+        lines.append("| --- | ---: |")
+        for row in gaps:
+            lines.append(f"| `{row['command']}` | {row['n']} |")
+    lines += [
         "",
         "## Goal changes",
     ]
@@ -601,8 +674,17 @@ def render_discord(summary):
         f"fail={tot.get('failed', 0)} int={tot.get('interrupted', 0)} to={tot.get('timeout', 0)}"
     )
     parts.append("task.finished/succeeded is never proof of goal completion.")
-    gc = summary["goal_check"]["verdicts"]
-    parts.append("goal_check stub: " + (", ".join(f"{k}={v}" for k, v in gc.items()) or "none"))
+    gcs = summary["goal_check"]
+    rate = gcs.get("met_rate")
+    rate_txt = f"{rate * 100:.0f}%" if isinstance(rate, (int, float)) else "n/a"
+    parts.append(
+        "goal_check "
+        + (", ".join(f"{k}={v}" for k, v in (gcs.get("verdicts") or {}).items()) or "none")
+        + f" met_rate={rate_txt}"
+    )
+    gap = (gcs.get("gap_exec_succeeded_goal_not_met") or [])
+    if gap:
+        parts.append("gap exec-ok/goal-not_met " + ", ".join(f"{x['command']}={x['n']}" for x in gap[:4]))
     parts.append(f"deaths={summary['deaths']} lite={summary['lite_vs_full'].get('lite', 0)} "
                  f"full={summary['lite_vs_full'].get('full', 0)}")
     if summary["top_failure_patterns"]:

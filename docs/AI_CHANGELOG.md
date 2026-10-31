@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Grok Bot — World-state goal verifier (TESTED; NOT DEPLOYED)
+- **Goal:** Randy: judge from world state whether Bob achieved the goal, not from `task.finished`. Verifier ON by default with the harness; `BOB_EVAL_GOAL_VERIFIER=0` restores the stub.
+- **Files:** `src/agent/library/bob_goal_verifier.js` (new), `src/agent/library/bob_eval_harness.js`, `src/agent/commands/index.js` (pass already-parsed args only), `scripts/bob_scorecard.py`, `test/bob_goal_verifier.test.js`, fixture/docs/deploy note, these docs. No `actions.js` / `bob_goal_circuit.js` / live gameplay change.
+- **Behavior:** Before snapshot at `exec_start`/`goal_change`, after at `exec_end`/`turn_end`. Sync, try/caught, ~8 ms, loaded-world only. Never guesses `met`. Records `verifier` + `verifier_version`. Scorecard: met rate + gap table (exec succeeded / goal `not_met`).
+- **Tests:** `test/bob_goal_verifier.test.js` 13; harness + scorecard + verifier 24/24; `bob_ai_v2` / `bob_brain` / `bob_brain_v2` + those 56/56.
+- **Deploy status:** Draft PR #22. Incremental patch `docs/deploy/bob-eval-goal-verifier.patch` after the original harness patch. This agent does not deploy.
+- **Rollback:** `BOB_EVAL_GOAL_VERIFIER=0`, or omit the verifier file and leave the stub (do not deploy a harness that imports a missing file).
+- **Limits:** loaded chunks/entities only; smelt map is fixed; player targets unevaluated if not in `bot.players`; deaths from health 0 only.
+
 ## 2026-10-31 — Grok Bot — Weekly eval harness scorecard (TESTED; NOT DEPLOYED)
 - **Goal:** Randy wants a scripted weekly scorecard of the eval JSONL on the Mac (launchd, stdlib Python), Markdown file plus Discord.
 - **Files:** `scripts/bob_scorecard.py`, `scripts/launchd/org.newearth.bob-scorecard.plist.example`, `test/fixtures/bob_scorecard_week.jsonl`, `test/bob_scorecard.test.js`, `docs/BOB_EVAL_HARNESS.md` (Weekly scorecard), these docs. No harness or agent runtime change.

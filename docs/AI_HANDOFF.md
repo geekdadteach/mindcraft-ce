@@ -1,5 +1,8 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — World-state goal verifier (TESTED; NOT DEPLOYED)
+- Same draft PR #22. `src/agent/library/bob_goal_verifier.js` is on whenever `BOB_EVAL_HARNESS_LOG` is set. Opt out with `BOB_EVAL_GOAL_VERIFIER=0` (stub). Snapshots at exec_start/goal_change and exec_end/turn_end; verdicts `met|not_met|progress|unevaluated` from inventory/position/food, never from `task.finished`. Scorecard reports met rate and exec-succeeded-but-not_met gap. Incremental live patch: `docs/deploy/bob-eval-goal-verifier.patch`. No gameplay change.
+
 ## 2026-10-31 — Weekly eval scorecard script (TESTED; NOT DEPLOYED)
 - Same draft PR #22. `scripts/bob_scorecard.py` (Python 3 stdlib) reads `BOB_EVAL_HARNESS_LOG`, writes `~/BobRuntime/logs/scorecards/scorecard-YYYY-MM-DD.md` + `.json`, optional Discord POST from a 0600 webhook file. LaunchAgent example `scripts/launchd/org.newearth.bob-scorecard.plist.example` (Monday 10:00 local). No harness/agent behavior change. No secrets or real webhooks in the repo. Install steps in `docs/BOB_EVAL_HARNESS.md`.
 

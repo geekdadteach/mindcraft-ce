@@ -5,14 +5,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { DEFAULTS, DOOR, HOME_CMD, StuckHome, loadConfig } from '../src/agent/library/stuck_home.js';
+import { DEFAULTS, HOME_CMD, StuckHome, loadConfig } from '../src/agent/library/stuck_home.js';
+import { exampleVerifiedHome, setActiveHome } from '../src/agent/library/bob_home.js';
+
+const fixture = exampleVerifiedHome({ essentialsSet: true });
+const DOOR = fixture.entrance;
+function nearDoor({ dx = 12.5, dy = -6, dz = 10.5 } = {}) {
+    return { x: DOOR.x + dx, y: DOOR.y + dy, z: DOOR.z + dz };
+}
 
 const T0 = 10_000_000;
 function rig(cfg) {
+    setActiveHome(fixture);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr20-'));
     let t = T0;
     const bot = new EventEmitter();
-    bot.entity = { position: { x: -807, y: 118, z: 576 } };
+    bot.entity = { position: nearDoor() };
     bot.health = 20;
     bot.pathfinder = { stop() {}, setGoal() {} }; bot.clearControlStates = () => {};
     const sent = [];

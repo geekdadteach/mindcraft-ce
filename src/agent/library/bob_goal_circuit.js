@@ -96,8 +96,8 @@ export class GoalFailureCircuit {
 
         const alternatives = [
             'Prioritize survival: inspect food, health, and safety. If hungry, obtain and eat food. If endangered, seek shelter. Do not pursue optional work before stabilizing.',
-            'Choose an achievable new outdoor activity such as gathering food, exploring a safe route, farming, or collecting needed materials. Your house is a base, not your boundary.',
-            'Explore a previously unvisited safe surface area outside protected zones. Begin with a nearby reachable location, stay out of hazards, and record useful discoveries.',
+            'Choose an achievable new outdoor activity such as gathering food, exploring a safe route, farming, or collecting needed materials. Your claim is property, not a movement boundary.',
+            'Explore a previously unvisited safe surface area outside your claim and outside protected zones. Begin with a nearby reachable location, stay out of hazards, and record useful discoveries.',
             'Check your supplies and choose a different resource or craft using what you already own. Avoid targets and routes that recently failed.',
             'Choose a useful independent project: organize your own inventory, improve a safe location, or visit a new natural area. Never modify protected builds or other players property.'
         ];

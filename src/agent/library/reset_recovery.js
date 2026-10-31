@@ -1,7 +1,9 @@
 import { CLAIM } from './bob_claim.js';
+import { getActiveHome, isVerifiedHome } from './bob_home.js';
+import { claimProperty } from './bob_claim_protect.js';
 // [ai-player] reset-recovery-20261026 (M4 port of the .60 ai-player-reset-watcher, Oct 20 2026).
-// What it keeps from the old watcher: when an operator's /bobreset teleports Bob onto the door plate
-// (-819.5 124 565.5), Bob gets ONE system note in memory.json and a `reset:<action>` lesson in lessons.json,
+// What it keeps from the old watcher: when an operator's /bobreset teleports Bob onto the verified
+// door plate, Bob gets ONE system note in memory.json and a `reset:<action>` lesson in lessons.json,
 // and a "[ai-player] reset: ..." line goes to the Mindcraft log. Detector constants are unchanged
 // (jump > 20 blocks within 3 s, landing within 1 block / 1.5 y of the door, 3 min cooldown).
 // What changed: no process restart. The old watcher stopped/started the service to "start fresh"; here the
@@ -14,10 +16,13 @@ import fs from 'fs';
 import path from 'path';
 import { navMemory } from './bob_nav_memory.js'; // nav-on-live-20261026
 
-export const TARGET = CLAIM.center; // claim center is informational, never a teleport destination
+export function teleportTarget(home = getActiveHome()) {
+    return isVerifiedHome(home) ? home.entrance : null;
+}
+export const TARGET = CLAIM.center; // informational only; detector uses teleportTarget()
 export const COOLDOWN_MS = 180000;
 const SAMPLE_MS = 500, INBOX_POLL_MS = 3000, MAX_REQ_BYTES = 4096, MAX_NOTE = 300;
-const KINDS = new Set(['reset', 'planned-restart', 'note', 'home', 'tphome']); // tphome: stuck-home-20261026
+const KINDS = new Set(['reset', 'planned-restart', 'note', 'home', 'tphome', 'claim-property']); // tphome: stuck-home-20261026; claim-property: operator-only GP helper
 
 // pr20-reconciled-20261027: no distance limit; avoid failed routes and keep playing independently.
 export const TELEPORT_NOTE = 'You got stuck and were brought back to your house. Start fresh: check your inventory, avoid the route that failed, then pick a reachable destination and continue your own activity wherever it is safe and permitted.';
@@ -25,15 +30,21 @@ export const MANUAL_NOTE = 'You were reset because you seemed stuck. Start fresh
 
 export function createDetector({ target = TARGET, jump = 20, windowMs = 3000, land = 1.0, landDy = 1.5, cooldownMs = COOLDOWN_MS } = {}) {
     let prev = null, lastTrigger = -Infinity;
+    const dest = () => (typeof target === 'function' ? target() : target);
     return {
         reset() { prev = null; },
         setLastTrigger(t) { lastTrigger = t; },
         feed(t, pos, action = null) {
             if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) return null;
+            const to = dest();
+            if (!to || ![to.x, to.y, to.z].every(Number.isFinite)) {
+                prev = { t, pos: { x: pos.x, y: pos.y, z: pos.z }, action };
+                return null;
+            }
             let hit = null;
             if (prev && t - prev.t <= windowMs) {
                 const moved = Math.hypot(pos.x - prev.pos.x, pos.y - prev.pos.y, pos.z - prev.pos.z);
-                const atTarget = Math.hypot(pos.x - target.x, pos.z - target.z) <= land && Math.abs(pos.y - target.y) <= landDy;
+                const atTarget = Math.hypot(pos.x - to.x, pos.z - to.z) <= land && Math.abs(pos.y - to.y) <= landDy;
                 if (moved > jump && atTarget) {
                     if (t - lastTrigger >= cooldownMs) { lastTrigger = t; hit = { from: prev.pos, fromAction: prev.action, to: pos, moved, dt: t - prev.t }; }
                     else hit = { suppressed: 'cooldown', moved };
@@ -68,18 +79,20 @@ export function readRequest(file, uid = process.getuid?.()) {
     const req = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!req || typeof req !== 'object' || req.v !== 1 || !KINDS.has(req.kind)) throw new Error('bad request');
     return { v: 1, kind: req.kind, reason: cleanText(req.reason) || 'manual', note: cleanText(req.note), lesson: req.lesson === true,
-        by: cleanText(req.by).slice(0, 40) || 'unknown', ts: Number.isFinite(req.ts) ? req.ts : 0, place: cleanText(req.place).replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40) };
+        by: cleanText(req.by).slice(0, 40) || 'unknown', ts: Number.isFinite(req.ts) ? req.ts : 0, place: cleanText(req.place).replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40),
+        approved: req.approved === true };
 }
 
 export class ResetRecovery {
-    constructor(agent, { inboxDir = process.env.BOB_RECOVERY_INBOX || path.resolve('run/recovery-inbox'), now = Date.now } = {}) {
+    constructor(agent, { inboxDir = process.env.BOB_RECOVERY_INBOX || path.resolve('run/recovery-inbox'), now = Date.now, wait } = {}) {
         this.agent = agent; this.now = now;
         this.inbox = inboxDir; this.done = path.join(inboxDir, 'done');
-        this.detector = createDetector();
+        this.detector = createDetector({ target: () => teleportTarget(this.agent?.homeState?.snapshot?.() || getActiveHome()) });
         this.startedAt = now();
         this.stats = { teleports: 0, suppressed: 0, inbox_ok: 0, inbox_bad: 0 };
         this.lastResetAt = -Infinity;
         this._busy = false;
+        this._wait = wait;
     }
     log(msg) { console.log(`[ai-player] ${msg}`); }
 
@@ -134,8 +147,31 @@ export class ResetRecovery {
             return 'note recorded';
         }
         if (req.kind === 'home' || req.kind === 'tphome') {
-            // No built and verified house exists yet. Do not route or teleport to a claim center.
-            return 'not sent: home recovery is disabled until Bob has built and verified a home';
+            const home = this.agent.homeState?.snapshot?.() || getActiveHome();
+            if (!isVerifiedHome(home)) {
+                return 'not sent: home recovery is disabled until Bob has built and verified a home';
+            }
+            if (req.kind === 'home') {
+                if (!this.agent.home?.walk) return 'not sent: home walker not installed';
+                const ok = await this.agent.home.walk({ inside: true, maxMs: 120000 });
+                return ok ? 'walked home' : 'walk home failed';
+            }
+            if (!this.agent.stuckHome?.request) return 'not sent: stuck-home not installed';
+            return this.agent.stuckHome.request({ force: req.reason === 'force', by: req.by });
+        }
+        if (req.kind === 'claim-property') {
+            if (req.approved !== true) {
+                return 'refused: claim-property requires approved:true (Randy)';
+            }
+            this.log('claim-property: fallback only; operator is creating claim #26 server-side. Still requires approved:true');
+            const r = await claimProperty(this.agent, {
+                approved: true,
+                ...(this._wait ? { wait: this._wait } : {}),
+            });
+            if (typeof r === 'string') return r;
+            const steps = (r?.steps || []).join('; ');
+            const status = r?.alreadyExists ? 'already covers claim' : (r?.ok ? 'covers claim' : (r?.aborted ? 'aborted' : 'unconfirmed'));
+            return `claim-property ${status}; ${steps}${r?.approval ? '; ' + r.approval : ''}`;
         }
         return 'unknown kind';
     }
@@ -183,7 +219,8 @@ export class ResetRecovery {
         this._t2 = setInterval(() => this.pollInbox().catch(() => {}), INBOX_POLL_MS);
         try { fs.mkdirSync(this.inbox, { recursive: true, mode: 0o700 }); } catch (_) {}
         setTimeout(() => this.onSpawn().catch(e => this.log(`recovery: spawn note failed (${e.message})`)), 15000);
-        this.log(`reset-recovery: watching for /bobreset teleports to the door; inbox ${this.inbox}`);
+        const t = teleportTarget();
+        this.log(`reset-recovery: watching for /bobreset teleports ${t ? `to verified entrance ${t.x} ${t.y} ${t.z}` : '(no verified home; detector inert)'}; inbox ${this.inbox}`);
     }
 }
 

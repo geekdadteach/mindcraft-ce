@@ -68,13 +68,13 @@ test('B: recovery notes have no distance limit and keep Bob independent', () => 
     }
 });
 
-test('C: zone escape stops once safely outside; homestead only as last resort', () => {
+test('C: zone escape never falls back to a house, including the retired hilltop', () => {
     const z = NO_GO_ZONES.find(n => /racetrack/.test(n.name));
     assert.equal(afterEscapeTarget(z.x + NO_GO_RADIUS + 20, z.z), null, 'safely out: no home walk');
     assert.equal(afterEscapeTarget(-700, 520), null, 'clear of every zone');
-    assert.equal(afterEscapeTarget(z.x + 10, z.z), HOMESTEAD, 'still inside: fallback home');
-    assert.equal(afterEscapeTarget(z.x + NO_GO_RADIUS + 2, z.z), HOMESTEAD, 'inside the margin: fallback home');
-    // the rule itself is unchanged: targets inside a zone are still refused
+    assert.equal(afterEscapeTarget(z.x + 10, z.z), null, 'still inside: no homestead fallback');
+    assert.equal(afterEscapeTarget(z.x + NO_GO_RADIUS + 2, z.z), null, 'inside the margin: no homestead fallback');
+    assert.equal(HOMESTEAD, null);
     assert.ok(zoneForGoal({ x: z.x, y: 70, z: z.z }, { x: -823, z: 568 }));
     const ng = src('library/no_go_zones.js');
     assert.ok(!/walked straight home/.test(ng));

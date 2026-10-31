@@ -228,3 +228,11 @@ Append one dated entry per logical change, newest first. Never erase prior entri
 
 ### 2026-10-27 — MM20 preflight correction
 - MM20 preflight at f5fdd52: 141/147 passed; six failures exclusively referenced two ops tests whose scripts moved private. Relocated `test/bob_autonomy_deploy_preflight.test.js` and `test/bob_state_snapshot.test.js` to minebob private branch; next MM20 preflight required.
+
+## 2026-10-31 — Sync git to Bob's live code on .20 (Randy MM 20)
+- Branch `sync/live-to-git-20261031` from `work/bob-home-from-live-20261028` (b914f8e). Live wins: copied 18 runtime files plus 4 live-only modules (`bob_homestead.js`, `bob_claim_protect.js`, `bob_home_migrate.js`, `vec3_util.js`) and both Andy profiles from `/Users/test/BobRuntime/cutover/mindcraft-m4`.
+- Tests: copied the live versions of 9 test files and 6 live-only tests. Kept git's `bob_survival_gate.test.js` (PR #23). Updated the profile test for the live code lane (Gemini `gemini-3.8-flash` in `andy-api.json`).
+- Result: 240/241 pass. `confirmSetHome sets the flag only after a server ok reply` fails on live too (pre-existing, not touched).
+- Git-only lines in those files (mostly branch navigation/house changes that never went live, e.g. PR #20) are replaced by live; they stay in history.
+- Docs, deploy patches, scripts and CI stay as in git. Secret scan of the diff: clean. Nothing on .20 changed.
+

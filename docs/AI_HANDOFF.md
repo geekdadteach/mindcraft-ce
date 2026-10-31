@@ -175,3 +175,7 @@ See `AGENTS.md`: public-repo warning (no secrets, Discord IDs or ops), Randy's r
 
 ## 2026-10-27 — MM20 preflight correction (not yet rerun)
 - MM20 preflight at f5fdd52: 141/147 passed; six failures exclusively referenced two ops tests whose scripts moved private. Relocated `test/bob_autonomy_deploy_preflight.test.js` and `test/bob_state_snapshot.test.js` to minebob private branch; next MM20 preflight required.
+
+## 2026-10-31 — git now mirrors live .20 (pending merge of sync/live-to-git-20261031)
+After this PR merges, `work/bob-home-from-live-20261028` runtime code (src/, profiles) matches Bob's live tree on .20 byte for byte. Live code lane: Gemini `gemini-3.8-flash` (key in live keys.json only, never in git). Known pre-existing failing test: `confirmSetHome sets the flag only after a server ok reply` (bob_stuck_home.test.js).
+

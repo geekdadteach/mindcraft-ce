@@ -17,6 +17,10 @@ export function claimBounds(claim = CLAIM) {
     return Object.freeze({ x1, x2: x1 + width - 1, z1, z2: z1 + depth - 1 });
 }
 
+export function claimArea(claim = CLAIM) {
+    return claim.width * claim.depth;
+}
+
 export function isInClaim(pos, claim = CLAIM) {
     if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return false;
     const b = claimBounds(claim);

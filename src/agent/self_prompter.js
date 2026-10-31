@@ -1,4 +1,5 @@
 import { GoalFailureCircuit } from './library/bob_goal_circuit.js';
+import { harnessOf } from './library/bob_eval_harness.js';
 
 const STOPPED = 0
 const ACTIVE = 1
@@ -26,6 +27,7 @@ export class SelfPrompter {
         this.state = ACTIVE;
         this.prompt = prompt;
         this.goalCircuit.continueGoal(prompt);
+        harnessOf(this.agent).noteGoalChange(prompt, 'start');
         this.startLoop();
     }
 
@@ -123,6 +125,7 @@ export class SelfPrompter {
                     // The existing loop continues with a new goal.
                     this.prompt = alternative;
                     this.goalCircuit.reset(alternative);
+                    harnessOf(this.agent).noteGoalChange(alternative, 'circuit_switch');
                     no_command_count = 0;
                     continue;
                 }
@@ -217,6 +220,7 @@ export class SelfPrompter {
     }
 
     async stop(stop_action=true) {
+        harnessOf(this.agent).noteGoalChange(this.prompt, 'stop');
         this.interrupt = true;
         if (stop_action)
             await this.agent.actions.stop();

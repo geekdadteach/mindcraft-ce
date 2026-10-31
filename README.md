@@ -73,6 +73,29 @@ You can access this on the [agent-system](https://github.com/mindcraft-ce/mindcr
 - **Tools Repositories** — Extend bot capabilities with community-created tools via `tools_provider_repositories` in `settings.js`
 - Both support auto-install/update and manual management through the Mindserver UI
 
+# NewEarth: Bob evaluation harness (opt-in)
+
+Off by default. MineBobNE can write one JSONL record per step of each model
+turn when you set an **absolute** path that is **not** a V2 receipt file:
+
+```bash
+export BOB_EVAL_HARNESS_LOG=/absolute/private/path/bob-eval.jsonl
+```
+
+Optional: `BOB_EVAL_HARNESS_LOG_RAW=1` includes truncated model text;
+`BOB_EVAL_HARNESS_LOG_PROMPTS=1` includes truncated prompts (may contain long
+memory or player chat). Leave both unset on a shared host. Never commit the
+log. The writer is async, mode `0600`, and self-disables on errors. When the
+variable is unset, every hook returns immediately and gameplay is unchanged.
+
+Each line is a JSON object with `ts`, `mono_ms`, `run_id`, `goal_id`,
+`turn_id`, `command_id`, `task_id`, and `type`. Types: `turn_start`,
+`model_response`, `parse`, `guard`, `exec_start`, `exec_end`,
+`history_append`, `task_event`, `goal_check`, `turn_end`, `goal_change`.
+`task.finished` state `succeeded` is **not** a goal outcome; `goal_check.verdict`
+comes from world state. Schema and live-`agent.js` merge notes:
+[docs/BOB_EVAL_HARNESS.md](docs/BOB_EVAL_HARNESS.md).
+
 # Getting Started
 ## Requirements
 

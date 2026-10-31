@@ -1,5 +1,39 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Grok Bot — World-state goal verifier (TESTED; NOT DEPLOYED)
+- **Goal:** Randy: judge from world state whether Bob achieved the goal, not from `task.finished`. Verifier ON by default with the harness; `BOB_EVAL_GOAL_VERIFIER=0` restores the stub.
+- **Files:** `src/agent/library/bob_goal_verifier.js` (new), `src/agent/library/bob_eval_harness.js`, `src/agent/commands/index.js` (pass already-parsed args only), `scripts/bob_scorecard.py`, `test/bob_goal_verifier.test.js`, fixture/docs/deploy note, these docs. No `actions.js` / `bob_goal_circuit.js` / live gameplay change.
+- **Behavior:** Before snapshot at `exec_start`/`goal_change`, after at `exec_end`/`turn_end`. Sync, try/caught, ~8 ms, loaded-world only. Never guesses `met`. Records `verifier` + `verifier_version`. Scorecard: met rate + gap table (exec succeeded / goal `not_met`).
+- **Tests:** `test/bob_goal_verifier.test.js` 13; harness + scorecard + verifier 24/24; `bob_ai_v2` / `bob_brain` / `bob_brain_v2` + those 56/56.
+- **Deploy status:** Draft PR #22. Incremental patch `docs/deploy/bob-eval-goal-verifier.patch` after the original harness patch. This agent does not deploy.
+- **Rollback:** `BOB_EVAL_GOAL_VERIFIER=0`, or omit the verifier file and leave the stub (do not deploy a harness that imports a missing file).
+- **Limits:** loaded chunks/entities only; smelt map is fixed; player targets unevaluated if not in `bot.players`; deaths from health 0 only.
+
+## 2026-10-31 — Grok Bot — Weekly eval harness scorecard (TESTED; NOT DEPLOYED)
+- **Goal:** Randy wants a scripted weekly scorecard of the eval JSONL on the Mac (launchd, stdlib Python), Markdown file plus Discord.
+- **Files:** `scripts/bob_scorecard.py`, `scripts/launchd/org.newearth.bob-scorecard.plist.example`, `test/fixtures/bob_scorecard_week.jsonl`, `test/bob_scorecard.test.js`, `docs/BOB_EVAL_HARNESS.md` (Weekly scorecard), these docs. No harness or agent runtime change.
+- **Behavior:** Last 7 days by default. Aggregates only. `task.finished/succeeded` labelled as never goal completion. Malformed/truncated lines counted. Optional Discord via 0600 webhook file or `BOB_SCORECARD_DISCORD_WEBHOOK`; never echoes the URL. `--dry-run` / `--no-discord`. Exit 0 / 1 empty / 2 Discord fail.
+- **Tests:** `test/bob_scorecard.test.js` 3/3; with harness 11/11; `bob_ai_v2` / `bob_brain` / `bob_brain_v2` + scorecard 35/35. No harness or agent runtime change.
+- **Deploy status:** Draft PR #22. Not merged. This agent does not install launchd on the Mac.
+- **Rollback:** omit the LaunchAgent; the script is unused unless invoked.
+
+## 2026-10-31 — Grok Bot — Make eval harness deployable onto live agent.js (TESTED; NOT DEPLOYED HERE)
+- **Goal:** Randy (2:56 PM ET): "Make it so" — deploy the harness to Bob's live install. Deploy is another bot on the Mac. This commit makes the draft PR apply onto live.
+- **Files:** `src/agent/agent.js` replaced with the exact live 809-line file (HomeRegistry / HomesteadTracker / `maybeSetEssentialsHome`) plus the same observe-only hooks; `docs/deploy/bob-eval-harness-live.patch`; `docs/deploy/bob-eval-harness-FILES.md`; these docs. Did **not** change `commands/actions.js` or `bob_goal_circuit.js` (harness never touches them; live copies differ from this branch).
+- **Secret scan:** live `agent.js` grepped for keys, tokens, webhooks, Discord IDs, private keys: clean. Diff vs live is harness hooks only.
+- **Tests:** `test/bob_eval_harness.test.js` 8/8; `bob_ai_v2` / `bob_brain` / `bob_brain_v2` all pass. Full `test/bob_*.test.js`: 143 pass / 6 fail, same pre-existing claim-first failures as before the live `agent.js` swap.
+- **Deploy status:** Still a draft PR. Not merged. This agent does not deploy. Patch applies with `patch -p1` onto live (or this branch with `agent.js` set to the live file).
+- **Rollback:** leave `BOB_EVAL_HARNESS_LOG` unset, or restore the five live files listed in the FILES doc.
+
+## 2026-10-31 — Grok Bot — Opt-in Bob evaluation logging harness (CODED; NOT DEPLOYED)
+- **Goal:** Randy approved a draft PR on this fork so we can record correlated, timestamped steps of each model turn (lite vs full LM Studio andy-4.2, Andy API code lane) without changing live play.
+- **Files:** `src/agent/library/bob_eval_harness.js` (new), hooks in `src/agent/agent.js`, `src/agent/commands/index.js`, `src/agent/self_prompter.js`, `src/models/prompter.js`, `test/bob_eval_harness.test.js`, `docs/BOB_EVAL_HARNESS.md`, README enable/schema section, `docs/BOB_AI_RECEIPTS.md` pointer, these docs.
+- **Behavior:** Unset `BOB_EVAL_HARNESS_LOG` => every hook returns immediately, no file. Enabled path is observe-only: async append, never awaited, errors swallowed, mode 0600, 8 MiB cap, disables after three write errors. Guard kinds are inferred from already-returned strings. `goal_check.verdict` is a world-state stub; `task.finished` `succeeded` is stored only as `task_finished_state` with `task_finished_is_not_goal_outcome: true`.
+- **Tests:** `test/bob_eval_harness.test.js` 8/8 pass. Requested `bob_ai_v2` / `bob_brain` / `bob_brain_v2` all pass. Full `test/bob_*.test.js` on this box: 143 pass, 6 fail. The 6 failures are pre-existing on the claim-first base (missing `HOMESTEAD` export, farm-plot fail-closed, house-recovery disabled in reset/stuck-home). None are in the harness files.
+- **Deploy status:** Draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Revert the branch, or leave `BOB_EVAL_HARNESS_LOG` unset.
+- **Risks:** Live `agent.js` homestead/HomeRegistry block is absent on this branch; merge must keep both. Extra opt-in raw/prompt flags can contain player chat — keep those logs off-repo.
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

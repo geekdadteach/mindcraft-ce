@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.newearth.bob-scorecard</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/python3</string>
+		<string>/ABSOLUTE/PATH/TO/mindcraft-ce/scripts/bob_scorecard.py</string>
+		<string>--log</string>
+		<string>/ABSOLUTE/PATH/TO/bob-eval.jsonl</string>
+		<string>--webhook-file</string>
+		<string>/ABSOLUTE/PATH/TO/scorecard-webhook.url</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Weekday</key>
+		<integer>1</integer>
+		<key>Hour</key>
+		<integer>10</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/Users/YOUR_USER/BobRuntime/logs/bob-scorecard.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/YOUR_USER/BobRuntime/logs/bob-scorecard.log</string>
+</dict>
+</plist>

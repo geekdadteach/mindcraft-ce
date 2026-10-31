@@ -11,8 +11,10 @@ or internal reasoning. This feature does not start a model, Bob, or Discord.
   BOBBOT_V2_MINDCRAFT_LOG receiver -> #bob-activity.
 - Model calls observed by Mindcraft: BOB_AI_V2_EVENT_LOG producer,
   same private file at BOBBOT_V2_AI_LOG receiver -> #bob-ai.
+- Optional eval JSONL (not a V2 receipt, not tailed by BobBot): 
+  BOB_EVAL_HARNESS_LOG. See docs/BOB_EVAL_HARNESS.md.
 
-All three log files must be DISTINCT, private, and locally readable by their
+All of these log files must be DISTINCT, private, and locally readable by their
 authorized producer/reader. Never let two writers share a receipt path.
 
 ## Mindcraft opt-in settings
@@ -23,8 +25,11 @@ BOB_AI_V2_ROTATE_LOG=1
 BOB_BRAIN_V2_EVENT_LOG=/absolute/private/path/mindcraft-events.jsonl
 BOB_BRAIN_V2_ROTATE_LOG=1
 
+BOB_EVAL_HARNESS_LOG=/absolute/private/path/bob-eval.jsonl
+
 Each log path is optional; unset means disabled. Enabled writers are
-independent. Rotating files keep up to four numbered archives. The active
+independent. The eval harness uses its own async writer; do not point it at a
+V2 file. Rotating files keep up to four numbered archives. The active
 writer otherwise stops at its 1 MiB cap. The existing security policy
 rejects unsafe file modes and symlinked files. BobBot also rejects symlinked
 parent directories (prefer a real path under the user's home on macOS).

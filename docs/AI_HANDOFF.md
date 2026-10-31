@@ -1,5 +1,16 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — World-state goal verifier (TESTED; NOT DEPLOYED)
+- Same draft PR #22. `src/agent/library/bob_goal_verifier.js` is on whenever `BOB_EVAL_HARNESS_LOG` is set. Opt out with `BOB_EVAL_GOAL_VERIFIER=0` (stub). Snapshots at exec_start/goal_change and exec_end/turn_end; verdicts `met|not_met|progress|unevaluated` from inventory/position/food, never from `task.finished`. Scorecard reports met rate and exec-succeeded-but-not_met gap. Incremental live patch: `docs/deploy/bob-eval-goal-verifier.patch`. No gameplay change.
+
+## 2026-10-31 — Weekly eval scorecard script (TESTED; NOT DEPLOYED)
+- Same draft PR #22. `scripts/bob_scorecard.py` (Python 3 stdlib) reads `BOB_EVAL_HARNESS_LOG`, writes `~/BobRuntime/logs/scorecards/scorecard-YYYY-MM-DD.md` + `.json`, optional Discord POST from a 0600 webhook file. LaunchAgent example `scripts/launchd/org.newearth.bob-scorecard.plist.example` (Monday 10:00 local). No harness/agent behavior change. No secrets or real webhooks in the repo. Install steps in `docs/BOB_EVAL_HARNESS.md`.
+
+## 2026-10-31 — Opt-in Bob evaluation JSONL harness (TESTED; NOT DEPLOYED)
+- Draft PR against `work/bob-home-from-live-20261028` (not main/develop). Off unless `BOB_EVAL_HARNESS_LOG` is an absolute path, a separate file from V2 receipts. Async queue+stream writer (not `V2EventLog` / `writeSync`). Hooks early-return when disabled: no new awaits on the promptConvo / handleMessage path, no change to prompts, history, timing, commands, guards, or return values.
+- Correlates `run_id` / `goal_id` / `turn_id` / `command_id` / `task_id`. Records turn, model (lane + backend/model), parse, inferred guards (including `dropped_by_interrupt`), exec, history appends, and a `goal_check` that is **not** `task.finished` `succeeded`. Raw text and prompts stay out unless extra env flags are set. File mode 0600, size cap, self-disable on repeated errors.
+- Randy (Oct 31 2:56 PM ET): "Make it so" — deploy the harness onto live. This agent does not deploy; the Mac bot does. `src/agent/agent.js` on this PR is now the exact live file (HomeRegistry, HomesteadTracker, `maybeSetEssentialsHome`) plus harness hooks only. Secret-scanned; no keys/Discord IDs. Harness does **not** touch live-divergent `commands/actions.js` or `bob_goal_circuit.js`. Deploy patch: `docs/deploy/bob-eval-harness-live.patch` (apply `-p1` onto live / branch+live `agent.js`). File list: `docs/deploy/bob-eval-harness-FILES.md`.
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

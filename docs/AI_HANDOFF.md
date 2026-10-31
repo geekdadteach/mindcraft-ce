@@ -1,5 +1,10 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Opt-in Bob evaluation JSONL harness (TESTED; NOT DEPLOYED)
+- Draft PR against `work/bob-home-from-live-20261028` (not main/develop). Off unless `BOB_EVAL_HARNESS_LOG` is an absolute path, a separate file from V2 receipts. Async queue+stream writer (not `V2EventLog` / `writeSync`). Hooks early-return when disabled: no new awaits on the promptConvo / handleMessage path, no change to prompts, history, timing, commands, guards, or return values.
+- Correlates `run_id` / `goal_id` / `turn_id` / `command_id` / `task_id`. Records turn, model (lane + backend/model), parse, inferred guards (including `dropped_by_interrupt`), exec, history appends, and a `goal_check` that is **not** `task.finished` `succeeded`. Raw text and prompts stay out unless extra env flags are set. File mode 0600, size cap, self-disable on repeated errors.
+- Live `agent.js` still has HomeRegistry/HomesteadTracker that this branch lacks. Harness hooks sit in the shared `handleMessage` loop plus `commands/index.js`, `self_prompter.js`, `prompter.js`. Reconcile by keeping live homestead startup and these hooks. Do not merge or deploy without Randy.
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

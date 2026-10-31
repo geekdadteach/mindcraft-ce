@@ -4,6 +4,7 @@ import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
 import { correctName } from '../library/long_memory.js';
 import { runCommandPerform } from '../library/bob_brain_v2.js';
+import { harnessOf, inferGuardKind } from '../library/bob_eval_harness.js';
 
 let suppressNoDomainWarning = true;
 
@@ -273,16 +274,27 @@ export async function executeCommand(agent, message) {
         }
         if (name_note) console.log(`[ai-player] name-fix: ${name_note}`);
     } catch (e) { console.warn(`[ai-player] name-fix failed: ${e.message}`); }
+    const ev = harnessOf(agent);
     if (name_note && typeof parsed !== 'string') {
+        ev.noteParse({ has_command: true, command_name: parsed.commandName, exists: true, parse_ok: true, arg_count: parsed.args?.length ?? 0 });
         const blocked = aiPlayerGuard(agent, parsed);
-        if (blocked) return name_note + blocked;
+        if (blocked) {
+            ev.noteGuard({ kind: inferGuardKind(blocked), blocked: true, note: blocked });
+            return name_note + blocked;
+        }
+        ev.noteExecStart({ command_name: parsed.commandName });
+        const t0 = ev.markNow();
         const res = await executeCommand._run(agent, parsed);
+        ev.noteExecEnd({ duration_ms: ev.elapsedMs(t0), result: res, threw: false });
         return name_note + (res ?? '');
     }
-    if (typeof parsed === 'string')
+    if (typeof parsed === 'string') {
+        ev.noteParse({ has_command: !!containsCommand(message), command_name: containsCommand(message), exists: false, parse_ok: false, error: parsed });
         return parsed; //The command was incorrectly formatted or an invalid input was given.
+    }
     else {
         console.log('parsed command:', parsed);
+        ev.noteParse({ has_command: true, command_name: parsed.commandName, exists: true, parse_ok: true, arg_count: parsed.args?.length ?? 0 });
         const command = getCommand(parsed.commandName);
         let numArgs = 0;
         if (parsed.args) {
@@ -292,8 +304,15 @@ export async function executeCommand(agent, message) {
             return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
         else {
             const blocked = aiPlayerGuard(agent, parsed);
-            if (blocked) return blocked;
-            return await performParsed(agent, parsed);
+            if (blocked) {
+                ev.noteGuard({ kind: inferGuardKind(blocked), blocked: true, note: blocked });
+                return blocked;
+            }
+            ev.noteExecStart({ command_name: parsed.commandName });
+            const t0 = ev.markNow();
+            const result = await performParsed(agent, parsed);
+            ev.noteExecEnd({ duration_ms: ev.elapsedMs(t0), result, threw: false });
+            return result;
         }
     }
 }

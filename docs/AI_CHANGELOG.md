@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Grok Bot — Opt-in Bob evaluation logging harness (CODED; NOT DEPLOYED)
+- **Goal:** Randy approved a draft PR on this fork so we can record correlated, timestamped steps of each model turn (lite vs full LM Studio andy-4.2, Andy API code lane) without changing live play.
+- **Files:** `src/agent/library/bob_eval_harness.js` (new), hooks in `src/agent/agent.js`, `src/agent/commands/index.js`, `src/agent/self_prompter.js`, `src/models/prompter.js`, `test/bob_eval_harness.test.js`, `docs/BOB_EVAL_HARNESS.md`, README enable/schema section, `docs/BOB_AI_RECEIPTS.md` pointer, these docs.
+- **Behavior:** Unset `BOB_EVAL_HARNESS_LOG` => every hook returns immediately, no file. Enabled path is observe-only: async append, never awaited, errors swallowed, mode 0600, 8 MiB cap, disables after three write errors. Guard kinds are inferred from already-returned strings. `goal_check.verdict` is a world-state stub; `task.finished` `succeeded` is stored only as `task_finished_state` with `task_finished_is_not_goal_outcome: true`.
+- **Tests:** `test/bob_eval_harness.test.js` 8/8 pass. Requested `bob_ai_v2` / `bob_brain` / `bob_brain_v2` all pass. Full `test/bob_*.test.js` on this box: 143 pass, 6 fail. The 6 failures are pre-existing on the claim-first base (missing `HOMESTEAD` export, farm-plot fail-closed, house-recovery disabled in reset/stuck-home). None are in the harness files.
+- **Deploy status:** Draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob untouched.
+- **Rollback:** Revert the branch, or leave `BOB_EVAL_HARNESS_LOG` unset.
+- **Risks:** Live `agent.js` homestead/HomeRegistry block is absent on this branch; merge must keep both. Extra opt-in raw/prompt flags can contain player chat — keep those logs off-repo.
+
 ## 2026-10-28 — Claim-first autonomous homestead design (IN PROGRESS; NOT DEPLOYABLE)
 - Randy chose a full 128x128 claim centered at X=-1144, Z=752; Bob must build his own home, without preassigned door/bed/house coordinates. The old hilltop is to be removed from active prompts and memory, not retained as a destination.
 - Added `src/agent/library/bob_claim.js` with independent property geometry, boundary checks, and a helper that refuses to treat an unverified position as an established home; added `test/bob_claim.test.js`.

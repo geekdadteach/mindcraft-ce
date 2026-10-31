@@ -12,6 +12,7 @@ import { selectAPI, createModel } from './_model_map.js';
 import { logEmbeddingCacheStartupSummary } from '../utils/embedding_cache.js';
 import { withConversationAdvice } from '../agent/library/bob_brain.js';
 import { BobAIReceipts } from '../agent/library/bob_ai_v2.js';
+import { harnessOf } from '../agent/library/bob_eval_harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -264,9 +265,19 @@ export class Prompter {
         try {
             traces = this.agent?.bobBrain?.receipts?.modelTraceIds?.(turnToken) || [];
         } catch { /* no guessed correlation when Brain is unavailable */ }
-        return await this.aiReceipts.observe(
-            lane, () => model[method](...args), traces
-        );
+        const ev = harnessOf(this.agent);
+        const mark = ev.markModelCall(this.agent, lane, model);
+        let generation;
+        try {
+            generation = await this.aiReceipts.observe(
+                lane, () => model[method](...args), traces
+            );
+            return generation;
+        } finally {
+            ev.finishModelCall(mark, generation, {
+                prompt: ev.config?.logPrompts ? args?.[1] : undefined,
+            });
+        }
     }
 
     async checkCooldown() {

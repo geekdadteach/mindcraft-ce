@@ -32,6 +32,7 @@ import { installChatGuard, stripCommandPrefix } from './library/chat_guard.js'; 
 import { installStuckHome } from './library/stuck_home.js'; // [ai-player] stuck-home-20261026
 import { Failures } from './library/failures.js';
 import { attachBobBrain } from './library/bob_brain.js';
+import { attachBobEvalHarness, harnessOf } from './library/bob_eval_harness.js';
 
 // [ai-player] read-only: doors, gates and pressure plates around the front door (-820 124 566), for the log
 function frontDoorState(bot) {
@@ -115,6 +116,7 @@ export class Agent {
             });
             if (this._recentTaskEvents.length > 12) this._recentTaskEvents.splice(0, this._recentTaskEvents.length - 12);
         });
+        try { attachBobEvalHarness(this); } catch (err) { console.warn(`[bob-eval] disabled: ${err?.message || err}`); }
         try { attachBobBrain(this); } catch (err) { console.warn(`[bob-brain] disabled: ${err?.message || err}`); }
         installPhysicsGuard(this.bot); // [ai-player] stability.js: clamp runaway velocity (hang/OOM fix)
         this.escape = { up: escapeUp, gotoChecked }; // [ai-player] item 3: staircase escape + checked routes
@@ -430,6 +432,8 @@ export class Agent {
             max_responses = 1; // force only respond to this message, then let self-prompting take over
         for (let i=0; i<max_responses; i++) {
             if (checkInterrupt()) break;
+            const ev = harnessOf(this);
+            ev.noteTurnStart(this, { source, self_prompt, iteration: i });
             let history = this.history.getHistory();
             let res = await this.prompter.promptConvo(history);
             const v2Turn = this._bobV2PromptToken;
@@ -439,12 +443,14 @@ export class Agent {
 
             if (res.trim().length === 0) {
                 console.warn('no response')
+                ev.noteTurnEnd({ reason: 'empty_response' });
                 break; // empty response ends loop
             }
             if (isModelErrorReply(res)) {
                 // [ai-player] API placeholder: not added to history, never sent to chat.
                 console.warn(`[ai-player] model error reply ${JSON.stringify(res.trim())}; not chatted, not stored in history.`);
                 this.last_reply_was_model_error = true;
+                ev.noteTurnEnd({ reason: 'model_error' });
                 break;
             }
 
@@ -453,14 +459,22 @@ export class Agent {
             if (command_name) { // contains query or command
                 res = truncCommandMessage(res); // everything after the command is ignored
                 this.history.add(this.name, res);
+                ev.noteHistoryAppend({ role: 'assistant', kind: 'command_reply', chars: String(res).length });
+                ev.noteParse({ has_command: true, command_name, exists: commandExists(command_name) });
                 
                 if (!commandExists(command_name)) {
                     this.history.add('system', `Command ${command_name} does not exist.`);
+                    ev.noteHistoryAppend({ role: 'system', kind: 'unknown_command', chars: String(command_name).length });
+                    ev.noteTurnEnd({ reason: 'unknown_command' });
                     console.warn('Agent hallucinated command:', command_name)
                     continue;
                 }
 
-                if (checkInterrupt()) break;
+                if (checkInterrupt()) {
+                    ev.noteGuard({ kind: 'dropped_by_interrupt', blocked: true });
+                    ev.noteTurnEnd({ reason: 'dropped_by_interrupt' });
+                    break;
+                }
                 this.self_prompter.handleUserPromptedCmd(self_prompt, isAction(command_name));
 
                 // [ai-player] Command text never goes to chat (show_command_syntax ignored). Only the plain
@@ -477,7 +491,10 @@ export class Agent {
                 this._repeatGuard = this._repeatGuard || new RepeatGuard();
                 const repeat_note = this._repeatGuard.check(res);
                 if (repeat_note) {
+                    ev.noteGuard({ kind: 'repeat', blocked: true, note: repeat_note });
                     this.history.add('system', repeat_note);
+                    ev.noteHistoryAppend({ role: 'system', kind: 'repeat_guard', chars: String(repeat_note).length });
+                    ev.noteTurnEnd({ reason: 'repeat_guard' });
                     continue;
                 }
 
@@ -494,13 +511,22 @@ export class Agent {
                 this.failures?.observeCommand(res, execute_res);
                 used_command = true;
 
-                if (execute_res)
+                if (execute_res) {
                     this.history.add('system', execute_res);
-                else
+                    ev.noteHistoryAppend({ role: 'system', kind: 'command_result', chars: String(execute_res).length });
+                    ev.noteGoalCheck(this);
+                    ev.noteTurnEnd({ reason: 'command_returned' });
+                } else {
+                    ev.noteGoalCheck(this);
+                    ev.noteTurnEnd({ reason: 'command_undefined' });
                     break;
+                }
             }
             else { // conversation response
                 this.history.add(this.name, res);
+                ev.noteHistoryAppend({ role: 'assistant', kind: 'conversation', chars: String(res).length });
+                ev.noteParse({ has_command: false, exists: false });
+                ev.noteTurnEnd({ reason: 'conversation' });
                 this.routeResponse(source, res, { talk: true });
                 break;
             }

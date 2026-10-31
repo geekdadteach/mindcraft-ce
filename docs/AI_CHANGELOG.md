@@ -1,5 +1,9 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Grok Bot — Bob developer report (DOCS ONLY)
+- **Files:** `docs/reports/bob-dev-report-2026-10-31.md`, these docs.
+- **Why:** Randy asked for a full report a developer can work from locally with Cline. Based on a read-only audit of live logs; uncertain causes are marked unproven.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
 - **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

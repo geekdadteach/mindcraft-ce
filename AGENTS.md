@@ -17,3 +17,8 @@ This is `geekdadteach/mindcraft-ce`, a **public** fork of Mindcraft CE. It holds
 - Never merge, deploy, force-push or change default branches (`develop` here) without his authorization.
 - Repos never contain secrets.
 - Document each change in the repo that owns the code (game code: here; ops: minebob) and reflect shared interface changes in the other repo.
+
+## Wiki lookups (`!searchWiki`)
+- `!searchWiki` resolves which article a query means with **opensearch** first (`https://minecraft.wiki/api.php?action=opensearch&search=<query>&limit=1&redirects=resolve&format=json`), falling back to the `list=search` top hit only when opensearch has no title or errors out. It then fetches that page and returns a summary capped at ~2000 characters (title + intro + key section headings, with the `Sections:` line reserved so the cap cannot cut it off). `table`/`.navbox`/`.mw-editsection`/reference noise is stripped. Live pages wrap headings in `<div class="mw-heading mw-heading2">`, so the intro stops at a direct child that is `h1`–`h6` **or** carries the `mw-heading` class.
+- Both requests carry a 10 s timeout. No hits returns a short "not found" message and fetches no page. A timeout or HTTP error returns a short "could not be reached" message; the command never throws.
+- Do not restore the old behaviour of guessing `https://minecraft.wiki/w/<query>` from the raw query and dumping the entire article text into the prompt.

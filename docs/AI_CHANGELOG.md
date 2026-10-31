@@ -1,5 +1,21 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
+- **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
+- **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** resolve the article with `action=opensearch&search=<q>&limit=1&redirects=resolve` first and use its first title; fall back to the `list=search` top hit only when opensearch has no title or errors out. Both calls keep the 10 s timeout. The intro loop now stops on a direct child that is `h1`–`h6` **or** carries the `mw-heading` class. The `Sections:` line is reserved (capped at `max/4`) before the intro is trimmed, so it survives the ~2000 character cap on long articles.
+- **Tests:** `test/wiki_search.test.js` **15/15**. Full `npm test` on Node 22: **255/256 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`. Live check: opensearch `diamonds` → `Diamond` while `list=search` → `Achievement | Diamond | Diamond Ore`; live end-to-end summary was 626 characters with the sections line present.
+- **Deploy status:** Same draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the follow-up commit on the PR branch.
+
+## 2026-10-31 — `!searchWiki` searches the wiki API instead of guessing a URL (TESTED; NOT DEPLOYED)
+- **Goal:** Make `!searchWiki` behave like a search: query the Minecraft Wiki search API, take the top hit, then summarize that page, instead of dumping the whole article for a URL guessed from the raw query.
+- **Files:** `src/agent/commands/queries.js` (new helpers + `!searchWiki` body), `test/wiki_search.test.js` (new), `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `https://minecraft.wiki/api.php?action=query&list=search&srsearch=<query>&format=json` runs first; the top hit's page is fetched next; the summary is capped at ~2000 characters (title + intro paragraphs + `h2`/`h3` headings) with `table`/`.navbox`/`.mw-editsection`/`sup.reference` noise stripped. Both requests carry a 10 s timeout. No hits → short not-found message and no page fetch. Timeout or HTTP error → short "could not be reached" message; the command does not throw. Old code guessed `https://minecraft.wiki/w/<query>` and returned the full article text.
+- **Tests:** `test/wiki_search.test.js` **11/11** (search-first ordering, top-hit selection, URL encoding, not-found, 2000-char cap, 10 s signal, HTTP errors, command end-to-end). Full `npm test` on Node 22: **251/252 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`, already failing on the base `8640167` (per PR #24).
+- **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `8640167`. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
+
 ## 2026-10-31 — Grok Bot — Survival guard no longer blocks eating (TESTED; NOT DEPLOYED)
 - **Goal:** Randy: stop the survival guard from starving Bob. Logs showed `guard:survival` blocking `!searchForEntity` sheep/cow near -1135 67 754.
 - **Files:** `src/agent/library/bob_survival_gate.js`, `src/agent/commands/index.js` (pass args + bed hint), `src/agent/library/failures.js`, `src/agent/self_prompter.js` (skip guard strings), `test/bob_survival_gate.test.js`, `docs/deploy/bob-survival-eat-guard.patch`, these docs.

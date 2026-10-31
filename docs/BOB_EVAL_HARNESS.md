@@ -78,6 +78,65 @@ Deploy onto live with `docs/deploy/bob-eval-harness-live.patch` (`patch -p1`).
 File list: `docs/deploy/bob-eval-harness-FILES.md`. Do not rebase or
 force-push this branch onto main/develop.
 
+## Weekly scorecard
+
+`scripts/bob_scorecard.py` is a **stdlib-only** Python 3 reporter. It does not
+change Bob, the harness, or live play. It reads the eval JSONL (and sibling
+rotated/capped files), writes a Markdown + JSON scorecard, and can POST a
+short summary to Discord.
+
+Aggregates only: runs/restarts, turns, model calls (lane/model, p50/p95,
+errors, 429, empty), parse buckets, guards, **action** exec outcomes (never
+goal completion), stub `goal_check` verdicts, goal changes, detectable
+deaths, lite vs full, top failure patterns, week-over-week deltas. It never
+prints raw prompts, replies, chat, player names other than Bob, other-player
+coordinates, webhook URLs, or secrets.
+
+### Install on the Mac (MM20)
+
+Copy the script from this checkout. Copy the LaunchAgent template and edit
+the four placeholder paths. Create a mode-`0600` webhook file **outside this
+repo**. Do not commit the webhook URL.
+
+```bash
+# from the mindcraft-ce checkout
+install -m 755 scripts/bob_scorecard.py /ABSOLUTE/PATH/TO/mindcraft-ce/scripts/bob_scorecard.py
+
+cp scripts/launchd/org.newearth.bob-scorecard.plist.example \
+  ~/Library/LaunchAgents/org.newearth.bob-scorecard.plist
+# Edit ProgramArguments: python3, script, --log, eval JSONL, --webhook-file
+# Edit StandardOutPath / StandardErrorPath to ~/BobRuntime/logs/bob-scorecard.log
+# (launchd does not expand ~; use /Users/YOUR_USER/BobRuntime/logs/bob-scorecard.log)
+
+mkdir -p ~/BobRuntime/logs/scorecards
+chmod 700 ~/BobRuntime/logs/scorecards
+install -m 600 /dev/null /ABSOLUTE/PATH/TO/scorecard-webhook.url
+# Write the Discord webhook URL into that file; keep it mode 600.
+
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.newearth.bob-scorecard.plist
+```
+
+Manual test (no Discord, no files):
+
+```bash
+python3 /ABSOLUTE/PATH/TO/mindcraft-ce/scripts/bob_scorecard.py \
+  --log /ABSOLUTE/PATH/TO/bob-eval.jsonl \
+  --dry-run --no-discord
+```
+
+Schedule: Monday 10:00 local (`StartCalendarInterval` weekday 1). Uninstall:
+
+```bash
+launchctl bootout gui/$(id -u)/org.newearth.bob-scorecard
+rm ~/Library/LaunchAgents/org.newearth.bob-scorecard.plist
+```
+
+`--outdir` defaults to `~/BobRuntime/logs/scorecards` (created mode `0700`,
+files `0600`). Discord posts only when `BOB_SCORECARD_DISCORD_WEBHOOK` is set
+or `--webhook-file` points at a mode-`0600` https URL. A Discord failure still
+writes the files and exits 2. No log / empty window writes a short report and
+exits 1.
+
 ## What the harness must not do
 
 It does not call `RepeatGuard.check`, `aiPlayerGuard`, `getBotOutputSummary`,

@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Grok Bot — Weekly eval harness scorecard (TESTED; NOT DEPLOYED)
+- **Goal:** Randy wants a scripted weekly scorecard of the eval JSONL on the Mac (launchd, stdlib Python), Markdown file plus Discord.
+- **Files:** `scripts/bob_scorecard.py`, `scripts/launchd/org.newearth.bob-scorecard.plist.example`, `test/fixtures/bob_scorecard_week.jsonl`, `test/bob_scorecard.test.js`, `docs/BOB_EVAL_HARNESS.md` (Weekly scorecard), these docs. No harness or agent runtime change.
+- **Behavior:** Last 7 days by default. Aggregates only. `task.finished/succeeded` labelled as never goal completion. Malformed/truncated lines counted. Optional Discord via 0600 webhook file or `BOB_SCORECARD_DISCORD_WEBHOOK`; never echoes the URL. `--dry-run` / `--no-discord`. Exit 0 / 1 empty / 2 Discord fail.
+- **Tests:** `test/bob_scorecard.test.js` 3/3; with harness 11/11; `bob_ai_v2` / `bob_brain` / `bob_brain_v2` + scorecard 35/35. No harness or agent runtime change.
+- **Deploy status:** Draft PR #22. Not merged. This agent does not install launchd on the Mac.
+- **Rollback:** omit the LaunchAgent; the script is unused unless invoked.
+
 ## 2026-10-31 — Grok Bot — Make eval harness deployable onto live agent.js (TESTED; NOT DEPLOYED HERE)
 - **Goal:** Randy (2:56 PM ET): "Make it so" — deploy the harness to Bob's live install. Deploy is another bot on the Mac. This commit makes the draft PR apply onto live.
 - **Files:** `src/agent/agent.js` replaced with the exact live 809-line file (HomeRegistry / HomesteadTracker / `maybeSetEssentialsHome`) plus the same observe-only hooks; `docs/deploy/bob-eval-harness-live.patch`; `docs/deploy/bob-eval-harness-FILES.md`; these docs. Did **not** change `commands/actions.js` or `bob_goal_circuit.js` (harness never touches them; live copies differ from this branch).

@@ -1,5 +1,8 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Weekly eval scorecard script (TESTED; NOT DEPLOYED)
+- Same draft PR #22. `scripts/bob_scorecard.py` (Python 3 stdlib) reads `BOB_EVAL_HARNESS_LOG`, writes `~/BobRuntime/logs/scorecards/scorecard-YYYY-MM-DD.md` + `.json`, optional Discord POST from a 0600 webhook file. LaunchAgent example `scripts/launchd/org.newearth.bob-scorecard.plist.example` (Monday 10:00 local). No harness/agent behavior change. No secrets or real webhooks in the repo. Install steps in `docs/BOB_EVAL_HARNESS.md`.
+
 ## 2026-10-31 — Opt-in Bob evaluation JSONL harness (TESTED; NOT DEPLOYED)
 - Draft PR against `work/bob-home-from-live-20261028` (not main/develop). Off unless `BOB_EVAL_HARNESS_LOG` is an absolute path, a separate file from V2 receipts. Async queue+stream writer (not `V2EventLog` / `writeSync`). Hooks early-return when disabled: no new awaits on the promptConvo / handleMessage path, no change to prompts, history, timing, commands, guards, or return values.
 - Correlates `run_id` / `goal_id` / `turn_id` / `command_id` / `task_id`. Records turn, model (lane + backend/model), parse, inferred guards (including `dropped_by_interrupt`), exec, history appends, and a `goal_check` that is **not** `task.finished` `succeeded`. Raw text and prompts stay out unless extra env flags are set. File mode 0600, size cap, self-disable on repeated errors.

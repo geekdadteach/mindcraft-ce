@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Grok Bot — Make eval harness deployable onto live agent.js (TESTED; NOT DEPLOYED HERE)
+- **Goal:** Randy (2:56 PM ET): "Make it so" — deploy the harness to Bob's live install. Deploy is another bot on the Mac. This commit makes the draft PR apply onto live.
+- **Files:** `src/agent/agent.js` replaced with the exact live 809-line file (HomeRegistry / HomesteadTracker / `maybeSetEssentialsHome`) plus the same observe-only hooks; `docs/deploy/bob-eval-harness-live.patch`; `docs/deploy/bob-eval-harness-FILES.md`; these docs. Did **not** change `commands/actions.js` or `bob_goal_circuit.js` (harness never touches them; live copies differ from this branch).
+- **Secret scan:** live `agent.js` grepped for keys, tokens, webhooks, Discord IDs, private keys: clean. Diff vs live is harness hooks only.
+- **Tests:** `test/bob_eval_harness.test.js` 8/8; `bob_ai_v2` / `bob_brain` / `bob_brain_v2` all pass. Full `test/bob_*.test.js`: 143 pass / 6 fail, same pre-existing claim-first failures as before the live `agent.js` swap.
+- **Deploy status:** Still a draft PR. Not merged. This agent does not deploy. Patch applies with `patch -p1` onto live (or this branch with `agent.js` set to the live file).
+- **Rollback:** leave `BOB_EVAL_HARNESS_LOG` unset, or restore the five live files listed in the FILES doc.
+
 ## 2026-10-31 — Grok Bot — Opt-in Bob evaluation logging harness (CODED; NOT DEPLOYED)
 - **Goal:** Randy approved a draft PR on this fork so we can record correlated, timestamped steps of each model turn (lite vs full LM Studio andy-4.2, Andy API code lane) without changing live play.
 - **Files:** `src/agent/library/bob_eval_harness.js` (new), hooks in `src/agent/agent.js`, `src/agent/commands/index.js`, `src/agent/self_prompter.js`, `src/models/prompter.js`, `test/bob_eval_harness.test.js`, `docs/BOB_EVAL_HARNESS.md`, README enable/schema section, `docs/BOB_AI_RECEIPTS.md` pointer, these docs.

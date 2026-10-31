@@ -69,16 +69,14 @@ never returns success.
 
 ## Merge with live `agent.js`
 
-This branch's `src/agent/agent.js` is the home-consolidation snapshot: it
-imports `HOME` from `bob_home.js` and does not construct `HomeRegistry` /
-`HomesteadTracker`. The live tree adds those homestead imports and start-up
-wiring (~50 lines). The `handleMessage` model loop itself matches live.
+`src/agent/agent.js` on this PR **is** the live file (HomeRegistry,
+HomesteadTracker, `maybeSetEssentialsHome`) plus harness hooks only. Live
+`commands/actions.js` and `bob_goal_circuit.js` still differ from this
+branch; the harness does not touch them — leave the live copies in place.
 
-Harness hooks sit in that shared loop, plus `commands/index.js`,
-`self_prompter.js`, and `prompter.js` (`_sendObservedModel`). When this PR is
-reconciled with live, keep the live homestead block at the top of `agent.js`
-and in `start()`, and keep the `handleMessage` / command / self-prompt hooks
-from this PR. Do not rebase or force-push this branch onto main/develop.
+Deploy onto live with `docs/deploy/bob-eval-harness-live.patch` (`patch -p1`).
+File list: `docs/deploy/bob-eval-harness-FILES.md`. Do not rebase or
+force-push this branch onto main/develop.
 
 ## What the harness must not do
 

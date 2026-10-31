@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — `!searchWiki` uses the wiki search API (TESTED; NOT DEPLOYED)
+- Draft PR against `work/bob-home-from-live-20261028` (never main/develop), branched from `8640167` — the live-sync merge from PR #24. Do not merge, do not force-push.
+- `!searchWiki` used to guess a URL from the raw query (`https://minecraft.wiki/w/<query>`) and return the entire article text. It now calls the search API (`action=query&list=search`) first, takes the **top hit**, fetches that page, and returns a summary capped at ~2000 characters: title + intro paragraphs + the `h2`/`h3` section headings. `table`/`.navbox`/`.mw-editsection`/`sup.reference` noise is stripped.
+- 10 s timeout (`AbortSignal.timeout(10000)`) on both requests. No hits → short `"<query> was not found on the Minecraft Wiki…"` message and **no** page fetch. Timeout or HTTP error → short "could not be reached" message; the command never throws.
+- Helpers are exported from `src/agent/commands/queries.js` (`fetchWikiTopHit`, `buildWikiSummary`, `searchWiki`, plus `WIKI_SEARCH_TIMEOUT_MS` / `WIKI_SUMMARY_MAX_CHARS`) so tests inject a fake `fetch` and never hit the network. Note: `queries.js` and `commands/index.js` import each other, so a test must import `commands/index.js` first.
+- Tests: `test/wiki_search.test.js` **11/11**. Full `npm test` on Node 22: **251/252 pass, 1 fail**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`, which already failed on the base `8640167` (documented by PR #24). No in-game validation.
+- Nothing on the live Bob tree / `.20` is touched. No gameplay, navigation, home, claim or prompt-shape change.
+
 ## 2026-10-31 — Survival guard must not block eating (TESTED; NOT DEPLOYED)
 - Randy: "why the hell are we blocking him eating.. fix that now." `criticalSurvivalGuard` was refusing `!searchForEntity` sheep/cow (top blocker). Food, hunt, crop search, food-drop collect, chest take, bed/home, sleep, flee, and defend are now allowed. Mining/building/long trips still blocked. If food is already in inventory the guard steers `!consume("item")` instead of a bare refuse. Guard/survival strings are not recorded as failures or goal-circuit trips. Patch: `docs/deploy/bob-survival-eat-guard.patch`. Does not use the abandoned hilltop.
 

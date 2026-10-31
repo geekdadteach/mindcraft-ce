@@ -8,6 +8,7 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import * as nav from './library/ai_player_nav.js';
 import * as survival from './library/survival.js';
+import * as shelter from './library/night_shelter.js';
 
 // [ai-player] spectators (e.g. Randy via /bobwatch) are invisible observers: never stare at, avoid or react to them
 function isSpectator(bot, entity) {
@@ -288,8 +289,10 @@ const modes_list = [
         update: async function (agent) {
             // [ai-player] melee threats only: ranged mobs further than 3 blocks and creepers belong to ranged_threat
             // (chasing skeletons into caves got Bob shot), so self_defense does not chase them.
-            const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity) && entity.name !== 'creeper' &&
-                !(survival.RANGED_MOBS.includes(entity.name) && entity.position.distanceTo(agent.bot.entity.position) > 3), 8);
+            // [ai-player] Fix 1c/1d: neutral mobs (enderman, wolf, ...) are ignored unless they just hit Bob, and
+            // an unarmed Bob at <= 10 health does not melee — self_preservation flees instead of feeding a death.
+            // survival.selfDefenseTarget holds that decision so it can be tested on its own.
+            const enemy = survival.selfDefenseTarget(agent.bot);
             if (enemy && await world.isClearPath(agent.bot, enemy)) {
                 say(agent, `Fighting ${enemy.name}!`);
                 execute(this, agent, async () => {
@@ -367,6 +370,7 @@ const modes_list = [
         paused_sp: false,
         boot_checked: false,
         far_logged: null,
+        next_shelter: 0,
         max_action_ms: 180000,
         home_at_night: nightHomeEnabled(),
         release: function (agent, why) {
@@ -380,15 +384,31 @@ const modes_list = [
             const sp = agent.self_prompter;
             if (sp.isActive()) { sp.setPromptPaused(sp.prompt); sp.stopLoop(); this.paused_sp = true; }
         },
+        // [ai-player] Fix 1e: with no verified home bed, night has no bed to reach. Rather than stand in
+        // the open, build the emergency shelter (library/night_shelter.js): seal up with a held dirt/cobble
+        // block or dig a 1x2 pocket. ON by default; BOB_NIGHT_SHELTER=0 disables it. This does not change
+        // BOB_NIGHT_HOME: that still controls going home to sleep.
+        tryEmergencyShelter: function (agent) {
+            if (this.active) return;
+            const now = Date.now();
+            if (now < this.next_shelter) return;
+            const why = shelter.shelterReason(agent.bot);
+            if (!why) return;
+            this.next_shelter = now + 60000; // one attempt a minute, like the bed retry
+            console.log(`[ai-player] night: no verified bed; building the emergency shelter (${why})`);
+            execute(this, agent, async () => { await shelter.buildShelter(agent.bot); }, -1, 60000);
+        },
         update: async function (agent) {
             if (!this.home_at_night) { // pr20-reconciled-20261027: independent exploration; release any hold/pause once
                 if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home off (independent exploration)');
                 this.boot_checked = true;
+                this.tryEmergencyShelter(agent); // [ai-player] Fix 1e: seal up when there is no bed to reach
                 return;
             }
             if (!isVerifiedHome(getActiveHome())) {
                 if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home has no verified house');
                 this.boot_checked = true;
+                this.tryEmergencyShelter(agent); // [ai-player] Fix 1e: seal up when there is no verified home bed
                 return;
             }
             const bot = agent.bot;

@@ -408,14 +408,22 @@ export async function defendSelf(bot, range=9) {
     bot.modes.pause('cowardice');
     let attacked = false;
     const gen = bot._actionGen;
-    let enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), range);
-    while (enemy && !superseded(bot, gen)) {
+    // [ai-player] Fix 1a: a defence loop must stop the moment it is interrupted or superseded. Before
+    // this, defendSelf only checked interrupt_code at the end of an iteration, so it kept walking back
+    // to the enemy and calling pvp.attack for seconds after self_preservation asked to flee — Bob died
+    // during that wait (report 4.1). Check after every await and stop before the next attack.
+    const interrupted = () => bot.interrupt_code || superseded(bot, gen);
+    // [ai-player] Fix 1c: neutral mobs (enderman, wolf, ...) are not a threat unless they just hit Bob.
+    let enemy = world.getNearestEntityWhere(bot, entity => mc.isAggressiveHostile(entity), range);
+    while (enemy && !interrupted()) {
         await equipHighestAttack(bot);
+        if (interrupted()) { bot.pvp.stop(); return false; }
         if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
             try {
                 bot.pathfinder.setMovements(new pf.Movements(bot));
                 await bot.pathfinder.goto(new pf.goals.GoalFollow(enemy, 3.5), true);
             } catch (err) {/* might error if entity dies, ignore */}
+            if (interrupted()) { bot.pvp.stop(); return false; }
         }
         if (bot.entity.position.distanceTo(enemy.position) <= 2) {
             try {
@@ -423,15 +431,14 @@ export async function defendSelf(bot, range=9) {
                 let inverted_goal = new pf.goals.GoalInvert(new pf.goals.GoalFollow(enemy, 2));
                 await bot.pathfinder.goto(inverted_goal, true);
             } catch (err) {/* might error if entity dies, ignore */}
+            if (interrupted()) { bot.pvp.stop(); return false; }
         }
+        if (interrupted()) { bot.pvp.stop(); return false; }
         bot.pvp.attack(enemy);
         attacked = true;
         await new Promise(resolve => setTimeout(resolve, 500));
-        enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), range);
-        if (bot.interrupt_code) {
-            bot.pvp.stop();
-            return false;
-        }
+        if (interrupted()) { bot.pvp.stop(); return false; }
+        enemy = world.getNearestEntityWhere(bot, entity => mc.isAggressiveHostile(entity), range);
     }
     bot.pvp.stop();
     if (attacked)

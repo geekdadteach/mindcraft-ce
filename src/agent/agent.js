@@ -6,7 +6,7 @@ import { Coder } from './coder.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
 import { initModes } from './modes.js';
-import { initBot } from '../utils/mcdata.js';
+import { initBot, stampLikelyAttacker } from '../utils/mcdata.js';
 import { containsCommand, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
 import { ActionManager } from './action_manager.js';
 import { NPCContoller } from './npc/controller.js';
@@ -376,6 +376,9 @@ export class Agent {
         this.bot.stopDigging();
         this.bot.collectBlock.cancelTask();
         this.bot.pathfinder.stop();
+        // [ai-player] Fix 1b: clear the goal too. stop() alone can leave a pending goal that the
+        // next physics tick resumes, so an interrupted bot kept walking back into the fight.
+        try { this.bot.pathfinder.setGoal(null); } catch (e) { /* pathfinder not ready */ }
         this.bot.pvp.stop();
     }
 
@@ -686,6 +689,9 @@ export class Agent {
             if (this.bot.health < prev_health) {
                 this.bot.lastDamageTime = Date.now();
                 this.bot.lastDamageTaken = prev_health - this.bot.health;
+                // [ai-player] Fix 1c: stamp the nearest mob so a neutral mob that actually hit Bob
+                // counts as hostile for a few seconds (mc.isAggressiveHostile).
+                try { stampLikelyAttacker(this.bot); } catch (e) { /* best-effort */ }
             }
             prev_health = this.bot.health;
         });

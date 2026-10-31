@@ -197,6 +197,38 @@ export function isHostile(mob) {
     return  (mob.type === 'mob' || mob.type === 'hostile') && mob.name !== 'iron_golem' && mob.name !== 'snow_golem';
 }
 
+// [ai-player] Fix 1c: neutral mobs. Minecraft's neutral mobs ignore a player until provoked, so Bob
+// should not pre-emptively fight (or flee) them — an unprovoked enderman or wolf is not a threat.
+// They only count as a threat for NEUTRAL_AGGRO_MS after they have actually damaged Bob.
+export const NEUTRAL_MOBS = new Set([
+    'enderman', 'zombified_piglin', 'piglin', 'wolf', 'bee', 'llama',
+    'trader_llama', 'panda', 'polar_bear', 'dolphin', 'goat'
+]);
+export const NEUTRAL_AGGRO_MS = 5000;
+
+export function isAggressiveHostile(mob, now = Date.now()) {
+    if (!isHostile(mob)) return false;
+    if (!NEUTRAL_MOBS.has(String(mob.name).toLowerCase())) return true;
+    // Neutral mob: hostile only in the short window after it hurt Bob (stamped by stampLikelyAttacker).
+    const hit = mob._lastDamagedBot;
+    return Number.isFinite(hit) && now - hit <= NEUTRAL_AGGRO_MS;
+}
+
+// [ai-player] Fix 1c: when Bob loses health, remember the nearest mob as the likely attacker so a
+// neutral mob that actually hit him is treated as hostile for NEUTRAL_AGGRO_MS. Best-effort only.
+export function stampLikelyAttacker(bot, now = Date.now(), range = 6) {
+    const p = bot?.entity?.position;
+    if (!p || typeof p.distanceTo !== 'function') return null;
+    let best = null, bestD = range;
+    for (const e of Object.values(bot.entities || {})) {
+        if (!e || e === bot.entity || !e.position || (e.type !== 'mob' && e.type !== 'hostile')) continue;
+        const d = p.distanceTo(e.position);
+        if (d <= bestD) { best = e; bestD = d; }
+    }
+    if (best) best._lastDamagedBot = now;
+    return best;
+}
+
 // blocks that don't work with collectBlock, need to be manually collected
 export function mustCollectManually(blockName) {
     // all crops (that aren't normal blocks), torches, buttons, levers, redstone,

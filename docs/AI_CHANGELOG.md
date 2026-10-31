@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1: combat interrupt, neutral mobs, emergency night shelter (TESTED; NOT DEPLOYED)
+- **Goal:** Stop the night deaths (report 4.1: 15 deaths, 14 to spiders, all at night) by making defence interruptible, ignoring unprovoked neutral mobs, not meleeing unarmed at low health, and adding an emergency night shelter. Work-order item 1 (report 4.1 + 4.2).
+- **Files:** `src/agent/library/skills.js`, `src/agent/agent.js`, `src/utils/mcdata.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `src/agent/library/night_shelter.js` (new), `test/bob_combat_interrupt.test.js` (new), `test/bob_night_shelter.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `defendSelf()` checks interrupt/superseded after every await and stops `pvp` before the next attack; `requestInterrupt()` clears the pathfinder goal; `isAggressiveHostile()` treats neutral mobs as hostile only within 5 s of them damaging Bob; `self_defense` skips unarmed-at-<=10-health and ignores unprovoked neutrals; a new night shelter seals up with held dirt/cobble or digs a 1x2 pocket when there is no verified bed. Neutral filtering and the shelter are ON by default; `BOB_NIGHT_SHELTER=0` disables the shelter. `BOB_NIGHT_HOME` is unchanged.
+- **Tests:** `test/bob_combat_interrupt.test.js` **4/4**, `test/bob_night_shelter.test.js` **5/5**. Full `npm test` on Node 22: **264/265 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- **Deploy status:** Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed. Live Bob and `.20` untouched. No in-game validation; an in-game check of the combat interrupt and the shelter is required before deployment (MM20, with Randy's approval).
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
+
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
 - **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

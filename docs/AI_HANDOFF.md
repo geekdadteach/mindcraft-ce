@@ -1,5 +1,16 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1: combat interrupt, neutral mobs, emergency night shelter (TESTED; NOT DEPLOYED)
+- Report 4.1/4.2, work-order item 1. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. New behaviour is ON by default with env opt-outs. Not merged, not deployed; live Bob / `.20` untouched.
+- **(1a) Interruptible defence** — `src/agent/library/skills.js` `defendSelf()` now checks `bot.interrupt_code || superseded(bot, gen)` right after every await (equip, both `pathfinder.goto` calls, the 500 ms sleep) and calls `bot.pvp.stop()` before returning, so a flee request (self_preservation) is no longer blocked for seconds by an in-progress melee loop.
+- **(1b) Clear the goal on interrupt** — `src/agent/agent.js` `requestInterrupt()` also calls `bot.pathfinder.setGoal(null)` (wrapped in try/catch) after `pathfinder.stop()`.
+- **(1c) Neutral mobs** — `src/utils/mcdata.js` adds `NEUTRAL_MOBS` and `isAggressiveHostile(mob)` (enderman, zombified_piglin, piglin, wolf, bee, llama, trader_llama, panda, polar_bear, dolphin, goat are threats only for 5 s after they damage Bob), plus `stampLikelyAttacker(bot)`, called from the health handler. `isHostile` is unchanged. `defendSelf` and `self_defense` now use `isAggressiveHostile`.
+- **(1d) Unarmed disengage** — `self_defense` (via `survival.selfDefenseTarget`) does not melee when Bob has no sword/axe and health <= 10; self_preservation flees instead.
+- **(1e) Emergency night shelter** — new `src/agent/library/night_shelter.js`. At night, with hostiles within 12 blocks or health <= 10, and no verified home bed, it seals up with a held dirt/cobble block or digs a 1x2 pocket. Wired into the `night` mode as a fallback; never breaks or places inside a protected house area or a no-go zone. ON by default; `BOB_NIGHT_SHELTER=0` disables. `BOB_NIGHT_HOME` semantics unchanged.
+- Tests: `test/bob_combat_interrupt.test.js` **4/4**, `test/bob_night_shelter.test.js` **5/5**. Full `npm test` on Node 22: **264/265 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`.
+- UNPROVEN: no live Minecraft session was run. The "who damaged Bob" signal is a heuristic (nearest mob within 6 blocks when health drops), and the shelter's wall-in/dig mechanics need an in-game check.
+
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

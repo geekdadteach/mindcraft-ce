@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
+- **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
+- **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** resolve the article with `action=opensearch&search=<q>&limit=1&redirects=resolve` first and use its first title; fall back to the `list=search` top hit only when opensearch has no title or errors out. Both calls keep the 10 s timeout. The intro loop now stops on a direct child that is `h1`–`h6` **or** carries the `mw-heading` class. The `Sections:` line is reserved (capped at `max/4`) before the intro is trimmed, so it survives the ~2000 character cap on long articles.
+- **Tests:** `test/wiki_search.test.js` **15/15**. Full `npm test` on Node 22: **255/256 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`. Live check: opensearch `diamonds` → `Diamond` while `list=search` → `Achievement | Diamond | Diamond Ore`; live end-to-end summary was 626 characters with the sections line present.
+- **Deploy status:** Same draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the follow-up commit on the PR branch.
+
 ## 2026-10-31 — `!searchWiki` searches the wiki API instead of guessing a URL (TESTED; NOT DEPLOYED)
 - **Goal:** Make `!searchWiki` behave like a search: query the Minecraft Wiki search API, take the top hit, then summarize that page, instead of dumping the whole article for a URL guessed from the raw query.
 - **Files:** `src/agent/commands/queries.js` (new helpers + `!searchWiki` body), `test/wiki_search.test.js` (new), `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

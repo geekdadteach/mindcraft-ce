@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
+- Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
+- **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.
+- **Intro cutoff:** live pages wrap headings as `<div class="mw-heading mw-heading2"><h2 id="Obtaining">Obtaining</h2></div>`, so the old "stop at a direct `h1`–`h6` child" check never fired and post-heading body text leaked into the intro. The loop now also stops on a direct child carrying the `mw-heading` class.
+- **Cap:** the `Sections:` line is reserved (capped at `max/4`) before the intro is trimmed, so a long article can no longer have its section list cut off by the ~2000 character cap.
+- Tests: `test/wiki_search.test.js` **15/15** (adds: opensearch hit wins with no `list=search` call; empty opensearch falls back; opensearch error falls back; wrapped-heading fixtures; body text after a wrapped heading stays out of the intro; `Sections:` survives on a 9000-character article). Full `npm test` on Node 22: **255/256 pass, 1 fail** — only the pre-existing `confirmSetHome` failure. Live end-to-end run: 626-character summary for `diamonds`, sections line present; an unknown query returns the short not-found message.
+- Still a draft PR against `work/bob-home-from-live-20261028`. Not merged, not deployed. Live Bob / `.20` untouched.
+
 ## 2026-10-31 — `!searchWiki` uses the wiki search API (TESTED; NOT DEPLOYED)
 - Draft PR against `work/bob-home-from-live-20261028` (never main/develop), branched from `8640167` — the live-sync merge from PR #24. Do not merge, do not force-push.
 - `!searchWiki` used to guess a URL from the raw query (`https://minecraft.wiki/w/<query>`) and return the entire article text. It now calls the search API (`action=query&list=search`) first, takes the **top hit**, fetches that page, and returns a summary capped at ~2000 characters: title + intro paragraphs + the `h2`/`h3` section headings. `table`/`.navbox`/`.mw-editsection`/`sup.reference` noise is stripped.

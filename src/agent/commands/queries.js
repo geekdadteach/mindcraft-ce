@@ -57,6 +57,43 @@ export async function fetchWikiTopHit(query, {
     return hits[0];
 }
 
+// opensearch suggests the single canonical article a query means, or null when it has none.
+export async function fetchWikiOpenSearchTitle(query, {
+    fetchImpl = fetch,
+    timeoutMs = WIKI_SEARCH_TIMEOUT_MS,
+} = {}) {
+    const url = `${WIKI_API_URL}?action=opensearch&search=${encodeURIComponent(query)}&limit=1&redirects=resolve&format=json`;
+    const response = await wikiRequest(fetchImpl, url, timeoutMs, 'application/json');
+    if (!response.ok) {
+        throw new Error(`Minecraft Wiki opensearch returned HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    // opensearch answers [query, [titles], [descriptions], [urls]].
+    const titles = Array.isArray(data) ? data[1] : null;
+    if (!Array.isArray(titles) || titles.length === 0) {
+        return null;
+    }
+    return tidyWikiText(titles[0]) || null;
+}
+
+// Decide which article a query means. opensearch ranks better than list=search ("diamonds"
+// comes back as "Achievement" from list=search), so it goes first; list=search is the
+// fallback when opensearch has no title or errors out.
+export async function resolveWikiTopHit(query, {
+    fetchImpl = fetch,
+    timeoutMs = WIKI_SEARCH_TIMEOUT_MS,
+} = {}) {
+    try {
+        const title = await fetchWikiOpenSearchTitle(query, { fetchImpl, timeoutMs });
+        if (title) {
+            return { title };
+        }
+    } catch (error) {
+        console.warn(`[!searchWiki] opensearch failed, falling back to list=search: ${error?.message ?? error}`);
+    }
+    return fetchWikiTopHit(query, { fetchImpl, timeoutMs });
+}
+
 // Turn a fetched article into a small, prompt-friendly summary: title, intro, section headings.
 export function buildWikiSummary(title, html, {
     max = WIKI_SUMMARY_MAX_CHARS,
@@ -70,10 +107,12 @@ export function buildWikiSummary(title, html, {
     if (cleanTitle) {
         lines.push(cleanTitle);
     }
-    // Intro: the paragraphs before the first heading.
+    // Intro: the paragraphs before the first heading. Live pages wrap headings as
+    // <div class="mw-heading mw-heading2"><h2>…</h2></div>, so stop on either shape.
     article.children().each((_, element) => {
         const tag = String(element?.tagName ?? '').toLowerCase();
-        if (/^h[1-6]$/.test(tag)) {
+        const className = String(element?.attribs?.class ?? '');
+        if (/^h[1-6]$/.test(tag) || /\bmw-heading\b/.test(className)) {
             return false; // stop at the first heading
         }
         if (tag !== 'p') {
@@ -92,10 +131,14 @@ export function buildWikiSummary(title, html, {
             sections.push(heading);
         }
     });
-    if (sections.length > 0) {
-        lines.push(`Sections: ${sections.join(', ')}`);
-    }
-    return clampWikiSummary(lines.join('\n'), max);
+    // The section list is what the bot acts on, so reserve room for it and trim the intro to
+    // fit rather than letting the cap cut the list off.
+    const sectionsLine = sections.length > 0
+        ? clampWikiSummary(`Sections: ${sections.join(', ')}`, Math.floor(max / 4))
+        : '';
+    const reserved = sectionsLine ? sectionsLine.length + 1 : 0;
+    const intro = clampWikiSummary(lines.join('\n'), Math.max(0, max - reserved));
+    return [intro, sectionsLine].filter(Boolean).join('\n');
 }
 
 // !searchWiki: search the wiki first, then summarize the top hit.
@@ -104,7 +147,7 @@ export async function searchWiki(query, {
     timeoutMs = WIKI_SEARCH_TIMEOUT_MS,
     max = WIKI_SUMMARY_MAX_CHARS,
 } = {}) {
-    const hit = await fetchWikiTopHit(query, { fetchImpl, timeoutMs });
+    const hit = await resolveWikiTopHit(query, { fetchImpl, timeoutMs });
     if (!hit) {
         return `${query} was not found on the Minecraft Wiki. Try adjusting your search term.`;
     }

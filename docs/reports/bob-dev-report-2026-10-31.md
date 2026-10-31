@@ -22,7 +22,7 @@ Code references are to `geekdadteach/mindcraft-ce` at **697f560** (`work/bob-hom
 |---|---|
 | Public fork | https://github.com/geekdadteach/mindcraft-ce (default branch `develop`) |
 | Bob's real branch | `work/bob-home-from-live-20261028`, now at `697f560` (matches live) |
-| **Your working checkout (Cline)** | `/Users/test/BobRuntime/bob-home-validation` |
+| **Your working checkout (Cline)** | the repo root open in VS Code; all code paths in this report are relative to it |
 | Live tree (**do NOT edit**) | `/Users/test/BobRuntime/cutover/mindcraft-m4` |
 | Staging (**do NOT touch**; live `node_modules` is a symlink to it) | `/Users/test/BobMigration/staging/mindcraft-ce` |
 | Upstream clone (**not the fork**, don't use) | `/Users/test/mindcraft-ce` |
@@ -31,7 +31,7 @@ Code references are to `geekdadteach/mindcraft-ce` at **697f560** (`work/bob-hom
 ### Toolchain on .20
 ```sh
 export PATH=/opt/homebrew/opt/node@22/bin:$PATH   # Homebrew node 26 is broken (libsimdjson); always use node 22
-cd /Users/test/BobRuntime/bob-home-validation
+# from the repo root
 npm test                                           # node --test "test/**/*.test.js"
 gh auth setup-git --hostname github.com            # once, so git push uses gh auth
 git config user.name  "geekdadteach"
@@ -64,7 +64,7 @@ git config user.email "geekdadteach@users.noreply.github.com"
 
 ## 3. Where to look (read-only on live is OK)
 
-All paths are relative to `/Users/test/BobRuntime/cutover/mindcraft-m4` unless noted.
+These are runtime files on Randy's Mac (read-only for you), relative to the live tree `/Users/test/BobRuntime/cutover/mindcraft-m4` unless noted. Code paths elsewhere in this report are repo-relative.
 
 | Source | What it is | Tips |
 |---|---|---|
@@ -350,7 +350,7 @@ Each one gets its own branch and draft PR (base `work/bob-home-from-live-2026102
 ## 6. Copy-paste prompts for Cline
 
 > Prefix each prompt with this context:
-> "Repo: /Users/test/BobRuntime/bob-home-validation (fork geekdadteach/mindcraft-ce). First read AGENTS.md, docs/AI_HANDOFF.md, docs/AI_CHANGELOG.md, NEWEARTH.md. Use `export PATH=/opt/homebrew/opt/node@22/bin:$PATH`. Create the branch from `work/bob-home-from-live-20261028`. Do NOT touch /Users/test/BobRuntime/cutover/mindcraft-m4, /Users/test/BobMigration/staging, bots/, logs, keys, or any secrets. New behaviour ON by default with an env opt-out. In tests import src/agent/commands/index.js before queries.js. Run `npm test`; the only allowed failure is the pre-existing confirmSetHome test. Add a docs/AI_HANDOFF.md update and a top docs/AI_CHANGELOG.md entry. Stage explicit paths only, secret-scan `git diff --cached`, commit as geekdadteach <geekdadteach@users.noreply.github.com>, push, and open a DRAFT PR with base work/bob-home-from-live-20261028. Never merge, force-push, rebase pushed commits, use --no-verify, or deploy."
+> "Repo: this repo (fork geekdadteach/mindcraft-ce); all paths are repo-relative. First read AGENTS.md, docs/AI_HANDOFF.md, docs/AI_CHANGELOG.md, NEWEARTH.md. Use `export PATH=/opt/homebrew/opt/node@22/bin:$PATH`. Create the branch from `work/bob-home-from-live-20261028`. Do NOT touch /Users/test/BobRuntime/cutover/mindcraft-m4, /Users/test/BobMigration/staging, bots/, logs, keys, or any secrets. New behaviour ON by default with an env opt-out. In tests import src/agent/commands/index.js before queries.js. Run `npm test`; the only allowed failure is the pre-existing confirmSetHome test. Add a docs/AI_HANDOFF.md update and a top docs/AI_CHANGELOG.md entry. Stage explicit paths only, secret-scan `git diff --cached`, commit as geekdadteach <geekdadteach@users.noreply.github.com>, push, and open a DRAFT PR with base work/bob-home-from-live-20261028. Never merge, force-push, rebase pushed commits, use --no-verify, or deploy."
 
 **Fix 1: combat interrupt, neutral mobs, night shelter**
 ```

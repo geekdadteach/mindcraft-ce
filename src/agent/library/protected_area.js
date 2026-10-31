@@ -2,11 +2,10 @@
 // Two layers: pathfinder/collectBlocks treat these blocks as unbreakable (Movements.safeToBreak), and
 // bot.dig refuses them outright as a backstop for any other caller.
 //
-// House box is aligned with the claim (x -827..-819, z 565..573) plus the built east wall
-// (out to x -816), door row z 566. The porch row z 564..565 (oak_log posts, outside pressure plate and
-// its support) is protected too; inside the walking lane x -821..-819 z 564..565 only loose fill
-// (dirt, gravel, sand...) may be dug, so destructive pathing can clear a sealed porch without
-// touching house blocks. Walls, roof, door, plate and posts stay protected.
+// House boxes come from a verified home (door + facing). With no verified home, nothing is
+// house-protected. Inside the walking lane only loose fill (dirt, gravel, sand...) may be dug
+// so a sealed porch can be cleared without touching house blocks. Walls, roof, door, plate
+// and posts stay protected. The retired hilltop is never a protected destination.
 import pf from 'mineflayer-pathfinder';
 import {
     HOUSE_AREA,
@@ -19,7 +18,9 @@ import {
     inBox,
     isInsideHouseArea,
     isWalkingLane,
-    protectedAreaAt
+    protectedAreaAt,
+    protectedAreas,
+    walkingLane
 } from './house_bounds.js';
 
 export {
@@ -62,5 +63,7 @@ export function installProtectedAreaGuard(agent) {
         };
         bot._aiPlayerDigGuard = true;
     }
-    console.log(`[ai-player] protected-area guard on: ${PROTECTED_AREAS.map(a => `${a.name} x ${a.x1}..${a.x2} y ${a.y1}..${a.y2} z ${a.z1}..${a.z2}`).join('; ')}; walking lane x ${WALKING_LANE.x1}..${WALKING_LANE.x2} z ${WALKING_LANE.z1}..${WALKING_LANE.z2}: loose fill only (${[...LANE_FILL].slice(0, 4).join('/')}...)`);
+    const areas = protectedAreas();
+    const lane = walkingLane();
+    console.log(`[ai-player] protected-area guard on: ${areas.length ? areas.map(a => `${a.name} x ${a.x1}..${a.x2} y ${a.y1}..${a.y2} z ${a.z1}..${a.z2}`).join('; ') : 'no verified house yet'}; walking lane ${lane ? `x ${lane.x1}..${lane.x2} z ${lane.z1}..${lane.z2}: loose fill only (${[...LANE_FILL].slice(0, 4).join('/')}...)` : 'none'}`);
 }

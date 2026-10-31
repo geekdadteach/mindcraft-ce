@@ -127,15 +127,20 @@ test('LITE keeps coding allowed (no allow_insecure_coding=false, no !newAction b
     assert.deepEqual(r.profiles, ['./profiles/andy-api-lite.json']);
 });
 
-test('profiles: chat is LM Studio only and code_model is the Andy API', async () => {
+test('profiles: chat is LM Studio only; code_model is Gemini (live) or the Andy API (lite)', async () => {
     const fs = await import('node:fs');
-    for (const f of ['profiles/andy-api-lite.json', 'profiles/andy-api.json']) {
+    // Oct 31 2026: Randy moved the live profile's code lane to Gemini.
+    const codeModels = {
+        'profiles/andy-api-lite.json': { api: 'andy', model: 'claude-haiku-5.5' },
+        'profiles/andy-api.json': { api: 'google', model: 'gemini-3.8-flash' },
+    };
+    for (const [f, cm] of Object.entries(codeModels)) {
         const pr = JSON.parse(fs.readFileSync(f, 'utf8'));
         assert.equal(pr.model.api, 'andy_pool', f);
         assert.equal(pr.model.params.api_fallback, false, f);
         assert.deepEqual(pr.model.params.lmstudio_fallback_urls, [], f);
-        assert.equal(pr.code_model.api, 'andy', f);
-        assert.equal(pr.code_model.model, 'claude-haiku-5.5', f);
+        assert.equal(pr.code_model.api, cm.api, f);
+        assert.equal(pr.code_model.model, cm.model, f);
         assert.equal(pr.vision_model, undefined, f);
         assert.equal(pr.embedding.params?.fallback_urls, undefined, f);
     }

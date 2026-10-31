@@ -7,8 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { ResetRecovery } from '../src/agent/library/reset_recovery.js';
 import { navMemory, UnreachableMemory } from '../src/agent/library/bob_nav_memory.js';
-import { DOOR, decide, DEFAULTS, loadConfig } from '../src/agent/library/stuck_home.js';
+import { decide, DEFAULTS, doorOf, loadConfig } from '../src/agent/library/stuck_home.js';
 import { isInsideHouseArea, isWalkingLane, protectedAreaAt } from '../src/agent/library/house_bounds.js';
+import { emptyHome, exampleVerifiedHome, setActiveHome } from '../src/agent/library/bob_home.js';
 
 test('reset / stuck-home teleport clears the unreachable nav blacklist', async () => {
     const bot = { entity: { position: { x: -819.5, y: 124, z: 565.5 } } };
@@ -43,11 +44,15 @@ test('UnreachableMemory.clear returns how many entries were dropped', () => {
 });
 
 test('stuck-home landing spot (door plate) is on the porch, not "inside the house" for enclosure', () => {
-    assert.equal(isInsideHouseArea(DOOR), false);
-    assert.equal(isWalkingLane(DOOR), true);
-    // the plate Bob lands on and its support are never diggable
-    assert.ok(protectedAreaAt({ x: -820, y: 124, z: 565 }, 'oak_pressure_plate'));
-    assert.ok(protectedAreaAt({ x: -820, y: 123, z: 565 }, 'grass_block'));
+    const home = exampleVerifiedHome();
+    setActiveHome(home);
+    try {
+        const door = doorOf();
+        assert.equal(isInsideHouseArea(door), false);
+        assert.equal(isWalkingLane(door), true);
+        assert.ok(protectedAreaAt(home.entrance, 'oak_pressure_plate'));
+        assert.ok(protectedAreaAt(home.plateSupport, 'grass_block'));
+    } finally { setActiveHome(emptyHome()); }
 });
 
 test('stuck-home nodistance config still loads as unlimited radius', () => {

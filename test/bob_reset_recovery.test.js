@@ -3,11 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createDetector, resetLesson, readRequest, ResetRecovery, TARGET, TELEPORT_NOTE } from '../src/agent/library/reset_recovery.js';
+import { createDetector, resetLesson, readRequest, ResetRecovery, TELEPORT_NOTE } from '../src/agent/library/reset_recovery.js';
+import { emptyHome, exampleVerifiedHome, setActiveHome } from '../src/agent/library/bob_home.js';
 
-const door = { ...TARGET };
+const fixture = exampleVerifiedHome();
+const door = { ...fixture.entrance };
+test('teleport onto a non-home location does not fire without a verified entrance', () => {
+    setActiveHome(emptyHome());
+    const d = createDetector({ target: () => null });
+    assert.equal(d.feed(0, { x: -840, y: 115, z: 553 }, 'action:collectBlocks'), null);
+    assert.equal(d.feed(500, { x: -1144, y: 65, z: 752 }), null);
+});
+
 test('teleport onto the door plate triggers once, then cooldown', () => {
-    const d = createDetector();
+    const d = createDetector({ target: door });
     assert.equal(d.feed(0, { x: -840, y: 115, z: 553 }, 'action:collectBlocks'), null);
     const hit = d.feed(500, door);
     assert.ok(hit && !hit.suppressed);
@@ -47,6 +56,8 @@ function fakeAgent() {
 }
 test('teleport records note + lesson and stops the action, no restart', async () => {
     const f = fakeAgent(); let t = 0;
+    f.agent.homeState = { snapshot: () => fixture };
+    setActiveHome(fixture);
     const r = new ResetRecovery(f.agent, { inboxDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rr-')), now: () => t });
     r.sample(); t = 500; f.pos = door; r.sample();
     await new Promise(res => setTimeout(res, 20));

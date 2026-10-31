@@ -14,6 +14,7 @@ export const NO_GO_ZONES = [
     { name: 'the racetrack', x: -264, y: 66, z: 513 },
 ];
 // No fixed homestead: Bob has a claim, not a prebuilt home.
+export const HOMESTEAD = null;
 
 const ESCAPE_RETRY_MS = 45000;
 const TICK_MS = 3000;

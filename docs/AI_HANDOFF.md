@@ -1,5 +1,8 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Bob developer report added (DOCS ONLY)
+- `docs/reports/bob-dev-report-2026-10-31.md`: read-only audit of Bob on .20 (logs 1:58–6:09 PM ET) turned into a dev handoff for VS Code + Cline: orientation, rules, 13 ranked problems (night spider deaths, food loop, planks name-correction, spider_eye never edible, chest deposit false negative, pathfinder probe, code lane unverified, etc.) with file refs at 697f560, fixes, tests, branch names and copy-paste Cline prompts. No code changes.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

@@ -1,5 +1,5 @@
 import { getBlockId, getItemId } from "../../utils/mcdata.js";
-import { criticalSurvivalGuard } from '../library/bob_survival_gate.js';
+import { criticalSurvivalGuard, recallBedHint } from '../library/bob_survival_gate.js';
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
 import { correctName } from '../library/long_memory.js';
@@ -220,7 +220,10 @@ const commandKey = (parsed) => `${parsed.commandName}(${(parsed.args || []).map(
 function aiPlayerGuard(agent, parsed) {
     try {
         const key = commandKey(parsed);
-        const safety = criticalSurvivalGuard(agent.bot, parsed.commandName, !!agent.self_prompter?._selfPromptIteration);
+        const safety = criticalSurvivalGuard(agent.bot, parsed.commandName, !!agent.self_prompter?._selfPromptIteration, {
+            args: parsed.args || [],
+            bed: recallBedHint(agent),
+        });
         if (safety && isAction(parsed.commandName)) {
             console.log('[ai-player] survival-guard: blocked ' + key);
             return safety;

@@ -1,5 +1,6 @@
 import { GoalFailureCircuit } from './library/bob_goal_circuit.js';
 import { harnessOf } from './library/bob_eval_harness.js';
+import { isGuardBlockResult } from './library/bob_survival_gate.js';
 
 const STOPPED = 0
 const ACTIVE = 1
@@ -63,6 +64,8 @@ export class SelfPrompter {
 
     noteFailure(action, target, error) {
         if (this.isStopped())
+            return null;
+        if (isGuardBlockResult(error))
             return null;
         return this.goalCircuit.record(action, target, error);
     }

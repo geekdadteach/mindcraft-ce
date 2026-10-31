@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Grok Bot — Survival guard no longer blocks eating (TESTED; NOT DEPLOYED)
+- **Goal:** Randy: stop the survival guard from starving Bob. Logs showed `guard:survival` blocking `!searchForEntity` sheep/cow near -1135 67 754.
+- **Files:** `src/agent/library/bob_survival_gate.js`, `src/agent/commands/index.js` (pass args + bed hint), `src/agent/library/failures.js`, `src/agent/self_prompter.js` (skip guard strings), `test/bob_survival_gate.test.js`, `docs/deploy/bob-survival-eat-guard.patch`, these docs.
+- **Behavior:** Critical health/food still blocks mining, building, and long `!goToCoordinates`. Never blocks eat/getFood, food-animal search/attack, crop search, food-drop collect, chest take, bed/home, sleep, flee, or hostile defend. Has-food → eat-first `!consume` suggestion. Guard refusals do not enter `failures.json` or the goal circuit.
+- **Tests:** `test/bob_survival_gate.test.js` 6/6; with harness/scorecard/verifier + `bob_ai_v2` / `bob_brain` / `bob_brain_v2` 62/62.
+- **Deploy status:** New PR vs `work/bob-home-from-live-20261028`. Not merged. This agent does not deploy.
+- **Rollback:** restore the four live files from the pre-PR tree.
+- **Live files:** `bob_survival_gate.js`, `commands/index.js`, `failures.js`, `self_prompter.js`.
+
 ## 2026-10-31 — Grok Bot — World-state goal verifier (TESTED; NOT DEPLOYED)
 - **Goal:** Randy: judge from world state whether Bob achieved the goal, not from `task.finished`. Verifier ON by default with the harness; `BOB_EVAL_GOAL_VERIFIER=0` restores the stub.
 - **Files:** `src/agent/library/bob_goal_verifier.js` (new), `src/agent/library/bob_eval_harness.js`, `src/agent/commands/index.js` (pass already-parsed args only), `scripts/bob_scorecard.py`, `test/bob_goal_verifier.test.js`, fixture/docs/deploy note, these docs. No `actions.js` / `bob_goal_circuit.js` / live gameplay change.

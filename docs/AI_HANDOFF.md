@@ -1,5 +1,8 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Survival guard must not block eating (TESTED; NOT DEPLOYED)
+- Randy: "why the hell are we blocking him eating.. fix that now." `criticalSurvivalGuard` was refusing `!searchForEntity` sheep/cow (top blocker). Food, hunt, crop search, food-drop collect, chest take, bed/home, sleep, flee, and defend are now allowed. Mining/building/long trips still blocked. If food is already in inventory the guard steers `!consume("item")` instead of a bare refuse. Guard/survival strings are not recorded as failures or goal-circuit trips. Patch: `docs/deploy/bob-survival-eat-guard.patch`. Does not use the abandoned hilltop.
+
 ## 2026-10-31 — World-state goal verifier (TESTED; NOT DEPLOYED)
 - Same draft PR #22. `src/agent/library/bob_goal_verifier.js` is on whenever `BOB_EVAL_HARNESS_LOG` is set. Opt out with `BOB_EVAL_GOAL_VERIFIER=0` (stub). Snapshots at exec_start/goal_change and exec_end/turn_end; verdicts `met|not_met|progress|unevaluated` from inventory/position/food, never from `task.finished`. Scorecard reports met rate and exec-succeeded-but-not_met gap. Incremental live patch: `docs/deploy/bob-eval-goal-verifier.patch`. No gameplay change.
 

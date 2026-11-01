@@ -68,3 +68,15 @@ test('a starving Bob does not start or re-shelter while he has nothing to eat', 
     assert.match(src, /if \(this\.shelterLeftForFood\) return;/, 'tryEmergencyShelter refuses while set');
     assert.match(src, /shelterLeftForFood && \(agent\.bot\.food > 6/, 'the guard clears at food > 6');
 });
+
+test('the hunger mode eats while sheltered, and only then stops hunting/getFood', () => {
+    const modes = fs.readFileSync(new URL('../src/agent/modes.js', import.meta.url), 'utf8');
+    assert.match(modes, /await survival\.eatBest\(bot\)/, 'sheltered eating uses eatBest');
+    assert.match(modes, /await survival\.cookOrEat\(bot\)/, 'unsheltered eating still cooks');
+    const eat = modes.indexOf('survival.eatBest(bot)');
+    const ret = modes.indexOf('below both eat branches');
+    const food = modes.indexOf('survival.getFood(agent');
+    assert.ok(eat > 0 && ret > eat && food > ret, 'order: eat branch, sheltered return, getFood');
+    assert.match(modes, /shelter\.clearShelter\(agent\.bot\)/, 'the dimension-change path restores canDig');
+});
+

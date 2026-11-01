@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1e round 4: sheltered eating, dimension-change cleanup (report 4.1/4.2) (TESTED; NOT DEPLOYED)
+- Review of PR #27. Same branch, fifth commit (no force-push).
+- **Eat while sheltered** — the hunger mode's sheltered early-return now sits below both eat branches, so a sealed-in Bob still eats from his inventory but never hunts or runs the food loop; while sheltered it calls `survival.eatBest(bot)` (never `cookOrEat`, which can walk to a furnace the shelter guard forbids).
+- **Dimension change** — the night mode's dimension-change path calls `shelter.clearShelter(agent.bot)` so the pathfinder's `canDig` is restored along with the shelter state.
+- Tests: `test/bob_shelter_hold.test.js` **6/6** (new: the eat-then-stop order and the dimension-change clear). Full `npm test` on Node 22: **277/278 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 1e round 3: review fixes (starving Bob never shelters, canDig guard, hold release on death) (TESTED; NOT DEPLOYED)
 - Review of PR #27. Same branch, fourth commit (no force-push).
 - **Starving Bob never shelters** — `night_shelter.shelterReason()` returns null when `food <= 6` and Bob holds nothing edible, so he is never sealed in with no way to eat; `modes.js` `night` sets `shelterLeftForFood` in `leaveForFood()` and `tryEmergencyShelter()` refuses to re-shelter until `food > 6` or dawn.

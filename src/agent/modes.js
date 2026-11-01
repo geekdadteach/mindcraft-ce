@@ -324,9 +324,6 @@ const modes_list = [
             const bot = agent.bot;
             if (bot.food == null) return;
             if (bot.autoEat?.isEating) return;
-            // [ai-player] Fix 1e round 3: while sealed in for the night, do not run the food loop (it would
-            // pathfind out of the shelter); the night mode leaves early when starving instead.
-            if (shelter.isSheltered() && !shelter.shouldLeaveEarlyForFood(bot)) return;
             if (/^mode:(self_preservation|self_defense|cowardice|ranged_threat|night)$/.test(agent.actions.currentActionLabel || '')) return;
             const now = Date.now();
             const stock = survival.foodStock(bot);
@@ -347,9 +344,15 @@ const modes_list = [
                 if (!this.hungry_since) this.hungry_since = now;
                 if (now - this.hungry_since < 15000) return; // auto-eat normally handles this
                 this.hungry_since = now;
-                execute(this, agent, async () => { await survival.cookOrEat(bot); });
+                // [ai-player] Fix 1e round 4: while sealed in, eat straight from the inventory —
+                // cookOrEat can walk to a furnace, which the shelter guard forbids.
+                if (shelter.isSheltered()) execute(this, agent, async () => { await survival.eatBest(bot); });
+                else execute(this, agent, async () => { await survival.cookOrEat(bot); });
                 return;
             }
+            // [ai-player] Fix 1e round 4: below both eat branches, so a sheltered Bob may still eat from
+            // his inventory but never hunts or runs the food loop (that would pathfind out of the shelter).
+            if (shelter.isSheltered() && !shelter.shouldLeaveEarlyForFood(bot)) return;
             this.hungry_since = 0;
             // [ai-player] no food at food <= 12 (was <= 6: he only started looking when already starving)
             if (bot.food > 12 || now < this.next_try) return;
@@ -446,7 +449,7 @@ const modes_list = [
         update: async function (agent) {
             // [ai-player] Fix 1e: the emergency shelter holds until dawn, whatever BOB_NIGHT_HOME says.
             if (shelter.isSheltered()) {
-                if (shelter.dimensionChanged(agent.bot)) { shelter.clearShelter(); this.release(agent, 'shelter cleared (dimension change)'); return; }
+                if (shelter.dimensionChanged(agent.bot)) { shelter.clearShelter(agent.bot); this.release(agent, 'shelter cleared (dimension change)'); return; }
                 if (shelter.shouldLeaveEarlyForFood(agent.bot)) { this.leaveForFood(agent); return; }
                 if (!nav.isNightTime(agent.bot)) this.dawnExit(agent);
                 else this.holdShelter(agent);

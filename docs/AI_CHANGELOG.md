@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1e round 4: sheltered eating, dimension-change cleanup (report 4.1/4.2) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #27 review: a sheltered Bob must still be able to eat, and a dimension change must restore the dig guard.
+- **Files:** `src/agent/modes.js`, `test/bob_shelter_hold.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the hunger mode eats via `survival.eatBest(bot)` while sheltered (below both eat branches it stops hunting/getFood); the dimension-change path calls `shelter.clearShelter(agent.bot)`.
+- **Tests:** `test/bob_shelter_hold.test.js` **6/6**. Full `npm test` on Node 22: **277/278 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#27); fifth commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-4 commit on the PR branch.
+
 ## 2026-10-31 — Fix 1e round 3: review fixes for PR #27 (TESTED; NOT DEPLOYED)
 - **Goal:** PR #27 review: a starving Bob must never be sealed in; the pathfinder must not dig him out; the night hold must drop on death/respawn.
 - **Files:** `src/agent/library/night_shelter.js`, `src/agent/library/shelter_state.js`, `src/agent/modes.js`, `src/agent/agent.js`, `test/bob_shelter_hold.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

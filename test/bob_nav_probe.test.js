@@ -9,27 +9,40 @@ import { protectedAreaAt } from '../src/agent/library/house_bounds.js';
 test('the full probe keeps going while the search is partial, so a later success is seen', async () => {
     const seq = ['partial', 'partial', 'success'];
     let i = 0, t = 0;
-    const path = await probePathStatus(() => ({ status: seq[Math.min(i++, seq.length - 1)] }), { totalMs: 1500, now: () => (t += 100) });
+    function* gen() { while (true) yield { result: { status: seq[Math.min(i++, seq.length - 1)] } }; }
+    const path = await probePathStatus(gen, { totalMs: 1500, now: () => (t += 100) });
     assert.equal(path.status, 'success', 'the probe ran to a finished search');
     assert.deepEqual(decidePathStrategy({ status: path.status }, null), { action: 'goto', movements: 'nonDestructive', retry: true });
+});
+
+test('the probe hands the event loop back between steps', async () => {
+    let yields = 0;
+    function* gen() { yield { result: { status: 'partial' } }; yield { result: { status: 'success' } }; }
+    const path = await probePathStatus(gen, { totalMs: 1500, now: () => 0, yieldToLoop: async () => { yields++; } });
+    assert.equal(path.status, 'success');
+    assert.equal(yields, 1, 'one setImmediate between the two steps');
 });
 
 test('BOB_NAV_FULL_PROBE=0 restores the single-shot probe', async () => {
     assert.equal(fullProbeEnabled({}), true);
     assert.equal(fullProbeEnabled({ BOB_NAV_FULL_PROBE: '0' }), false);
     let calls = 0;
-    const path = await probePathStatus(() => { calls++; return { status: 'partial' }; }, { totalMs: 5000, now: () => 0, full: false });
+    function* gen() { while (true) { calls++; yield { result: { status: 'partial' } }; } }
+    const path = await probePathStatus(gen, { totalMs: 5000, now: () => 0, full: false });
     assert.equal(path.status, 'partial');
     assert.equal(calls, 1, 'one shot only when the full probe is off');
 });
 
 test('the probe stops when the budget runs out', async () => {
-    let calls = 0;
-    const path = await probePathStatus(() => { calls++; return { status: 'partial' }; }, { totalMs: 300, now: () => (calls * 100) });
+    let calls = 0, t = 0;
+    function* gen() { while (true) { calls++; yield { result: { status: 'partial' } }; } }
+    const path = await probePathStatus(gen, { totalMs: 300, now: () => (t += 100) });
     assert.equal(path.status, 'partial');
     assert.ok(calls > 1, 'it kept asking');
-    assert.ok(calls <= 5, 'but not forever');
+    assert.ok(calls <= 6, 'but not forever');
 });
+
+
 
 test('isPathProbing is false when no probe is running', () => {
     assert.equal(isPathProbing(), false);
@@ -43,6 +56,8 @@ test('the unstuck mode and the protected-area cache are wired', () => {
     assert.match(pa, /PROTECTED_CACHE/, 'the hook caches protectedAreaAt');
     const skills = fs.readFileSync(new URL('../src/agent/library/skills.js', import.meta.url), 'utf8');
     assert.match(skills, /clearProtectedCache\(\)/, 'each probe clears the cache');
+    assert.match(skills, /getPathFromTo/, 'the probe steps the pathfinder generator');
+    assert.match(pa, /onActiveHomeChange/, 'the cache is dropped when the active home changes');
 });
 
 test('safeToBreak hook overhead (synthetic micro-benchmark)', { skip: !process.env.BOB_NAV_BENCH }, () => {

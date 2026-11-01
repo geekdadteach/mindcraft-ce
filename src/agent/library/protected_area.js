@@ -22,6 +22,7 @@ import {
     protectedAreas,
     walkingLane
 } from './house_bounds.js';
+import { onActiveHomeChange } from './bob_home.js';
 
 export {
     HOUSE_AREA,
@@ -44,6 +45,8 @@ let movementsPatched = false;
 const PROTECTED_CACHE = new Map();
 const PROTECTED_CACHE_MAX = 50000;
 export function clearProtectedCache() { PROTECTED_CACHE.clear(); }
+// [ai-player] Fix 5 review: the cache is only valid for the current home; drop it when the home changes.
+onActiveHomeChange(() => PROTECTED_CACHE.clear());
 
 export function installProtectedAreaGuard(agent) {
     const bot = agent.bot;

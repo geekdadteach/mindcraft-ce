@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 5 round 3: non-blocking probe, cache invalidation (report 4.7) (TESTED; NOT DEPLOYED)
+- Review of PR #31. Same branch, second commit (no force-push).
+- **Non-blocking probe** — `probePathStatus()` now steps the pathfinder's generator (`bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal, { timeout })`) one tick at a time and `await`s `setImmediate` between steps, instead of calling the synchronous `getPathTo` in a 1.5 s loop that blocked the event loop. `yieldToLoop` is injectable so the test proves the hand-back happens.
+- **Cache invalidation** — `bob_home.setActiveHome()` now notifies `onActiveHomeChange()` listeners (only when the home's door/bed/inside actually change), and `protected_area.js` clears `PROTECTED_CACHE` on that signal.
+- Tests: `test/bob_nav_probe.test.js` **6/6** (+1 skipped benchmark). Full `npm test` on Node 22: **261/263 pass** (1 fail = pre-existing `confirmSetHome`; 1 skip = the benchmark).
+- UNPROVEN: no live session; the probe still needs an in-game check that a long search no longer stalls the heartbeat.
+
 ## 2026-10-31 — Fix 5: full pathfinder probe, probe-aware unstuck, protected-area cache (TESTED; NOT DEPLOYED)
 - Report 4.7, work-order item 5. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. ON by default; `BOB_NAV_FULL_PROBE=0` restores the old single-shot probe.
 - **Full probe** — `skills.readPathProbe()` (via the new exported `probePathStatus()`) keeps asking `getPathTo` while the result is `partial`, up to 1500 ms, so `decidePathStrategy` sees a finished search and can pick the non-destructive route.

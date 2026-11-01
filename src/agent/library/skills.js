@@ -1101,23 +1101,31 @@ let _pathProbing = 0;
 export function isPathProbing() { return _pathProbing > 0; }
 
 // [ai-player] Fix 5: keep asking while the search is only partial, until it finishes or the budget runs out.
-export async function probePathStatus(getPathTo, { totalMs = 1500, now = Date.now, full = true } = {}) {
+// [ai-player] Fix 5 review: step the pathfinder generator instead of looping a blocking getPathTo.
+// Each step computes for at most one tick, so the event loop is handed back (setImmediate) between steps.
+export async function probePathStatus(makeGenerator, { totalMs = 1500, now = Date.now, full = true, yieldToLoop = () => new Promise(r => setImmediate(r)) } = {}) {
+    let gen = null;
+    try { gen = makeGenerator(); } catch (_) { return null; }
+    if (!gen || typeof gen.next !== 'function') return null;
     const deadline = now() + totalMs;
-    let path = null;
-    do {
-        const raw = getPathTo();
-        path = (raw && typeof raw.then === 'function') ? await raw : raw;
-        if (!full || !path || path.status !== 'partial') break;
-    } while (now() < deadline);
-    return path;
+    let step = gen.next();
+    let result = step?.value?.result ?? null;
+    while (full && !step.done && result && result.status === 'partial' && now() < deadline) {
+        await yieldToLoop();
+        step = gen.next();
+        result = step?.value?.result ?? result;
+    }
+    return result;
 }
+
+
 
 async function readPathProbe(bot, movements, goal, timeout, { totalMs = 1500, env = process.env } = {}) {
     _pathProbing++;
     try {
         try { (await import('./protected_area.js')).clearProtectedCache(); } catch (_) {}
         const path = await probePathStatus(
-            () => bot.pathfinder.getPathTo(movements, goal, timeout),
+            () => bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal, { timeout }),
             { totalMs, full: fullProbeEnabled(env) });
         return {
             status: path?.status || 'noPath',

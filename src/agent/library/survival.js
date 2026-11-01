@@ -15,6 +15,26 @@ import { isNaturalWoodBlockName } from './bob_wood_types.js';
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
 export const RAW_FOODS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'potato'];
 export const RANGED_MOBS = ['skeleton', 'stray', 'bogged', 'pillager', 'witch', 'blaze', 'ghast'];
+
+// [ai-player] Fix 1d: true when Bob carries a weapon self_defense can swing (a sword, or an axe that
+// is not a pickaxe). Mirrors equipHighestAttack in skills.js.
+export function hasMeleeWeapon(bot) {
+    try {
+        return bot.inventory.items().some(i => i.name.includes('sword') || (i.name.includes('axe') && !i.name.includes('pickaxe')));
+    } catch (_) { return false; }
+}
+
+// [ai-player] Fix 1c/1d: the mob self_defense should engage, or null. Neutral mobs (enderman, wolf,
+// ...) are ignored unless they just hit Bob (mc.isAggressiveHostile); ranged mobs further than 3 blocks
+// belong to ranged_threat; and an unarmed Bob at <= 10 health does not melee — self_preservation flees
+// instead of feeding a death (report 4.1). Exported so modes.js and tests share one decision.
+export function selfDefenseTarget(bot, range = 8, nearest = world.getNearestEntityWhere) {
+    const enemy = nearest(bot, entity => mc.isAggressiveHostile(entity) && entity.name !== 'creeper' &&
+        !(RANGED_MOBS.includes(entity.name) && entity.position.distanceTo(bot.entity.position) > 3), range);
+    if (!enemy) return null;
+    if (!hasMeleeWeapon(bot) && bot.health <= 10) return null;
+    return enemy;
+}
 export const BERRY_BLOCKS = ['sweet_berry_bush', 'cave_vines', 'cave_vines_plant'];
 const FOOD_STOCK_TARGET = 4; // food items to keep in the inventory
 

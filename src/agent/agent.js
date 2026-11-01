@@ -6,8 +6,9 @@ import { Coder } from './coder.js';
 import { codeLaneInfo } from './library/bob_eval_harness.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
-import { initModes } from './modes.js';
-import { initBot } from '../utils/mcdata.js';
+import { initModes, releaseNightHold } from './modes.js';
+import { initBot, stampLikelyAttacker } from '../utils/mcdata.js';
+import { clearShelter, installShelterMovementGuard } from './library/night_shelter.js';
 import { containsCommand, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
 import { ActionManager } from './action_manager.js';
 import { NPCContoller } from './npc/controller.js';
@@ -226,6 +227,7 @@ export class Agent {
                 this.clearBotLogs();
                 installNoGoZoneGuard(this);
                 installProtectedAreaGuard(this);
+                try { installShelterMovementGuard(); } catch (e) { console.warn('[ai-player] shelter movement guard skipped:', e.message); }
                 try { installResetRecovery(this); } catch (e) { console.warn('[ai-player] reset-recovery disabled:', e.message); } // reset-recovery-20261026
                 try { installChatGuard(this.bot); installStuckHome(this); } catch (e) { console.warn('[ai-player] stuck-home disabled:', e.message); } // stuck-home-20261026
               
@@ -382,6 +384,9 @@ export class Agent {
         this.bot.stopDigging();
         this.bot.collectBlock.cancelTask();
         this.bot.pathfinder.stop();
+        // [ai-player] Fix 1b: clear the goal too. stop() alone can leave a pending goal that the
+        // next physics tick resumes, so an interrupted bot kept walking back into the fight.
+        try { this.bot.pathfinder.setGoal(null); } catch (e) { /* pathfinder not ready */ }
         this.bot.pvp.stop();
     }
 
@@ -692,6 +697,9 @@ export class Agent {
             if (this.bot.health < prev_health) {
                 this.bot.lastDamageTime = Date.now();
                 this.bot.lastDamageTaken = prev_health - this.bot.health;
+                // [ai-player] Fix 1c: stamp the nearest mob so a neutral mob that actually hit Bob
+                // counts as hostile for a few seconds (mc.isAggressiveHostile).
+                try { stampLikelyAttacker(this.bot); } catch (e) { /* best-effort */ }
             }
             prev_health = this.bot.health;
         });
@@ -701,6 +709,7 @@ export class Agent {
         });
         // Use connection handler for runtime disconnects
         this.bot.on('end', (reason) => {
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: disconnect ends the shelter
             if (!this._disconnectHandled) {
                 const { msg } = handleDisconnection(this.name, reason);
                 this.cleanKill(msg);
@@ -708,10 +717,14 @@ export class Agent {
         });
         // [ai-player] log death / respawn positions (to check the bed respawn point).
         this.bot.on('death', () => {
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: a death ends the shelter (no pack-up, no error)
+            releaseNightHold('death'); // [ai-player] Fix 1e round 3: drop the night hold right away
             const p = this.bot.entity?.position;
             console.log(`[ai-player] died at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
         });
         this.bot.on('spawn', () => {
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: spawn also fires at first login; a null shelter is a no-op
+            releaseNightHold('respawn'); // [ai-player] Fix 1e round 3: drop the night hold right away
             setTimeout(() => {
                 const p = this.bot.entity?.position;
                 console.log(`[ai-player] spawn event at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
@@ -722,6 +735,7 @@ export class Agent {
             this.actions.stop();
         });
         this.bot.on('kicked', (reason) => {
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: kicked ends the shelter
             if (!this._disconnectHandled) {
                 const { msg } = handleDisconnection(this.name, reason);
                 this.cleanKill(msg);

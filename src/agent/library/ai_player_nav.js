@@ -6,6 +6,7 @@ import * as skills from './skills.js';
 import { isInsideHouseArea } from './house_bounds.js';
 import { EXIT_WAYPOINT, exitWaypoint } from './bob_enclosure.js';
 import { navConsole } from './bob_nav_memory.js';
+import { isSheltered } from './shelter_state.js';
 
 export function houseEntrance(home = getActiveHome()) { return isVerifiedHome(home) ? home.entrance : null; }
 export function houseInside(home = getActiveHome()) { return isVerifiedHome(home) ? home.inside : null; }
@@ -43,6 +44,7 @@ export function escapeMovements(bot) {
     m.allowSprinting = false;
     if (bot.health <= 4) m.maxDropDown = 2;
     for (const b of bot.registry?.blocksArray || []) if (KEEP_BLOCKS.test(b.name)) m.blocksCantBreak.add(b.id);
+    if (isSheltered()) m.canDig = false; // [ai-player] Fix 1e: never dig Bob out of the night shelter
     return m;
 }
 

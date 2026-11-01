@@ -150,6 +150,47 @@
 - **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed. Live Bob and `.20` untouched.
 - **Rollback:** Do not merge. Revert the single commit on the PR branch.
 - **Wired:** the idle daytime `auto_junk` mode (see the entry above) calls `skills.autoJunk(bot)`; this line is corrected by the Fix 4 round-2 review commit.
+## 2026-10-31 — Fix 1e round 4: sheltered eating, dimension-change cleanup (report 4.1/4.2) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #27 review: a sheltered Bob must still be able to eat, and a dimension change must restore the dig guard.
+- **Files:** `src/agent/modes.js`, `test/bob_shelter_hold.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the hunger mode eats via `survival.eatBest(bot)` while sheltered (below both eat branches it stops hunting/getFood); the dimension-change path calls `shelter.clearShelter(agent.bot)`.
+- **Tests:** `test/bob_shelter_hold.test.js` **6/6**. Full `npm test` on Node 22: **277/278 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#27); fifth commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-4 commit on the PR branch.
+
+## 2026-10-31 — Fix 1e round 3: review fixes for PR #27 (TESTED; NOT DEPLOYED)
+- **Goal:** PR #27 review: a starving Bob must never be sealed in; the pathfinder must not dig him out; the night hold must drop on death/respawn.
+- **Files:** `src/agent/library/night_shelter.js`, `src/agent/library/shelter_state.js`, `src/agent/modes.js`, `src/agent/agent.js`, `test/bob_shelter_hold.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `shelterReason` returns null for a starving Bob with no edible food; the night mode refuses to re-shelter after `leaveForFood` until food > 6 or dawn; the hunger mode stands down while sheltered; sealing sets `movements.canDig = false` (restored by `clearShelter(bot)`/`dawnExit`); `releaseNightHold()` drops the hold immediately on death/respawn.
+- **Tests:** `test/bob_shelter_hold.test.js` **5/5**. Full `npm test` on Node 22: **276/277 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#27); fourth commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-3 commit on the PR branch.
+
+## 2026-10-31 — Fix 1e round 2: food carve-out, wider hold, lifecycle cleanup (TESTED; NOT DEPLOYED)
+- **Goal:** PR #27 review round 2: never block eating, keep Bob sealed in harder, and never pack up after a respawn elsewhere.
+- **Files:** `src/agent/library/shelter_state.js` (new), `src/agent/library/night_shelter.js`, `src/agent/library/ai_player_nav.js`, `src/agent/modes.js`, `src/agent/agent.js`, `test/bob_shelter_hold.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** if sheltered, starving (`food <= 6`) and holding no edible item, the shelter ends early (log `[ai-player] shelter: leaving early for food`) so `!getFood` can run; `cowardice`/`ranged_threat` are skipped and no pathfinding may dig while sheltered; `death`/`spawn`/`end`/`kicked` and a dimension change clear the shelter and release the hold, and the dawn pack-up never runs after a respawn.
+- **Tests:** `test/bob_shelter_hold.test.js` **4/4**. Full `npm test` on Node 22: **275/276 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- **Deploy status:** Same draft PR (#27); third commit, no force-push. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the round-2 commit on the PR branch.
+
+## 2026-10-31 — Fix 1 follow-up: shelter hold, dawn exit, mob-only stamping (TESTED; NOT DEPLOYED)
+- **Goal:** Address PR #27 review findings on Fix 1e (the emergency night shelter): hold until dawn, exit cleanly at dawn, and stop non-mob damage from stamping a false attacker.
+- **Files:** `src/agent/library/night_shelter.js`, `src/agent/modes.js`, `src/agent/commands/index.js`, `src/utils/mcdata.js`, `test/bob_combat_interrupt.test.js`, `test/bob_night_shelter.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** while sheltered, the `night` mode holds (pauses self-prompting), `unstuck`/`item_collecting` are skipped, travel commands are refused (eating is always allowed), self_preservation still runs and self_defense only fights a mob inside the box; at dawn `dawnExit` digs back only the shelter's own placed blocks (name must still match), refills a dug pocket if a seal block is held, and releases the hold; `stampLikelyAttacker` skips food 0, lava/fire/water and falls.
+- **Tests:** `test/bob_combat_interrupt.test.js` **5/5**, `test/bob_night_shelter.test.js` **12/12**. Full `npm test` on Node 22: **271/272 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- **Deploy status:** Same draft PR (#27) against `work/bob-home-from-live-20261028`; second commit, no force-push. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the follow-up commit on the PR branch.
+
+
+## 2026-10-31 — Fix 1: combat interrupt, neutral mobs, emergency night shelter (TESTED; NOT DEPLOYED)
+- **Goal:** Stop the night deaths (report 4.1: 15 deaths, 14 to spiders, all at night) by making defence interruptible, ignoring unprovoked neutral mobs, not meleeing unarmed at low health, and adding an emergency night shelter. Work-order item 1 (report 4.1 + 4.2).
+- **Files:** `src/agent/library/skills.js`, `src/agent/agent.js`, `src/utils/mcdata.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `src/agent/library/night_shelter.js` (new), `test/bob_combat_interrupt.test.js` (new), `test/bob_night_shelter.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `defendSelf()` checks interrupt/superseded after every await and stops `pvp` before the next attack; `requestInterrupt()` clears the pathfinder goal; `isAggressiveHostile()` treats neutral mobs as hostile only within 5 s of them damaging Bob; `self_defense` skips unarmed-at-<=10-health and ignores unprovoked neutrals; a new night shelter seals up with held dirt/cobble or digs a 1x2 pocket when there is no verified bed. Neutral filtering and the shelter are ON by default; `BOB_NIGHT_SHELTER=0` disables the shelter. `BOB_NIGHT_HOME` is unchanged.
+- **Tests:** `test/bob_combat_interrupt.test.js` **4/4**, `test/bob_night_shelter.test.js` **5/5**. Full `npm test` on Node 22: **264/265 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- **Deploy status:** Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed. Live Bob and `.20` untouched. No in-game validation; an in-game check of the combat interrupt and the shelter is required before deployment (MM20, with Randy's approval).
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
+
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.

@@ -134,6 +134,50 @@
 - **Harness** — `bob_eval_harness.noteExecEnd` now records `result_text_failure` for a summary containing `not confirmed`.
 - Tests: new `test/bob_chest_deposit.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
 - UNPROVEN / NOT DONE: no live Minecraft session; `putInChest`/`takeFromChest` end-to-end (real chest window) and auto-junk were not run in-game. `autoJunk` is now wired through the idle daytime `auto_junk` mode (see the entry above).
+## 2026-10-31 — Fix 1e round 4: sheltered eating, dimension-change cleanup (report 4.1/4.2) (TESTED; NOT DEPLOYED)
+- Review of PR #27. Same branch, fifth commit (no force-push).
+- **Eat while sheltered** — the hunger mode's sheltered early-return now sits below both eat branches, so a sealed-in Bob still eats from his inventory but never hunts or runs the food loop; while sheltered it calls `survival.eatBest(bot)` (never `cookOrEat`, which can walk to a furnace the shelter guard forbids).
+- **Dimension change** — the night mode's dimension-change path calls `shelter.clearShelter(agent.bot)` so the pathfinder's `canDig` is restored along with the shelter state.
+- Tests: `test/bob_shelter_hold.test.js` **6/6** (new: the eat-then-stop order and the dimension-change clear). Full `npm test` on Node 22: **277/278 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
+## 2026-10-31 — Fix 1e round 3: review fixes (starving Bob never shelters, canDig guard, hold release on death) (TESTED; NOT DEPLOYED)
+- Review of PR #27. Same branch, fourth commit (no force-push).
+- **Starving Bob never shelters** — `night_shelter.shelterReason()` returns null when `food <= 6` and Bob holds nothing edible, so he is never sealed in with no way to eat; `modes.js` `night` sets `shelterLeftForFood` in `leaveForFood()` and `tryEmergencyShelter()` refuses to re-shelter until `food > 6` or dawn.
+- **Hunger stays out of the shelter** — the `hunger` mode returns early while sheltered unless `shouldLeaveEarlyForFood()` (the night mode leaves early instead).
+- **canDig guard** — sealing in sets `bot.pathfinder.movements.canDig = false`; `clearShelter(bot)` and `dawnExit` restore it.
+- **Hold release on death/respawn** — `modes.releaseNightHold()` drops the night hold immediately (called from the `death`/`spawn` handlers in `agent.js`, which now pass `this.bot` to `clearShelter`).
+- Tests: `test/bob_shelter_hold.test.js` **5/5** (new: a starving Bob does not start or re-shelter); `bob_combat_interrupt` 5/5; `bob_night_shelter` 12/12. Full `npm test` on Node 22: **276/277 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; the canDig guard and hold release need an in-game check.
+
+## 2026-10-31 — Fix 1e round 2: food carve-out, wider hold, lifecycle cleanup (TESTED; NOT DEPLOYED)
+- Amends the Fix 1e entry below — same draft PR (#27), third commit, same branch. Review round 2.
+- **Food carve-out (eating is never blocked):** while sheltered, if `food <= 6` and Bob holds no edible item, the shelter ends early — `night_shelter.shouldLeaveEarlyForFood()`; the `night` mode logs `[ai-player] shelter: leaving early for food`, runs the same pack-up (`dawnExit`), releases the hold and resumes self-prompting, so `!getFood` is no longer blocked (his food chest is by the bed at -1143 68 752).
+- **Wider hold:** `cowardice` and `ranged_threat` are now skipped while sheltered (like `unstuck`/`item_collecting`), and no pathfinding may dig: `shelterMovements()` forces `canDig = false` and `installShelterMovementGuard()` patches `pf.Movements` (installed in `agent.js` next to the protected-area guard); `escapeMovements` also clears `canDig` while sheltered. `self_defense` still fights only a mob inside the box (range 2).
+- **Lifecycle cleanup:** `clearShelter()` is called on `death`, `spawn`, `end` and `kicked` in `agent.js` (a silent no-op when there is no shelter — `spawn` also fires at first login); the `night` tick also clears on a dimension change. The dawn pack-up is never run from those paths.
+- **State module:** shelter state moved to a leaf `src/agent/library/shelter_state.js` so movement code can read it without an import cycle; `night_shelter.js` re-exports it.
+- Tests: new `test/bob_shelter_hold.test.js` **4/4**; `test/bob_combat_interrupt.test.js` **5/5**; `test/bob_night_shelter.test.js` **12/12**. Full `npm test` on Node 22: **275/276 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- UNPROVEN: no live Minecraft session. The `pf.Movements` patch is a monkey-patch (same pattern as the protected-area guard) and needs an in-game sanity check.
+
+## 2026-10-31 — Fix 1 follow-up: shelter stay-in hold, dawn exit, mob-only attacker stamping (TESTED; NOT DEPLOYED)
+- Amends the Fix 1 entry below — same draft PR (#27), second commit, same branch. Four review findings.
+- **Stay-in hold:** once `buildShelter` seals Bob in, `night_shelter.js` records the shelter (`markSheltered`) and the `night` mode holds him until dawn — it pauses the self-prompter the same way night-home's hold does, and the `unstuck` and `item_collecting` modes are skipped while sheltered. Travel model commands (`!searchForEntity`, `!collectBlocks`, `!goTo*`, `!getFood`, …) are refused by a new `shelterGuard` wired into `commands/index.js`; eating (`!consume`/`!eat`) is never blocked. `self_preservation` (water/lava/fire) still runs, and `self_defense` only engages a mob actually inside the box (range 2).
+- **Dawn exit:** at daytime the `night` mode calls `shelter.dawnExit` — it digs back only the blocks the shelter itself placed (the cell must still hold the same name), refills a dug pocket when a seal block is held, clears the state, releases the hold and resumes self-prompting.
+- **Attacker stamping:** `stampLikelyAttacker` now skips starving (food 0), lava/fire/water, and falls, so environmental damage no longer makes Bob treat a nearby neutral mob as its attacker.
+- Tests: `test/bob_combat_interrupt.test.js` **5/5**, `test/bob_night_shelter.test.js` **12/12**. Full `npm test` on Node 22: **271/272 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`.
+- UNPROVEN: still no live Minecraft session. `cowardice`/`ranged_threat` were not in the requested skip list and are unchanged. A starving sheltered Bob with no food in inventory cannot `!getFood` (travel is blocked by design); a starving sheltered Bob holding food can still `!consume`.
+
+
+## 2026-10-31 — Fix 1: combat interrupt, neutral mobs, emergency night shelter (TESTED; NOT DEPLOYED)
+- Report 4.1/4.2, work-order item 1. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. New behaviour is ON by default with env opt-outs. Not merged, not deployed; live Bob / `.20` untouched.
+- **(1a) Interruptible defence** — `src/agent/library/skills.js` `defendSelf()` now checks `bot.interrupt_code || superseded(bot, gen)` right after every await (equip, both `pathfinder.goto` calls, the 500 ms sleep) and calls `bot.pvp.stop()` before returning, so a flee request (self_preservation) is no longer blocked for seconds by an in-progress melee loop.
+- **(1b) Clear the goal on interrupt** — `src/agent/agent.js` `requestInterrupt()` also calls `bot.pathfinder.setGoal(null)` (wrapped in try/catch) after `pathfinder.stop()`.
+- **(1c) Neutral mobs** — `src/utils/mcdata.js` adds `NEUTRAL_MOBS` and `isAggressiveHostile(mob)` (enderman, zombified_piglin, piglin, wolf, bee, llama, trader_llama, panda, polar_bear, dolphin, goat are threats only for 5 s after they damage Bob), plus `stampLikelyAttacker(bot)`, called from the health handler. `isHostile` is unchanged. `defendSelf` and `self_defense` now use `isAggressiveHostile`.
+- **(1d) Unarmed disengage** — `self_defense` (via `survival.selfDefenseTarget`) does not melee when Bob has no sword/axe and health <= 10; self_preservation flees instead.
+- **(1e) Emergency night shelter** — new `src/agent/library/night_shelter.js`. At night, with hostiles within 12 blocks or health <= 10, and no verified home bed, it seals up with a held dirt/cobble block or digs a 1x2 pocket. Wired into the `night` mode as a fallback; never breaks or places inside a protected house area or a no-go zone. ON by default; `BOB_NIGHT_SHELTER=0` disables. `BOB_NIGHT_HOME` semantics unchanged.
+- Tests: `test/bob_combat_interrupt.test.js` **4/4**, `test/bob_night_shelter.test.js` **5/5**. Full `npm test` on Node 22: **264/265 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`.
+- UNPROVEN: no live Minecraft session was run. The "who damaged Bob" signal is a heuristic (nearest mob within 6 blocks when health drops), and the shelter's wall-in/dig mechanics need an in-game check.
+
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.

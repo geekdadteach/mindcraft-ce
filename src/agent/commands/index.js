@@ -1,5 +1,6 @@
 import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { criticalSurvivalGuard, recallBedHint } from '../library/bob_survival_gate.js';
+import { shelterGuard } from '../library/night_shelter.js';
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
 import { correctName } from '../library/long_memory.js';
@@ -251,6 +252,12 @@ function aiPlayerGuard(agent, parsed) {
         if (safety && isAction(parsed.commandName)) {
             console.log('[ai-player] survival-guard: blocked ' + key);
             return safety;
+        }
+        // [ai-player] Fix 1e: while sealed in the night shelter, travel commands are refused (eating is not).
+        const sheltered = shelterGuard(parsed.commandName);
+        if (sheltered && isAction(parsed.commandName)) {
+            console.log('[ai-player] shelter-guard: blocked ' + key);
+            return sheltered;
         }
         const g = agent.stuck_guard, me = agent.bot?.entity?.position;
         if (g && Date.now() < g.until && me && g.cmds.includes(key) && me.distanceTo(g.pos) < 32) {

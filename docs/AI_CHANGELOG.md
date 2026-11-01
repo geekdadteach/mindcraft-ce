@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — LM retry gating + Bob's identity line (TESTED; NOT DEPLOYED)
+- **Goal:** the one-shot LM retry fired for prompt-specific failures and cleared the shared pause; and the conversing prompt leaked the machine (Randy / Mac mini / living room / Leon) into Bob's identity.
+- **Files:** `src/models/andy_pool.js`, `profiles/andy-api.json`, `profiles/andy-api-lite.json`, `test/lm_retry_identity.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** only connection/timeout/5xx failures are retried (`lmFailureIsRetryable`); the retry bypasses the pause per-call instead of clearing `_lmDownUntil`; both profiles answer identity questions with "I am Bob, from the land of AI!" and name no machine.
+- **Tests:** `test/lm_retry_identity.test.js` **5/5**. Full `npm test` on Node 22: **337/339 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR off `work/bob-home-from-live-20261028` (eb193af). Not merged, not deployed.
+- **Rollback:** Do not merge. Delete the branch.
+
 ## 2026-11-01 — Merged PRs #27–#40 into `work/bob-home-from-live-20261028` (TESTED; MERGED; NOT YET DEPLOYED)
 - **Goal:** Randy authorized merging all 14 open draft PRs (7:19 AM ET, Nov 1 2026) and having MM20Bot deploy and restart Bob.
 - **Merge order (each `--no-ff`, message `Merge PR #N: <branch>`), on base `697f560`:** #39 `sync/live-to-git-20261101`, #37 `chore/entity-metadata-readerror-diag-20261031`, #36 `fix/lessons-prune-20261031`, #35 `fix/verifier-failure-text-20261031`, #34 `fix/preempt-feedback-param-clamp-20261031`, #33 `fix/consume-edible-check-20261031`, #32 `chore/code-lane-startup-log-20261031`, #29 `fix/craft-planks-starter-tools-20261031`, #28 `fix/food-loop-20261031`, #30 `fix/chest-deposit-verify-20261031`, #27 `fix/combat-interrupt-night-shelter-20261031`, #31 `fix/pathfinder-probe-20261031`, #38 `fix/protect-own-bed-20261101`, #40 `fix/regen-eat-sheltered-20261101`.

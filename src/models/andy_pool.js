@@ -31,6 +31,14 @@ import { lmUrlList, pickLmUrl, markLmUrlDown, clearLmUrlDown } from '../utils/lm
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// [ai-player] 2026-11-01: the one-shot LM retry is for transport failures only. A prompt-specific failure
+// (HTTP 400, or a `length` / context-overflow finish) fails again with the same prompt, so it is never retried.
+// 'error' is the bucket for connection errors and 5xx (anything that is not a 400 and not a timeout).
+export const LM_RETRYABLE_REASONS = new Set(['error', 'timeout']);
+export function lmFailureIsRetryable(reason) {
+    return LM_RETRYABLE_REASONS.has(String(reason || ''));
+}
+
 export class AndyPool {
     static prefix = 'andy_pool';
 
@@ -176,14 +184,19 @@ export class AndyPool {
         const path = [];
         let lastInfo = null;
         let lmRetries = 0; // [ai-player] 2026-11-01: LM-only mode retries LM Studio once after a short wait
+        let lastLmReason = null; // the reason of the most recent LM failure, so the retry can be gated on it
+        let lmRetryBypass = false; // [ai-player] 2026-11-01: this call ignores the shared pause for one attempt
         const extra = () => lastInfo ? `${lastInfo.lm_url ? ' lm_url=' + lastInfo.lm_url : ''} prompt_chars=${lastInfo.prompt_chars} prompt_tokens=${lastInfo.prompt_tokens ?? 'n/a'} completion_tokens=${lastInfo.completion_tokens ?? 'n/a'} reasoning_tokens=${lastInfo.reasoning_tokens ?? 'n/a'} reasoning_chars=${lastInfo.reasoning_chars ?? 'n/a'}` : '';
 
         while (attempts < this.max_attempts) {
             const now = Date.now();
             const lmPaused = now < AndyPool._lmDownUntil;
+            // [ai-player] 2026-11-01: a call that is retrying bypasses the shared pause for itself only, so the
+            // pause stays in force for every other in-flight call.
+            const lmBlocked = lmPaused && !lmRetryBypass;
 
             // api_fallback=false: LM Studio is the only backend. Paused or already failed -> no reply, no API call.
-            if (!this.api_fallback && (lmFailedThisCall || lmPaused)) {
+            if (!this.api_fallback && (lmFailedThisCall || lmBlocked)) {
                 // [ai-player] 2026-11-01 (Randy): be patient with Leon. A short pause is waited out, and one failed
                 // call is retried after 3 s, instead of answering "My brain disconnected" right away.
                 const pauseLeft = AndyPool._lmDownUntil - Date.now();
@@ -192,11 +205,15 @@ export class AndyPool {
                     await sleep(pauseLeft);
                     continue;
                 }
-                if (lmFailedThisCall && lmRetries < 1) {
+                // [ai-player] 2026-11-01: retry transport failures only (connection, timeout, 5xx). A
+                // prompt-specific http400 / length failure would fail again with the same prompt. The retry
+                // bypasses the pause for THIS call only: it must not clear _lmDownUntil, which would lift the
+                // pause for every other in-flight call.
+                if (lmFailedThisCall && lmRetries < 1 && lmFailureIsRetryable(lastLmReason)) {
                     lmRetries++;
                     await sleep(3000);
                     lmFailedThisCall = false;
-                    AndyPool._lmDownUntil = 0;
+                    lmRetryBypass = true;
                     clearLmUrlDown(this.lm_urls);
                     continue;
                 }
@@ -206,8 +223,9 @@ export class AndyPool {
             }
 
             // 1. LM Studio first, unless it already failed for this call or is paused after failures.
-            if (!lmFailedThisCall && !lmPaused) {
+            if (!lmFailedThisCall && !lmBlocked) {
                 if (AndyPool._lmBusy) { await AndyPool._waitLmIdle(); continue; }
+                lmRetryBypass = false; // the one-shot pause bypass is spent by this attempt
                 attempts++;
                 const s = Date.now();
                 const r = await this._callLmDirect(turns, systemMessage);
@@ -220,6 +238,7 @@ export class AndyPool {
                     return r.res;
                 }
                 lmFailedThisCall = true;
+                lastLmReason = r.reason;
                 path.push(`lmstudio:${r.reason}@${ms}ms`);
                 let pauseNote = 'no pause (prompt-specific)';
                 if (r.reason !== 'http400' && r.reason !== 'length') {

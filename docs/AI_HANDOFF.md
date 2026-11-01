@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7b: numeric params are clamped, not rejected (report 4.8) (TESTED; NOT DEPLOYED)
+- Work-order item 7b. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
+- New `commands/index.js` export `clampToDomain(value, domain)` clamps into the declared interval (endpoint-aware) and reports `{ value, clamped, note }`. `parseCommandMessage` now clamps an out-of-range numeric param instead of returning a parse error and returns `clampNotes`; `executeCommand` prefixes the feedback with `(Note: <param>=<value> (clamped into <domain>).)`.
+- Tests: new `test/bob_param_clamp.test.js` **2/2**. Full `npm test` on Node 22: **257/258 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

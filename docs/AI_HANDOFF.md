@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3 round 3: most plentiful wood type, 16-block table reach (report 4.4) (TESTED; NOT DEPLOYED)
+- Review of PR #29. Same branch, third commit (no force-push).
+- **Most plentiful wood** — new `logCountsByWood()`/`bestStarterWood()`; `starterPlanksName()` uses the wood type Bob holds the most of, and `heldLogCount()` returns that type's count, so a starter run needs >= 3 logs of ONE wood type instead of 3 logs of any mix.
+- **Table reach** — `craftingTableAtHand()` now defaults to 16 blocks, matching `skills.craftRecipe`'s `craftingTableRange`.
+- Tests: `test/bob_starter_tools.test.js` **7/7** (new: wood-type selection + the 16-block reach). Full `npm test` on Node 22: **262/263 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 3 review: 3-log minimum, table/tool skips, bamboo excluded (TESTED; NOT DEPLOYED)
 - Review of PR #29. Same branch, second commit (no force-push).
 - **3-log minimum** — `craftStarterTools()` returns immediately unless `heldLogCount(bot) >= STARTER_TOOLS_MIN_LOGS` (3), and crafts `STARTER_TOOLS_PLANKS` (3) planks in one `craftRecipe(bot, planks, 3)` call.

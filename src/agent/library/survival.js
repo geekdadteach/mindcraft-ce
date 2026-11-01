@@ -400,26 +400,47 @@ export function starterWoodType(logName) {
     return wood && wood !== name ? wood : null;
 }
 
-// The planks to make: the held log's own wood type (never bamboo), else oak.
-export function starterPlanksName(bot) {
+// [ai-player] Fix 3 review: logs counted per wood type (bamboo excluded).
+export function logCountsByWood(bot) {
+    const counts = {};
     try {
-        const held = bot.inventory.items().find(i => isNaturalWoodBlockName(i.name));
-        const wood = held ? starterWoodType(held.name) : null;
-        return wood ? wood + '_planks' : 'oak_planks';
-    } catch (_) { return 'oak_planks'; }
+        for (const i of bot.inventory.items()) {
+            const wood = starterWoodType(i.name);
+            if (!wood) continue;
+            counts[wood] = (counts[wood] || 0) + (i.count || 0);
+        }
+    } catch (_) {}
+    return counts;
 }
 
-// [ai-player] Fix 3 review: a starter run needs at least 3 logs and makes 3 planks at once.
+// The wood type Bob holds the most of, or null.
+export function bestStarterWood(bot) {
+    let best = null, bestN = 0;
+    for (const [wood, n] of Object.entries(logCountsByWood(bot))) {
+        if (n > bestN) { best = wood; bestN = n; }
+    }
+    return best ? { wood: best, count: bestN } : null;
+}
+
+// The planks to make: the wood type Bob holds the most of (never bamboo), else oak.
+export function starterPlanksName(bot) {
+    const best = bestStarterWood(bot);
+    return best ? best.wood + '_planks' : 'oak_planks';
+}
+
+// [ai-player] Fix 3 review: a starter run needs at least 3 logs of ONE wood type, and makes 3 planks.
 export const STARTER_TOOLS_MIN_LOGS = 3;
 export const STARTER_TOOLS_PLANKS = 3;
 
+// The count of the most plentiful wood type Bob holds.
 export function heldLogCount(bot) {
-    try { return bot.inventory.items().filter(i => isNaturalWoodBlockName(i.name) && starterWoodType(i.name)).reduce((n, i) => n + (i.count || 0), 0); }
-    catch (_) { return 0; }
+    return bestStarterWood(bot)?.count || 0;
 }
 
-// A crafting table is at hand if one is held or a block is within reach.
-export function craftingTableAtHand(bot, range = 4) {
+
+
+// A crafting table is at hand if one is held or a block is within reach (16 blocks, matching craftRecipe).
+export function craftingTableAtHand(bot, range = 16) {
     try { if (bot.inventory.items().some(i => i.name === 'crafting_table')) return true; } catch (_) {}
     try { return !!world.getNearestBlock(bot, 'crafting_table', range); } catch (_) { return false; }
 }

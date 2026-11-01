@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3 round 3: most plentiful wood type, 16-block table reach (report 4.4) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #29 review: use the wood type Bob actually has enough of, and match craftRecipe's table reach.
+- **Files:** `src/agent/library/survival.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `logCountsByWood`/`bestStarterWood` pick the most plentiful wood type; `starterPlanksName` and `heldLogCount` use it (>= 3 of that type); `craftingTableAtHand` defaults to 16 blocks.
+- **Tests:** `test/bob_starter_tools.test.js` **7/7**. Full `npm test` on Node 22: **262/263 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#29); third commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-3 commit on the PR branch.
+
 ## 2026-10-31 — Fix 3 review: 3-log minimum, table/tool skips, bamboo excluded (TESTED; NOT DEPLOYED)
 - **Goal:** PR #29 review: only start with enough logs, skip what Bob already has, and never turn bamboo into planks.
 - **Files:** `src/agent/library/survival.js`, `src/agent/library/long_memory.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

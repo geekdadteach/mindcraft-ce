@@ -391,32 +391,69 @@ export { FOOD_STOCK_TARGET };
 export function starterToolsEnabled(env = process.env) { return env.BOB_STARTER_TOOLS !== '0'; }
 
 // The planks to make: the held log's own wood type, else oak.
+// [ai-player] Fix 3 review: bamboo is not a plank source here (bamboo_planks are not a wood type Bob builds
+// with), so it never maps to planks.
+export function starterWoodType(logName) {
+    const name = String(logName || '');
+    if (!name || name === 'bamboo') return null;
+    const wood = name.replace(/_log$|_stem$/, '');
+    return wood && wood !== name ? wood : null;
+}
+
+// The planks to make: the held log's own wood type (never bamboo), else oak.
 export function starterPlanksName(bot) {
     try {
         const held = bot.inventory.items().find(i => isNaturalWoodBlockName(i.name));
-        return held ? String(held.name).replace(/_log$|_stem$/, '') + '_planks' : 'oak_planks';
+        const wood = held ? starterWoodType(held.name) : null;
+        return wood ? wood + '_planks' : 'oak_planks';
     } catch (_) { return 'oak_planks'; }
 }
 
-// True when Bob holds logs but lacks a pickaxe or a sword.
+// [ai-player] Fix 3 review: a starter run needs at least 3 logs and makes 3 planks at once.
+export const STARTER_TOOLS_MIN_LOGS = 3;
+export const STARTER_TOOLS_PLANKS = 3;
+
+export function heldLogCount(bot) {
+    try { return bot.inventory.items().filter(i => isNaturalWoodBlockName(i.name) && starterWoodType(i.name)).reduce((n, i) => n + (i.count || 0), 0); }
+    catch (_) { return 0; }
+}
+
+// A crafting table is at hand if one is held or a block is within reach.
+export function craftingTableAtHand(bot, range = 4) {
+    try { if (bot.inventory.items().some(i => i.name === 'crafting_table')) return true; } catch (_) {}
+    try { return !!world.getNearestBlock(bot, 'crafting_table', range); } catch (_) { return false; }
+}
+
+// True when Bob holds enough logs but lacks a pickaxe or a sword.
 export function needsStarterTools(bot) {
     try {
         const items = bot.inventory.items();
         const hasPick = items.some(i => i.name.endsWith('_pickaxe'));
         const hasSword = items.some(i => i.name.endsWith('_sword'));
         if (hasPick && hasSword) return false;
-        return items.some(i => isNaturalWoodBlockName(i.name));
+        return heldLogCount(bot) >= STARTER_TOOLS_MIN_LOGS;
     } catch (_) { return false; }
 }
 
-// Craft planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword in order. Returns the names
-// that were crafted. `craft` is injectable for tests.
-export async function craftStarterTools(bot, { craft = (b, name) => skills.craftRecipe(b, name) } = {}) {
-    const steps = [starterPlanksName(bot), 'crafting_table', 'stick', 'wooden_pickaxe', 'wooden_sword'];
+// Craft 3 planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword, skipping what Bob already
+// has and the table when one is at hand. Needs >= 3 logs. craft/tableNearby are injectable for tests.
+export async function craftStarterTools(bot, { craft = (b, name, count) => skills.craftRecipe(b, name, count), tableNearby = null } = {}) {
     const crafted = [];
-    for (const name of steps) {
+    if (heldLogCount(bot) < STARTER_TOOLS_MIN_LOGS) return crafted;
+    const items = (() => { try { return bot.inventory.items(); } catch (_) { return []; } })();
+    const hasPick = items.some(i => i.name.endsWith('_pickaxe'));
+    const hasSword = items.some(i => i.name.endsWith('_sword'));
+    const tableAtHand = tableNearby != null ? !!tableNearby : craftingTableAtHand(bot);
+    const steps = [[starterPlanksName(bot), STARTER_TOOLS_PLANKS]];
+    if (!tableAtHand) steps.push(['crafting_table', 1]);
+    steps.push(['stick', 1]);
+    if (!hasPick) steps.push(['wooden_pickaxe', 1]);
+    if (!hasSword) steps.push(['wooden_sword', 1]);
+    for (const [name, count] of steps) {
         if (bot.interrupt_code) break;
-        try { if (await craft(bot, name)) crafted.push(name); } catch (_) {}
+        try { if (await craft(bot, name, count)) crafted.push(name); } catch (_) {}
     }
     return crafted;
 }
+
+

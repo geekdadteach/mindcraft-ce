@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3 review: 3-log minimum, table/tool skips, bamboo excluded (TESTED; NOT DEPLOYED)
+- Review of PR #29. Same branch, second commit (no force-push).
+- **3-log minimum** — `craftStarterTools()` returns immediately unless `heldLogCount(bot) >= STARTER_TOOLS_MIN_LOGS` (3), and crafts `STARTER_TOOLS_PLANKS` (3) planks in one `craftRecipe(bot, planks, 3)` call.
+- **Skips** — the crafting table is skipped when one is held or within 4 blocks (`craftingTableAtHand()`), and the pickaxe/sword steps are skipped when Bob already has one of each.
+- **Bamboo excluded** — `starterWoodType()` returns null for `bamboo`, so bamboo never maps to planks (in `survival.js` and `long_memory.correctName()`); `heldLogCount` does not count bamboo as a log.
+- Tests: `test/bob_starter_tools.test.js` **5/5** (new: one log, two logs, table at hand, already-has-tools, bamboo). Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- NOTE for merge order: #28 also edits the imports and the end of `src/agent/library/survival.js`. Whichever of #28/#29 merges second must merge the base in (not rebase), combine the imports, and keep the closing `}` of `relocateFarForFood`.
+
 ## 2026-10-31 — Fix 3: planks alias and starter tools (TESTED; NOT DEPLOYED)
 - Report 4.4, work-order item 3. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. ON by default; `BOB_STARTER_TOOLS=0` opts out.
 - **Planks alias** — `long_memory.correctName()` maps `planks`/`plank`/`wooden_planks` to the held log's own wood type (via `bob_wood_types.isNaturalWoodBlockName`), falling back to `oak_planks` only when no natural log is held. Previously it always forced oak.

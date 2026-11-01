@@ -376,8 +376,10 @@ export function correctName(agent, commandName, name, kind) {
     }
     // [ai-player] Fix 3: planks -> the held log's own planks (not always oak).
     if (['planks', 'plank', 'wooden_planks'].includes(n)) {
-        const held = bot.inventory?.items?.().find(i => isNaturalWoodBlockName(i.name));
-        const nm = held ? String(held.name).replace(/_log$|_stem$/, '') + '_planks' : null;
+        // [ai-player] Fix 3 review: bamboo never maps to planks.
+        const held = bot.inventory?.items?.().find(i => isNaturalWoodBlockName(i.name) && i.name !== 'bamboo');
+        const wood = held ? String(held.name).replace(/_log$|_stem$/, '') : null;
+        const nm = wood && wood !== held.name ? wood + '_planks' : null;
         if (nm && valid(nm)) return nm;
         return valid('oak_planks') ? 'oak_planks' : null;
     }

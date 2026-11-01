@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3 review: 3-log minimum, table/tool skips, bamboo excluded (TESTED; NOT DEPLOYED)
+- **Goal:** PR #29 review: only start with enough logs, skip what Bob already has, and never turn bamboo into planks.
+- **Files:** `src/agent/library/survival.js`, `src/agent/library/long_memory.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `craftStarterTools` needs >= 3 logs and makes 3 planks at once; it skips the table when one is held or within 4 blocks and skips a tool Bob already has; `starterWoodType`/`heldLogCount` exclude bamboo, and `correctName` no longer maps bamboo to planks.
+- **Tests:** `test/bob_starter_tools.test.js` **5/5**. Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#29); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the review commit on the PR branch.
+- **Merge note:** #28 also touches the `survival.js` imports and the end of the file; the second to merge must merge the base in (not rebase).
+
 ## 2026-10-31 — Fix 3: planks alias and starter tools (TESTED; NOT DEPLOYED)
 - **Goal:** Stop the forced-oak planks alias and make Bob build basic wooden tools (report 4.4: he never made a sword or pickaxe).
 - **Files:** `src/agent/library/long_memory.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `test/bob_starter_tools.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

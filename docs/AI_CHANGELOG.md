@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Bed reach, food while sheltered, harness rotation, !unstuck, coding-lane retry (TESTED; NOT DEPLOYED)
+- **Goal:** live night 1 - a known bed 3 blocks above Bob logged "the bed is too far" and the emergency shelter ran; wheat_seeds were offered as food ("not food"); !getFood was refused while sheltered; the eval harness stopped at its size cap; the model sent a hallucinated !unstuck; a 503 left the coding lane stuck.
+- **Files:** `src/agent/library/skills.js`, `src/agent/modes.js`, `src/agent/library/survival.js`, `src/agent/library/night_shelter.js`, `src/agent/library/bob_survival_gate.js`, `src/agent/library/bob_eval_harness.js`, `src/agent/commands/actions.js`, `src/agent/commands/index.js`, `src/models/prompter.js`; new tests `test/bob_bed_reach.test.js`, `test/bob_food_non_edible.test.js`, `test/bob_food_sheltered.test.js`, `test/bob_eval_harness_rotate.test.js`, `test/bob_unstuck_command.test.js`, `test/bob_coding_lane_retry.test.js`; `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`, `docs/BOB_EVAL_HARNESS.md`.
+- **Behavior:** `goToBed`/`tryKnownBed` reach a bed from below (`GoalNear(bed,1)`, dig/tower, sleep only within 2 blocks, one retry); non-edibles are never chosen as food (shared `isEdibleItemName`); the shelter is left for a LOCAL urgent food trip when food <= 6 or health < 8; the eval harness rotates (active -> .1..4) instead of stopping; a real `!unstuck` exists and unknown-command replies list the valid commands; `promptCoding` clears `awaiting_coding` in `finally` and retries a 503 once.
+- **Tests:** full `npm test` on Node 22: **404 tests, 402 pass, 1 skipped**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** draft PR off `work/bob-home-from-live-20261028` (`a4b8788`). Not merged, not deployed.
+- **Rollback:** Do not merge. Delete the branch.
+
 ## 2026-11-01 — Merged PR #42 into `work/bob-home-from-live-20261028` (TESTED; MERGED; NOT YET DEPLOYED)
 - **Goal:** Randy authorized merging PR #42 (12:05 PM ET, Nov 1 2026) and having MM20Bot deploy and restart Bob.
 - **Merge:** `--no-ff` merge `9645423` ("Merge PR #42: fix/autonomy-food-bed-20261101", head `2a59e00`) on `6261d71`; conflict-free.

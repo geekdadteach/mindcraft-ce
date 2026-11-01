@@ -122,10 +122,22 @@ export function isDesperate(bot) {
     return desperateForJunkFood(bot) || (Number.isFinite(bot?.health) && bot.health <= 6);
 }
 
+// [ai-player] 2026-11-01 (item 2a): only a genuine food may ever be chosen. The registry is the source
+// of truth; an item that is not in it, a *_seeds planting item, or an entry whose food value is an
+// explicit 0 is never food. This is the one predicate every food chooser (edibleFoods/foodStock/eatBest,
+// the night shelter and the survival gate) shares, so wheat_seeds and friends can never be picked.
+export function isEdibleItemName(name, foods) {
+    const n = String(name || '');
+    if (!n || n.endsWith('_seeds') || n === 'seeds') return false;
+    if (!foods || !(n in foods)) return false;
+    const pts = foods[n]?.foodPoints ?? foods[n]?.food_points;
+    return pts == null ? true : Number(pts) > 0; // a missing value means the registry says it is food
+}
+
 export function edibleFoods(bot, desperate = false) {
     const banned = bot.autoEat?.options?.bannedFood || [];
-    const foods = bot.registry.foodsByName;
-    const ok = (n) => n in foods && (!banned.includes(n) || (desperate && DESPERATE_FOODS.has(n)));
+    const foods = bot.registry?.foodsByName;
+    const ok = (n) => isEdibleItemName(n, foods) && (!banned.includes(n) || (desperate && DESPERATE_FOODS.has(n)));
     return bot.inventory.items().filter(i => ok(i.name)).sort((a, b) => foods[b.name].foodPoints - foods[a.name].foodPoints);
 }
 export function foodStock(bot) { return edibleFoods(bot, false).reduce((s, i) => s + i.count, 0); }

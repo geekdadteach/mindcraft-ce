@@ -19,6 +19,8 @@ import {
     fchmodSync,
     fstatSync,
     openSync,
+    renameSync,
+    unlinkSync,
 } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { isModelErrorReply } from '../../utils/model_errors.js';
@@ -35,6 +37,10 @@ export const EVAL_HARNESS_LOG_ENV = 'BOB_EVAL_HARNESS_LOG';
 export const EVAL_HARNESS_RAW_ENV = 'BOB_EVAL_HARNESS_LOG_RAW';
 export const EVAL_HARNESS_PROMPTS_ENV = 'BOB_EVAL_HARNESS_LOG_PROMPTS';
 export const EVAL_GOAL_VERIFIER_ENV = 'BOB_EVAL_GOAL_VERIFIER';
+// [ai-player] 2026-11-01 (item 3): when the active file would pass the cap the writer rotates instead of
+// stopping. Set BOB_EVAL_HARNESS_ROTATE=0 to restore the old stop-at-cap behavior.
+export const EVAL_HARNESS_ROTATE_ENV = 'BOB_EVAL_HARNESS_ROTATE';
+export const DEFAULT_MAX_ARCHIVES = 4; // active -> .1 -> .2 -> .3 -> .4 (oldest dropped)
 
 export const DEFAULT_MAX_LOG_BYTES = 8 * 1024 * 1024;
 export const MAX_LINE_BYTES = 8192;
@@ -212,6 +218,10 @@ export class EvalHarnessWriter {
     constructor(config, options = {}) {
         this.config = config || { enabled: false, rejected: false, reason: 'BOB_EVAL_HARNESS_LOG is unset' };
         this.maxBytes = options.maxBytes ?? DEFAULT_MAX_LOG_BYTES;
+        this.maxArchives = options.maxArchives ?? DEFAULT_MAX_ARCHIVES;
+        // [ai-player] item 3: rotate by default; BOB_EVAL_HARNESS_ROTATE=0 restores the stop-at-cap behavior.
+        const rotateEnv = (options.env || process.env)?.[EVAL_HARNESS_ROTATE_ENV];
+        this.rotateEnabled = options.rotate ?? (String(rotateEnv ?? '') !== '0');
         this.log = options.log || defaultLog;
         this.queue = [];
         this.fd = null;
@@ -292,8 +302,12 @@ export class EvalHarnessWriter {
                 const line = this.queue.shift();
                 const bytes = Buffer.byteLength(line);
                 if (this.size + bytes > this.maxBytes) {
-                    this._fail('eval harness stopped: file reached its size cap');
-                    break;
+                    // [ai-player] item 3: rotate the JSONL (keep the recent window) instead of stopping.
+                    if (!this.rotateEnabled) {
+                        this._fail('eval harness stopped: file reached its size cap');
+                        break;
+                    }
+                    if (!(await this._rotate())) break; // _rotate already reported the failure
                 }
                 const ok = this.stream.write(line);
                 this.size += bytes;
@@ -328,6 +342,41 @@ export class EvalHarnessWriter {
         this.fd = null; // stream owns and will close the descriptor
         this.stream.on('error', (err) => { this._noteError(err); });
         return true;
+    }
+
+    // [ai-player] item 3: roll the active JSONL into the bounded archive ring (active -> .1 -> .2 -> ...,
+    // the oldest dropped) and reopen a fresh active file, so a run never stops at the size cap. The most
+    // recent window (active + maxArchives files, each <= maxBytes) is kept; older records are discarded.
+    async _rotate() {
+        const path = this.config?.path;
+        try {
+            const stream = this.stream;
+            this.stream = null;
+            if (stream) {
+                await new Promise((resolve) => {
+                    let settled = false;
+                    const done = () => { if (!settled) { settled = true; resolve(); } };
+                    try { stream.end(done); } catch { done(); }
+                    const t = setTimeout(done, 1000);
+                    if (typeof t.unref === 'function') t.unref();
+                });
+            }
+            if (path) {
+                const last = this.maxArchives;
+                try { unlinkSync(`${path}.${last}`); } catch { /* no oldest archive */ }
+                for (let i = last - 1; i >= 1; i--) {
+                    try { renameSync(`${path}.${i}`, `${path}.${i + 1}`); } catch { /* none at this slot */ }
+                }
+                try { renameSync(path, `${path}.1`); } catch { /* nothing to rotate */ }
+            }
+            this.size = 0;
+            if (!this._ensureOpen()) return false;
+            try { this.log.log(`[bob-eval] rotated its log (keeping ${this.maxArchives} archive(s))`); } catch { /* ignore */ }
+            return true;
+        } catch (err) {
+            this._noteError(err);
+            return false;
+        }
     }
 
     _noteError(err) {

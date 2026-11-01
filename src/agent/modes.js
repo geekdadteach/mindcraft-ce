@@ -72,6 +72,13 @@ async function junkAllowedHere(bot) {
 // the order of this list matters! first modes will be prioritized
 // while update functions are async, they should *not* be awaited longer than ~100ms as it will block the update loop
 // to perform longer actions, use the execute function which won't block the update loop
+// [ai-player] 2026-11-01: how long after a bed trip ENDS before another one may start, and how long a failed
+// trip blocks bed trips so the emergency shelter can take over.
+const BED_TRIP_COOLDOWN_MS = 120000;
+// [ai-player] 2026-11-01: the "he has nothing edible" food trip may take up to ~3600 ticks, so it must not
+// start within 3600 ticks of nightfall (12542) - 8900 is the last safe start.
+const FOOD_TRIP_LAST_START = 8900;
+
 const modes_list = [
     {
         name: 'self_preservation',
@@ -359,6 +366,8 @@ const modes_list = [
         hungry_since: 0,
         next_try: 0,
         next_stock: 0,
+        // [ai-player] 2026-11-01: cooldown for the "he has nothing edible" food trip (item 2).
+        next_stock_food: 0,
         update: async function (agent) {
             const bot = agent.bot;
             if (bot.food == null) return;
@@ -376,6 +385,33 @@ const modes_list = [
                 execute(this, agent, async () => {
                     await (shelter.isSheltered() ? survival.eatBest(bot) : survival.cookOrEat(bot));
                 });
+                return;
+            }
+            // [ai-player] 2026-11-01: he has nothing edible and food < 18 (regen needs 18) or health < 20 ->
+            // go and get food, on a cooldown. Eating from the inventory (above) stays first, and this no longer
+            // waits for food <= 12.
+            //  - daytime only, and never from FOOD_TRIP_LAST_START (8900) onwards: the trip may take up to
+            //    ~3600 ticks, so it has to finish before nightfall (12542). The urgent food <= 12 path below
+            //    still runs at night, this wider trip does not;
+            //  - LOCAL search only - no 96-160 block far relocation and no relocateForFood - and at most 80
+            //    blocks; when badly hurt (health < 10) the whole search is capped at 24 blocks instead of being
+            //    skipped, so he still tries nearby without a long trek;
+            //  - while sealed in the shelter, or with BOB_FOOD_STOCK=0, the old food <= 12 gate below applies.
+            const tod = nav.timeOfDay(bot);
+            const late = tod != null && tod >= FOOD_TRIP_LAST_START;
+            const hurt = Number.isFinite(bot.health) && bot.health < 10;
+            if (!edibleFoods(bot, bot.food <= 6).length && (bot.food < 18 || bot.health < 20) &&
+                survival.foodStockEnabled() && !shelter.isSheltered() && !nav.isNightTime(bot) && !late) {
+                this.hungry_since = 0;
+                if (now >= this.next_stock_food) {
+                    this.next_stock_food = now + 120000;
+                    const opts = { escapeUp: agent.escape?.up, reason: 'no food, food/health below target', searchRange: 40, relocate: false };
+                    if (hurt) opts.maxRange = 24;
+                    execute(this, agent, async () => {
+                        const got = await survival.getFood(agent, opts);
+                        if (!got) this.next_stock_food = Date.now() + 300000;
+                    }, -1, 180000);
+                }
                 return;
             }
             // [ai-player] keep a small food stock: in daylight, when an animal is close, hunt it (every 10 min at most)
@@ -435,16 +471,24 @@ const modes_list = [
         boot_checked: false,
         far_logged: null,
         next_shelter: 0,
+        // [ai-player] 2026-11-01: known-bed trip (item 3): retry every 2 min; once it fails, allow the shelter.
+        next_bed: 0,
+        bed_failed_until: 0,
         exiting: false,
         shelterLeftForFood: false, // [ai-player] Fix 1e round 3: do not re-shelter until food > 6 or dawn
         max_action_ms: 180000,
         home_at_night: nightHomeEnabled(),
         release: function (agent, why) {
             const sp = agent.self_prompter;
-            const resume = (this.paused_sp || !this.boot_checked) && sp.isPaused() && !convoManager.inConversation();
-            if (this.holding || resume) console.log(`[ai-player] night: ${why}; ${resume ? 'resuming self-prompting' : 'self-prompting unchanged'}`);
+            const in_convo = convoManager.inConversation();
+            const resume = (this.paused_sp || !this.boot_checked) && sp.isPaused() && !in_convo;
+            // [ai-player] 2026-11-01: restart when he is STOPPED too, not only when PAUSED. canAutoRestart()
+            // refuses while a player's stop is still holding him (BOB_PLAYER_STOP_SEC) or while autonomy is off.
+            const restart = !resume && !in_convo && sp.canAutoRestart?.() === true;
+            if (this.holding || resume || restart) console.log(`[ai-player] night: ${why}; ${resume || restart ? 'resuming self-prompting' : 'self-prompting unchanged'}`);
             this.holding = false; this.paused_sp = false; this.tries = 0;
             if (resume) sp.start();
+            else if (restart) sp.resumeAutonomy(`night: ${why}`);
         },
         pauseSelfPrompt: function (agent) {
             const sp = agent.self_prompter;
@@ -460,11 +504,60 @@ const modes_list = [
             if (this.shelterLeftForFood) return;
             const now = Date.now();
             if (now < this.next_shelter) return;
-            const why = shelter.shelterReason(agent.bot);
+            // [ai-player] 2026-11-01: rate-limit the DECISION, not only the build. shelterReason can scan the
+            // world for a known bed and this runs on every mode tick; 15 s is fast enough for a 12-block
+            // hostile warning (self_preservation and self_defense run before this mode anyway).
+            this.next_shelter = now + 15000;
+            // [ai-player] 2026-11-01: a known bed within reach suppresses the shelter (walk to the bed and
+            // sleep instead). Once that trip has failed, knownBed goes false and the shelter is the fallback.
+            const knownBed = now >= this.bed_failed_until;
+            const why = shelter.shelterReason(agent.bot, { knownBed });
             if (!why) return;
             this.next_shelter = now + 60000; // one attempt a minute, like the bed retry
             console.log(`[ai-player] night: no verified bed; building the emergency shelter (${why})`);
-            execute(this, agent, async () => { await shelter.buildShelter(agent.bot); }, -1, 60000);
+            execute(this, agent, async () => { await shelter.buildShelter(agent.bot, { knownBed }); }, -1, 60000);
+        },
+        // [ai-player] 2026-11-01 (item 3): with no verified home, walk to a known bed (the claim bed, or the
+        // last bed he slept in) and sleep in it. The emergency shelter only runs if this fails.
+        tryKnownBed: function (agent) {
+            if (this.active) return;
+            if (!shelter.knownBedEnabled()) return;
+            if (!nav.isNightTime(agent.bot)) return;
+            const now = Date.now();
+            // [ai-player] 2026-11-01: after a failed trip, do not start another one - the emergency shelter is
+            // the fallback for the rest of this window (and tryEmergencyShelter is asked with knownBed:false).
+            if (now < this.bed_failed_until) return;
+            if (now < this.next_bed) return;
+            const bed = shelter.knownBedNear(agent.bot);
+            if (!bed) return;
+            this.next_bed = now + BED_TRIP_COOLDOWN_MS;
+            const b = bed.pos;
+            console.log(`[ai-player] night: known bed (${bed.name}) at ${b.x} ${b.y} ${b.z}, ${Math.round(bed.distance)} blocks away; going to sleep`);
+            this.boot_checked = true;
+            this.pauseSelfPrompt(agent);
+            this.holding = true; // hold like the shelter: self-prompting paused and lower modes off until dawn
+            execute(this, agent, async () => {
+                try {
+                    const target = shelter.knownBedNear(agent.bot);
+                    if (!target) return;
+                    const p = target.pos;
+                    try {
+                        if (agent.bot.entity.position.distanceTo(new Vec3(p.x, p.y, p.z)) > 24)
+                            await nav.gotoWithin(agent.bot, new pf.goals.GoalNear(p.x, p.y, p.z, 3), 90000, nav.walkMovements(agent.bot));
+                    } catch (e) { console.log(`[ai-player] night: walking to the known bed failed (${e.message})`); }
+                    let ok = false;
+                    try { ok = await skills.goToBed(agent.bot); } catch (e) { console.log(`[ai-player] night: sleeping in the known bed failed (${e.message})`); }
+                    if (!ok) {
+                        this.bed_failed_until = Date.now() + BED_TRIP_COOLDOWN_MS;
+                        console.log('[ai-player] night: could not use the known bed; the emergency shelter may run');
+                    }
+                } finally {
+                    // [ai-player] 2026-11-01: the cooldown is measured from when the trip ENDS. A slow trip (up
+                    // to the 600 s cap) used to end after its own 120 s window had already expired, so the next
+                    // tick started another trip and he looped bed trips all night instead of sheltering.
+                    this.next_bed = Date.now() + BED_TRIP_COOLDOWN_MS;
+                }
+            }, -1, 600000);
         },
         // [ai-player] Fix 1e: while sealed in, hold like night-home does — pause self-prompting and keep lower
         // modes off until dawn. Eating (a command) still works; self_preservation and an inside mob's
@@ -510,14 +603,18 @@ const modes_list = [
             // (food > 6) or dawn has arrived.
             if (this.shelterLeftForFood && (agent.bot.food > 6 || !nav.isNightTime(agent.bot))) this.shelterLeftForFood = false;
             if (!this.home_at_night) { // pr20-reconciled-20261027: independent exploration; release any hold/pause once
-                if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home off (independent exploration)');
+                // [ai-player] 2026-11-01: never release while a night action (a bed trip or a shelter build) is
+                // in flight - release() would resume self-prompting and undo the hold on the very next tick.
+                if ((this.holding || this.paused_sp || !this.boot_checked) && !this.active) this.release(agent, 'night-home off (independent exploration)');
                 this.boot_checked = true;
+                this.tryKnownBed(agent); // [ai-player] 2026-11-01: walk to a known bed and sleep
                 this.tryEmergencyShelter(agent); // [ai-player] Fix 1e: seal up when there is no bed to reach
                 return;
             }
             if (!isVerifiedHome(getActiveHome())) {
-                if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home has no verified house');
+                if ((this.holding || this.paused_sp || !this.boot_checked) && !this.active) this.release(agent, 'night-home has no verified house');
                 this.boot_checked = true;
+                this.tryKnownBed(agent); // [ai-player] 2026-11-01: walk to a known bed and sleep
                 this.tryEmergencyShelter(agent); // [ai-player] Fix 1e: seal up when there is no verified home bed
                 return;
             }
@@ -988,7 +1085,10 @@ export function getMode(name) {
 export function releaseNightHold(why = 'death/respawn') {
     try {
         const night = modes_list.find(m => m.name === 'night');
-        if (night && _agent && (night.holding || night.paused_sp)) night.release(_agent, why);
+        if (!night || !_agent) return;
+        // [ai-player] 2026-11-01: also fire when autonomy is STOPPED, so the death/respawn handlers restart
+        // it. release() still refuses to resume him early during a player's pause.
+        if (night.holding || night.paused_sp || _agent.self_prompter?.isStopped?.()) night.release(_agent, why);
     } catch (_) {}
 }
 

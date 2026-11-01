@@ -4,6 +4,7 @@ import * as skills from '../library/skills.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
 import { botGetBlock } from '../library/vec3_util.js';
+import { modelStopIgnored, stopSource } from '../library/autonomy.js';
 
 
 function runAsAction (actionFn, resume = false, timeout = -1) {
@@ -72,8 +73,13 @@ export const actionsList = [
         name: '!stfu',
         description: 'Stop all chatting and self prompting, but continue current action.',
         perform: async function (agent) {
+            // [ai-player] 2026-11-01: autonomy never stays off. A stop from the model's own self-prompt or
+            // system turn is ignored (the note goes into the history so the model learns); a player's stop
+            // silences him and pauses autonomy for BOB_PLAYER_STOP_SEC.
+            if (modelStopIgnored(agent))
+                return 'Autonomy is ON: !stfu from your own self-prompt is ignored. Keep working on your goal.';
             agent.openChat('Shutting up.');
-            agent.shutUp();
+            agent.shutUp(stopSource(agent));
             return;
         }
     },
@@ -424,6 +430,9 @@ export const actionsList = [
             'selfPrompt': { type: 'string', description: 'The goal prompt.' },
         },
         perform: async function (agent, prompt) {
+            // [ai-player] 2026-11-01 (C): a player's new goal also un-silences him, so a !stfu cannot leave
+            // him silent for good once he is working again.
+            agent.self_prompter.clearShutUp?.();
             if (convoManager.inConversation()) {
                 agent.self_prompter.setPromptPaused(prompt);
             }
@@ -436,7 +445,11 @@ export const actionsList = [
         name: '!endGoal',
         description: 'Call when you have accomplished your goal. It will stop self-prompting and the current action. ',
         perform: async function (agent) {
-            agent.self_prompter.stop();
+            // [ai-player] 2026-11-01: autonomy never stays off. A stop from the model's own self-prompt or
+            // system turn is ignored; a player's stop pauses autonomy for BOB_PLAYER_STOP_SEC.
+            if (modelStopIgnored(agent))
+                return 'Autonomy is ON: !endGoal from your own self-prompt is ignored. Keep working on your goal.';
+            await agent.self_prompter.stop(true, stopSource(agent));
             return 'Self-prompting stopped.';
         }
     },

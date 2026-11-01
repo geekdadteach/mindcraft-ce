@@ -75,8 +75,16 @@ test('the hunger mode eats while sheltered, and only then stops hunting/getFood'
     assert.match(modes, /await survival\.cookOrEat\(bot\)/, 'unsheltered eating still cooks');
     const eat = modes.indexOf('survival.eatBest(bot)');
     const ret = modes.indexOf('below both eat branches');
-    const food = modes.indexOf('survival.getFood(agent');
-    assert.ok(eat > 0 && ret > eat && food > ret, 'order: eat branch, sheltered return, getFood');
+    const oldFood = modes.indexOf('hungry and no food');
+    // [ai-player] 2026-11-01: the "he has nothing edible" trip (item 2) sits above the food > 14 return, so it
+    // is now the first getFood call. It only fires when he holds no edible item at all, so eating from the
+    // inventory (the branch above it) still wins.
+    const newTrip = modes.indexOf('no food, food/health below target');
+    assert.ok(eat > 0 && newTrip > eat, 'the eat branch comes before the new food trip');
+    assert.ok(ret > newTrip, 'the sheltered return comes after it');
+    assert.ok(oldFood > ret, 'the old food <= 12 getFood is still below the sheltered return');
+    assert.match(modes, /!edibleFoods\(bot, bot\.food <= 6\)\.length && \(bot\.food < 18 \|\| bot\.health < 20\)/,
+        'the new trip only runs with nothing edible and food < 18 or health < 20');
     assert.match(modes, /shelter\.clearShelter\(agent\.bot\)/, 'the dimension-change path restores canDig');
 });
 

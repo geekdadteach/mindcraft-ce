@@ -6,7 +6,7 @@ import { emptyHome, exampleVerifiedHome, setActiveHome } from '../src/agent/libr
 import { NO_GO_ZONES } from '../src/agent/library/no_go_zones.js';
 import {
     SHELTER_HOSTILE_RANGE, SHELTER_LOW_HEALTH, blockedForShelter, buildShelter,
-    sealSpots, shelterEnabled, shelterReason, shouldShelter,
+    sealSpots, shelterEnabled, shelterReason, shouldShelter, wallIn,
     clearShelter, dawnExit, isSheltered, markSheltered, placedBlocksToDig,
     pocketCellsToRefill, shelterGuard, shelterState,
 } from '../src/agent/library/night_shelter.js';
@@ -109,9 +109,15 @@ function fakeShelterBot({ blocks = [], held = [{ name: 'dirt' }] } = {}) {
     const dug = [];
     const bot = {
         interrupt_code: false,
+        output: '',
         inventory: { items: () => held },
         blockAt: (v) => cells.get(cellKey(v)) || null,
         dig: async (b) => { dug.push(cellKey(b.position)); cells.delete(cellKey(b.position)); },
+        // [ai-player] 2026-11-01: enough of a bot for shelterReason/buildShelter (a hostile at night).
+        entity: { position: { x: 0, y: 64, z: 0, distanceTo: (o) => Math.hypot(0 - o.x, 64 - o.y, 0 - o.z) } },
+        time: { timeOfDay: 18000 },
+        health: 20,
+        entities: { z: { name: 'zombie', type: 'mob', position: { x: 4, y: 64, z: 0 } } },
     };
     return { bot, dug, cells };
 }
@@ -180,3 +186,46 @@ test('shelter state is a single record that mark/clear manage', () => {
     clearShelter();
     assert.equal(isSheltered(), false);
 });
+
+// [ai-player] 2026-11-01 (item 4): an open roof is not a shelter. Two pre-existing walls around a hole must
+// not report success, and "sealed in" must never be logged with 0 blocks placed and an open roof.
+test('wallIn refuses an open roof: two solid sides are not a sealed shelter', async () => {
+    setActiveHome(emptyHome());
+    const { bot } = fakeShelterBot({ blocks: [
+        { x: 1, y: 64, z: 0, name: 'stone' },   // two pre-existing sides
+        { x: -1, y: 64, z: 0, name: 'stone' },
+    ] });
+    assert.equal(await wallIn(bot, 'dirt', {}), false, 'the roof cell above his head is open');
+});
+
+test('wallIn succeeds when the roof is solid', async () => {
+    const { bot } = fakeShelterBot({ blocks: [
+        { x: 1, y: 64, z: 0, name: 'stone' },
+        { x: -1, y: 64, z: 0, name: 'stone' },
+        { x: 0, y: 66, z: 0, name: 'stone' },   // the roof
+    ] });
+    assert.equal(await wallIn(bot, 'dirt', {}), true, 'solid sides and a solid roof');
+});
+
+test('buildShelter digs a pocket instead of claiming an open-roof hole is sealed', async () => {
+    setActiveHome(emptyHome());
+    clearShelter();
+    const { bot } = fakeShelterBot({ blocks: [
+        { x: 1, y: 64, z: 0, name: 'stone' },   // two pre-existing sides, open roof
+        { x: -1, y: 64, z: 0, name: 'stone' },
+        { x: 0, y: 63, z: 0, name: 'stone' },   // diggable ground
+        { x: 0, y: 62, z: 0, name: 'stone' },
+    ] });
+    const lines = [];
+    const real = console.log;
+    console.log = (...a) => { lines.push(a.map(String).join(' ')); };
+    try {
+        assert.equal(await buildShelter(bot, { env: {} }), true, 'he still gets a shelter');
+    } finally { console.log = real; }
+    assert.equal(isSheltered(), true);
+    assert.ok(lines.some(l => l.includes('the roof cell is open')), 'the open roof was reported');
+    assert.ok(lines.some(l => l.includes('dug a 1x2 pocket')), 'and the fallback is named honestly');
+    assert.equal(lines.some(l => l.includes('sealed in')), false, 'never "sealed in" with an open roof');
+    clearShelter();
+});
+

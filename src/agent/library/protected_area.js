@@ -44,6 +44,15 @@ export const BOB_BED = Object.freeze({ x: -1144, y: 68, z: 752 });
 export const BED_PROTECT_RANGE = 2;
 let _lastSleptBed = null;
 
+// [ai-player] 2026-11-01: the claim bed is overridable with BOB_BED=x,y,z; the default stays the claim centre.
+export function parseBedCoord(s) {
+    const m = String(s ?? '').trim().match(/^(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)$/);
+    return m ? { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) } : null;
+}
+export function claimBed(env = process.env) {
+    return parseBedCoord(env?.BOB_BED) || BOB_BED;
+}
+
 // ON by default; only BOB_PROTECT_BED=0 turns it off.
 export function bedProtectEnabled(env = process.env) {
     return env?.BOB_PROTECT_BED !== '0';
@@ -57,8 +66,8 @@ export function recordSleptBed(pos) {
 }
 export function lastSleptBed() { return _lastSleptBed; }
 
-export function knownBeds() {
-    const out = [BOB_BED];
+export function knownBeds(env = process.env) {
+    const out = [claimBed(env)];
     const homeBed = getActiveHome()?.bed;
     if (homeBed && [homeBed.x, homeBed.y, homeBed.z].every(Number.isFinite)) out.push(homeBed);
     if (_lastSleptBed) out.push(_lastSleptBed);
@@ -69,7 +78,7 @@ export function knownBeds() {
 export function ownBedAt(pos, blockName, { env = process.env } = {}) {
     if (!bedProtectEnabled(env)) return null;
     if (!pos || !/_bed$/.test(String(blockName || ''))) return null;
-    for (const bed of knownBeds()) {
+    for (const bed of knownBeds(env)) {
         const d = Math.hypot(Number(pos.x) - bed.x, Number(pos.y) - bed.y, Number(pos.z) - bed.z);
         if (Number.isFinite(d) && d <= BED_PROTECT_RANGE) return { name: 'your bed', bed };
     }

@@ -54,6 +54,20 @@ test('bamboo never maps to planks', () => {
     assert.equal(correctName(agentWith([{ name: 'bamboo' }]), '!craftRecipe', 'planks', 'item'), 'oak_planks');
 });
 
+test('stripped logs are ignored', () => {
+    assert.equal(starterWoodType('stripped_oak_log'), null);
+    assert.equal(starterWoodType('stripped_crimson_stem'), null);
+    assert.equal(starterWoodType('stripped_birch_wood'), null);
+    // stripped logs do not count towards the starter run, even when they outnumber real logs
+    const mk = (items) => ({ inventory: { items: () => items }, interrupt_code: false });
+    assert.equal(heldLogCount(mk([{ name: 'stripped_oak_log', count: 64 }])), 0, 'a pile of stripped logs is not a starter run');
+    assert.equal(heldLogCount(mk([{ name: 'stripped_oak_log', count: 64 }, { name: 'oak_log', count: 3 }])), 3, 'real logs still count');
+    assert.equal(starterPlanksName(mk([{ name: 'stripped_oak_log', count: 64 }, { name: 'spruce_log', count: 3 }])), 'spruce_planks', 'the stripped pile does not win the wood type');
+    assert.equal(needsStarterTools(mk([{ name: 'stripped_oak_log', count: 64 }])), false, 'stripped logs do not trigger a starter run');
+    // a stripped log in hand is not a plank source for !craftRecipe
+    assert.equal(correctName(agentWith([{ name: 'stripped_oak_log' }]), '!craftRecipe', 'planks', 'item'), 'oak_planks');
+});
+
 test('the starter run uses the most plentiful wood type and needs 3 of it', async () => {
     const mk = (items) => ({ inventory: { items: () => items }, interrupt_code: false });
     assert.equal(starterPlanksName(mk([{ name: 'spruce_log', count: 2 }, { name: 'oak_log', count: 4 }])), 'oak_planks');

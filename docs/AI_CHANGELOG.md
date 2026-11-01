@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3 round 3b: stripped logs are not planks (report 4.4) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #29 review: `starterWoodType` must not treat `stripped_*_log` as a plank source.
+- **Files:** `src/agent/library/survival.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `starterWoodType` requires `isNaturalWoodBlockName(name)` (which excludes `stripped_*`), so stripped logs are ignored by `heldLogCount`, `bestStarterWood`/`starterPlanksName` and `correctName`.
+- **Tests:** `test/bob_starter_tools.test.js` **8/8**. Full `npm test` on Node 22: **263/264 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#29); fourth commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-3b commit on the PR branch.
+
 ## 2026-10-31 — Fix 3 round 3: most plentiful wood type, 16-block table reach (report 4.4) (TESTED; NOT DEPLOYED)
 - **Goal:** PR #29 review: use the wood type Bob actually has enough of, and match craftRecipe's table reach.
 - **Files:** `src/agent/library/survival.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

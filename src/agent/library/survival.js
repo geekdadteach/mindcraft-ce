@@ -395,7 +395,9 @@ export function starterToolsEnabled(env = process.env) { return env.BOB_STARTER_
 // with), so it never maps to planks.
 export function starterWoodType(logName) {
     const name = String(logName || '');
-    if (!name || name === 'bamboo') return null;
+    // [ai-player] Fix 3 round 3: a stripped log is not a plank source here (isNaturalWoodBlockName excludes
+    // stripped_*), and bamboo_planks are not a wood type Bob builds with.
+    if (!isNaturalWoodBlockName(name) || name === 'bamboo') return null;
     const wood = name.replace(/_log$|_stem$/, '');
     return wood && wood !== name ? wood : null;
 }

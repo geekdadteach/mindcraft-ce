@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3 round 3b: stripped logs are not planks (report 4.4) (TESTED; NOT DEPLOYED)
+- Review of PR #29. Same branch, fourth commit (no force-push).
+- `starterWoodType()` now gates on the already-imported `isNaturalWoodBlockName()`, so `stripped_oak_log` / `stripped_crimson_stem` / `stripped_birch_wood` return `null`: they never count as logs, never win the wood-type pick, and never become a `!craftRecipe("planks")` source.
+- Tests: `test/bob_starter_tools.test.js` **8/8** (new: stripped logs are ignored). Full `npm test` on Node 22: **263/264 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 3 round 3: most plentiful wood type, 16-block table reach (report 4.4) (TESTED; NOT DEPLOYED)
 - Review of PR #29. Same branch, third commit (no force-push).
 - **Most plentiful wood** — new `logCountsByWood()`/`bestStarterWood()`; `starterPlanksName()` uses the wood type Bob holds the most of, and `heldLogCount()` returns that type's count, so a starter run needs >= 3 logs of ONE wood type instead of 3 logs of any mix.

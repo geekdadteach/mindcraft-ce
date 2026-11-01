@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7c: a failing task text can never be verified met (report 4.11) (TESTED; NOT DEPLOYED)
+- **Goal:** Report 4.11: a task whose text says it failed must never be reported as met.
+- **Files:** `src/agent/library/bob_goal_verifier.js`, `test/bob_verifier_failure_text.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** shared `FAILURE_PHRASES` + `textReportsFailure`; `verifyGoal` returns `not_met` (`result-text`) when the result text reports failure.
+- **Tests:** `test/bob_verifier_failure_text.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
 - **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

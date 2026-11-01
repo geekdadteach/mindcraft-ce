@@ -14,6 +14,25 @@ export const MAX_NEARBY = 12;
 
 const VERDICTS = new Set(['met', 'not_met', 'progress', 'unevaluated']);
 
+// [ai-player] Fix 4.11: a task text that says it failed must never be reported as met.
+export const FAILURE_PHRASES = Object.freeze([
+    'not confirmed',
+    'could not',
+    'cannot',
+    'failed',
+    "don't have",
+    'no path',
+    'unreachable',
+    'timed out',
+    'inventory full',
+]);
+
+export function textReportsFailure(text) {
+    const s = String(text || '').toLowerCase();
+    if (!s) return false;
+    return FAILURE_PHRASES.some(p => s.includes(p));
+}
+
 const LOG_NAMES = [
     'oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log',
     'dark_oak_log', 'mangrove_log', 'cherry_log', 'pale_oak_log',
@@ -687,6 +706,11 @@ export function verifyGoal(input = {}) {
         if (!desc.block && mapped.kind === 'place' && mapped.item) desc.block = mapped.item;
         if (!desc.entity && mapped.kind === 'attack' && mapped.item) desc.entity = mapped.item;
 
+        // [ai-player] Fix 4.11: a task text that says it failed can never be met.
+        const resultText = input.resultText ?? input.result ?? input.result_summary ?? '';
+        if (textReportsFailure(resultText)) {
+            return result('not_met', 'result-text', `Task text reports failure: "${String(resultText).slice(0, 120)}"`, before, after);
+        }
         const kind = kindForCommand(desc.command) || mapped.kind;
         if (!kind) {
             return unevaluated(

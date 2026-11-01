@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7c: a failing task text can never be verified met (report 4.11) (TESTED; NOT DEPLOYED)
+- Work-order item 7c. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
+- New exports in `bob_goal_verifier.js`: `FAILURE_PHRASES` (shared list: not confirmed, could not, cannot, failed, don't have, no path, unreachable, timed out, inventory full) and `textReportsFailure(text)`. `verifyGoal()` now returns `not_met` (source `result-text`) when the task/result text reports failure, before any kind-specific check.
+- Tests: new `test/bob_verifier_failure_text.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

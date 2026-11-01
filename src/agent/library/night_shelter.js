@@ -13,6 +13,7 @@ import pf from 'mineflayer-pathfinder';
 import * as mc from '../../utils/mcdata.js';
 import * as skills from './skills.js';
 import { getActiveHome, isVerifiedHome } from './bob_home.js';
+import { claimBed, lastSleptBed } from './protected_area.js';
 import { isNightTime } from './ai_player_nav.js';
 import { protectedAreaAt } from './house_bounds.js';
 import { zoneAt } from './no_go_zones.js';
@@ -112,10 +113,49 @@ export function shelterEnabled(env = process.env) {
     return env?.BOB_NIGHT_SHELTER !== '0';
 }
 
+// [ai-player] 2026-11-01: a known bed is a bed Bob can walk to and sleep in. ON by default; BOB_KNOWN_BED=0
+// opts out. KNOWN_BED_RANGE is how far he will walk to it; KNOWN_BED_MATCH_RANGE is how far the *_bed block
+// may sit from the recorded anchor (the recorded position is approximate).
+export const KNOWN_BED_RANGE = 48;
+export const KNOWN_BED_MATCH_RANGE = 3;
+
+export function knownBedEnabled(env = process.env) {
+    return env?.BOB_KNOWN_BED !== '0';
+}
+
+// The nearest *_bed block belonging to a known bed he could use tonight, or null. Anchors: the claim bed
+// (BOB_BED, overridable with BOB_BED=x,y,z) and the last bed he slept in. Safe with a bare bot (no blockAt).
+export function knownBedNear(bot, { env = process.env } = {}) {
+    if (!knownBedEnabled(env)) return null;
+    const p = bot?.entity?.position;
+    if (!p || typeof bot.blockAt !== 'function') return null;
+    const anchors = [];
+    try { anchors.push(claimBed(env)); } catch (_) {}
+    try { const last = lastSleptBed(); if (last) anchors.push(last); } catch (_) {}
+    const r = KNOWN_BED_MATCH_RANGE;
+    for (const a of anchors) {
+        if (!a || ![a.x, a.y, a.z].every(Number.isFinite)) continue;
+        for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
+            const pos = { x: a.x + dx, y: a.y + dy, z: a.z + dz };
+            let b = null;
+            try { b = bot.blockAt(new Vec3(pos.x, pos.y, pos.z)); } catch (_) { continue; }
+            if (!b || !/_bed$/.test(String(b.name))) continue;
+            const d = Math.hypot(p.x - pos.x, p.y - pos.y, p.z - pos.z);
+            if (!Number.isFinite(d) || d > KNOWN_BED_RANGE) continue;
+            return { pos, anchor: { x: a.x, y: a.y, z: a.z }, name: String(b.name), distance: d };
+        }
+    }
+    return null;
+}
+
 // A verified home always carries a bed (bob_home.isVerifiedHome requires one), so a verified home
-// means there is a bed to reach and the shelter is not the fallback.
-export function hasVerifiedBed(bot, home = getActiveHome()) {
-    return isVerifiedHome(home);
+// means there is a bed to reach and the shelter is not the fallback. A known bed within reach counts too:
+// the night mode walks to it and sleeps. Pass knownBed:false once that trip has failed, so the emergency
+// shelter is still allowed.
+export function hasVerifiedBed(bot, home = getActiveHome(), { env = process.env, knownBed = true } = {}) {
+    if (isVerifiedHome(home)) return true;
+    if (knownBed && knownBedNear(bot, { env })) return true;
+    return false;
 }
 
 // Nearest mob that is actually a threat to Bob right now (neutral mobs only if they just hit him).
@@ -133,10 +173,10 @@ export function nearestHostile(bot, range = SHELTER_HOSTILE_RANGE) {
 }
 
 // Why Bob should shelter right now, or null. 'hostiles' | 'low-health' | null.
-export function shelterReason(bot, { env = process.env, now = Date.now() } = {}) {
+export function shelterReason(bot, { env = process.env, now = Date.now(), knownBed = true } = {}) {
     if (!shelterEnabled(env)) return null;
     if (!bot?.entity?.position) return null;
-    if (hasVerifiedBed(bot)) return null;
+    if (hasVerifiedBed(bot, getActiveHome(), { env, knownBed })) return null;
     if (!isNightTime(bot)) return null;
     // [ai-player] Fix 1e round 3: never seal a starving Bob in with nothing to eat; he must be free to !getFood.
     if (Number.isFinite(bot.food) && bot.food <= 6 && !hasEdibleFood(bot)) return null;
@@ -192,24 +232,33 @@ function isSolid(bot, pos) {
     } catch (_) { return true; } // unknown: treat as solid so we never touch it
 }
 
-// Wall in with the held seal block. Returns true once at least two spots are filled.
+// Wall in with the held seal block. Returns true only when the roof cell above his head ends up solid AND
+// at least two spots are filled: an open roof is not a shelter, so a hole with two pre-existing walls must
+// not report success (the caller then falls back to digPocket). The roof is placed against a side or bottom
+// face; the walls against a side.
 export async function wallIn(bot, seal = sealBlockName(bot), record = {}) {
     const placed = record.placed || (record.placed = []);
     const base = baseOf(bot);
     if (!base || !seal) return false;
-    let filled = 0;
+    const roof = { x: base.x, y: base.y + 2, z: base.z };
+    let filled = 0, roofSolid = false;
     for (const spot of sealSpots(base)) {
         if (bot.interrupt_code) break;
-        if (isSolid(bot, spot)) { filled++; continue; }
+        const isRoof = spot.x === roof.x && spot.y === roof.y && spot.z === roof.z;
+        if (isSolid(bot, spot)) { filled++; if (isRoof) roofSolid = true; continue; }
         if (blockedForShelter(spot, seal)) continue;
-        try {
-            if (await skills.placeBlock(bot, seal, spot.x, spot.y, spot.z, 'side')) {
-                filled++;
-                placed.push({ x: spot.x, y: spot.y, z: spot.z, name: seal });
-            }
-        } catch (_) { /* placement is best-effort */ }
+        for (const face of (isRoof ? ['bottom', 'side'] : ['side'])) {
+            let ok = false;
+            try { ok = await skills.placeBlock(bot, seal, spot.x, spot.y, spot.z, face); } catch (_) { ok = false; }
+            if (!ok) continue;
+            filled++;
+            placed.push({ x: spot.x, y: spot.y, z: spot.z, name: seal });
+            if (isRoof) roofSolid = true;
+            break;
+        }
     }
-    return filled >= 2;
+    if (!roofSolid) console.log('[ai-player] shelter: the roof cell is open; not sealed (falling back)');
+    return filled >= 2 && roofSolid;
 }
 
 // Fallback when Bob holds nothing to seal with: dig a 1x2 pocket down and cap the top if we can.
@@ -303,13 +352,17 @@ export async function buildShelter(bot, opts = {}) {
     if (!shouldShelter(bot, opts)) return false;
     const seal = sealBlockName(bot);
     const record = { placed: [], dug: [] };
-    let ok = false;
-    if (seal && await wallIn(bot, seal, record)) ok = true;
-    else ok = await digPocket(bot, seal, record);
-    if (!ok) { await recover(bot, record.placed, record.dug); return false; } // no stray blocks from a failed attempt
+    let how = null;
+    // [ai-player] 2026-11-01: wallIn refuses an open roof, so a hole with two pre-existing walls falls
+    // through to digPocket instead of reporting a shelter that is not sealed.
+    if (seal && await wallIn(bot, seal, record)) how = 'sealed';
+    else if (await digPocket(bot, seal, record)) how = 'pocket';
+    if (!how) { await recover(bot, record.placed, record.dug); return false; } // no stray blocks from a failed attempt
     markSheltered({ day: bot.time?.day ?? null, dimension: bot.game?.dimension ?? null, placed: record.placed, dug: record.dug });
     // [ai-player] Fix 1e round 3: stop the pathfinder digging Bob out of his own shelter.
     try { if (bot.pathfinder?.movements) bot.pathfinder.movements.canDig = false; } catch (_) {}
-    console.log(`[ai-player] shelter: sealed in for the night (placed ${record.placed.length}, dug ${record.dug.length})`);
+    // [ai-player] 2026-11-01: honest log - a dug pocket is not a sealed room, and "sealed in" is only
+    // logged when the roof really is closed.
+    console.log(`[ai-player] shelter: ${how === 'sealed' ? 'sealed in' : 'dug a 1x2 pocket'} for the night (placed ${record.placed.length}, dug ${record.dug.length})`);
     return true;
 }

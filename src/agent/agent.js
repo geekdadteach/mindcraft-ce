@@ -6,7 +6,7 @@ import { Coder } from './coder.js';
 import { codeLaneInfo } from './library/bob_eval_harness.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
-import { initModes, releaseNightHold } from './modes.js';
+import { initModes, releaseNightHold, getMode } from './modes.js';
 import { initBot, stampLikelyAttacker } from '../utils/mcdata.js';
 import { clearShelter, installShelterMovementGuard } from './library/night_shelter.js';
 import { containsCommand, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
@@ -345,7 +345,13 @@ export class Agent {
             if (init_message) {
                 this.history.add('system', init_message);
             }
-            await this.self_prompter.handleLoad(save_data.self_prompt, save_data.self_prompting_state);
+            await this.self_prompter.handleLoad(save_data.self_prompt, save_data.self_prompting_state, save_data.stopped_by, save_data.stopped_at);
+        }
+        else {
+            // [ai-player] 2026-11-01: no saved goal (a fresh boot, or a saved STOPPED state). Restore the stop
+            // record so a player's pause is honoured, and let handleLoad start the default survival goal when
+            // it may - boot must never leave autonomy off forever.
+            await this.self_prompter.handleLoad(null, save_data?.self_prompting_state, save_data?.stopped_by, save_data?.stopped_at);
         }
         if (save_data?.last_sender) {
             this.last_sender = save_data.last_sender;
@@ -395,12 +401,21 @@ export class Agent {
         this.bot.interrupt_code = false;
     }
 
-    shutUp() {
+    shutUp(by = 'player') {
         this.shut_up = true;
         if (this.self_prompter.isActive()) {
-            this.self_prompter.stop(false);
+            // [ai-player] 2026-11-01: record who asked. A player's stop is a short pause; a model stop is
+            // ignored by the command itself while autonomy is on, so 'model' only happens with BOB_AUTONOMY=0.
+            this.self_prompter.stop(false, by);
         }
         convoManager.endAllConversations();
+    }
+
+    // [ai-player] 2026-11-01: what keeps the autonomy watchdog from restarting him right now.
+    autonomyBlocked() {
+        try { if (convoManager.inConversation()) return true; } catch (_) {}
+        try { if (getMode('night')?.holding) return true; } catch (_) {}
+        return false;
     }
 
     async handleMessage(source, message, max_responses=null) {
@@ -434,7 +449,14 @@ export class Agent {
                     // add the preceding message to the history to give context for newAction
                     this.history.add(source, message);
                 }
-                let execute_res = await executeCommand(this, message);
+                // [ai-player] 2026-11-01: a direct command from a player is never the model's own turn.
+                this._commandSelfPrompt = false;
+                let execute_res;
+                try {
+                    execute_res = await executeCommand(this, message);
+                } finally {
+                    this._commandSelfPrompt = undefined;
+                }
                 this.longMemory?.observeCommand(message, execute_res);
                 this.failures?.observeCommand(message, execute_res);
                 if (execute_res) 
@@ -537,11 +559,15 @@ export class Agent {
                 }
 
                 this._bobV2ClaimAdvice = v2Turn;
+                // [ai-player] 2026-11-01: mark the turn, so !stfu / !endGoal from the model's own self-prompt or
+                // system turn are ignored while autonomy is on (a player's command still works).
+                this._commandSelfPrompt = self_prompt;
                 let execute_res;
                 try {
                     execute_res = await executeCommand(this, res);
                 } finally {
                     this._bobV2ClaimAdvice = false;
+                    this._commandSelfPrompt = undefined;
                 }
 
                 console.log('Agent executed:', command_name, 'and got:', execute_res);

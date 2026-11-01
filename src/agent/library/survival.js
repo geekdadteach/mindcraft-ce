@@ -286,10 +286,10 @@ export function inBobFarmArea(position, env = process.env) {
         !zoneAt(x,z) && !protectedAreaAt(position);
 }
 
-export async function harvestCrops(bot) {
+export async function harvestCrops(bot, range = 32) {
     const before = foodStock(bot);
     const ripe = (b) => (b.getProperties?.()?.age ?? 0) >= (b.name === 'beetroots' ? 3 : 7);
-    const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], 32, 60)
+    const crops = world.getNearestBlocks(bot, ['carrots', 'potatoes', 'beetroots', 'wheat'], range, 60)
         .filter(ripe).filter(c => inBobFarmArea(c.position)).slice(0, 4);
     if (!crops.length) return false;
     console.log(`[ai-player] food: harvesting ${crops.length} ${crops[0].name}`);
@@ -315,9 +315,12 @@ export async function harvestCrops(bot) {
 }
 
 // Get food: crops first (best food), then berries, crops, wider hunt; underground, go up first (animals live on
-// the surface). Returns true when Bob ate or now holds food.
-export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt = huntAnimal, relocateFar = relocateFarForFood, env = process.env } = {}) {
+// the surface). Returns true when Bob ate or now holds food. searchRange widens the local hunt/forage
+// (default null keeps the original 24/64 hunt and 32-block crop search) - used when he has no food at all.
+export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt = huntAnimal, relocateFar = relocateFarForFood, env = process.env, searchRange = null } = {}) {
     const bot = agent.bot;
+    const near = Number.isFinite(searchRange) && searchRange > 0 ? searchRange : 24;
+    const far = Math.max(near * 2, 64);
     console.log(`[ai-player] food: ${reason}; food=${bot.food} health=${Math.round(bot.health)} stock=${foodStock(bot)}`);
     if (foodStock(bot) > 0 && bot.food <= 14) return await eatBest(bot);
     if (!foodSearchAllowed(agent, bot.entity?.position)) {
@@ -327,9 +330,9 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt 
     }
     // [ai-player] Fix 2: harvest helpers are best-effort; a world lookup failure must not abort the loop.
     let r = { ok: false };
-    try { r = { ok: await harvestCrops(bot) }; } catch (_) {}
-    if (!r.ok) { try { const b = await harvestBerries(agent, 24); if (b.ok) r = b; } catch (_) {} }
-    if (!r.ok) r = await hunt(agent, 24);
+    try { r = { ok: await harvestCrops(bot, near) }; } catch (_) {}
+    if (!r.ok) { try { const b = await harvestBerries(agent, near); if (b.ok) r = b; } catch (_) {} }
+    if (!r.ok) r = await hunt(agent, near);
     if (!r.ok && escapeUp && (await import('./ai_player_nav.js')).isUnderground(bot)) {
         console.log('[ai-player] food: nothing to eat down here; going up to the surface to hunt');
         await escapeUp(agent, { reason: 'food' });
@@ -343,7 +346,7 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt 
             if (await relocateFar(agent)) emptyLocalSearches.set(agent, 0);
         }
     }
-    if (!r.ok) r = await hunt(agent, 64);
+    if (!r.ok) r = await hunt(agent, far);
     if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); noteFoodSearchFailure(agent, bot.entity?.position); skills.log(bot, `Could not find food nearby (${r.why}). Seeking a safe new search area.`); await relocateForFood(agent); return false; }
     emptyLocalSearches.set(agent, 0);
     await cookOrEat(bot);
@@ -549,6 +552,11 @@ export async function collectDropsFor(bot, { range = 6, ms = 5000 } = {}) {
 
 // [ai-player] Fix 2c: relocate far for a fresh food search. ON by default; BOB_FOOD_RELOCATE=0 opts out.
 export function foodRelocateEnabled(env = process.env) { return env.BOB_FOOD_RELOCATE !== '0'; }
+
+// [ai-player] 2026-11-01: with no food at all and food < 18 or health < 20, go and get some in daylight.
+// ON by default; BOB_FOOD_STOCK=0 opts out.
+export function foodStockEnabled(env = process.env) { return env?.BOB_FOOD_STOCK !== '0'; }
+
 export const FOOD_RELOCATE_MIN = 96;
 export const FOOD_RELOCATE_MAX = 160;
 

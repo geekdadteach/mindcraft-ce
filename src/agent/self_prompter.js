@@ -1,13 +1,19 @@
 import { GoalFailureCircuit } from './library/bob_goal_circuit.js';
 import { harnessOf } from './library/bob_eval_harness.js';
 import { isGuardBlockResult } from './library/bob_survival_gate.js';
+import {
+    AUTONOMY_IDLE_RESTART_MS, DEFAULT_SURVIVAL_GOAL, autonomyEnabled, canAutoRestart,
+    playerStopHolding,
+} from './library/autonomy.js';
 
 const STOPPED = 0
 const ACTIVE = 1
 const PAUSED = 2
 export class SelfPrompter {
-    constructor(agent) {
+    constructor(agent, { env = process.env } = {}) {
         this.agent = agent;
+        // [ai-player] 2026-11-01: the autonomy flags are read through this env so a test can inject them.
+        this.env = env;
         this.state = STOPPED;
         this.loop_active = false;
         this.interrupt = false;
@@ -16,6 +22,11 @@ export class SelfPrompter {
         this.cooldown = 2000;
         this.goalCircuit = new GoalFailureCircuit();
         this._selfPromptIteration = false;
+        // [ai-player] 2026-11-01: why he is stopped ('player' | 'model' | null) and when, so a player's stop
+        // is a short pause (BOB_PLAYER_STOP_SEC) instead of a permanent stop.
+        this.stopped_by = null;
+        this.stopped_at = 0;
+        this.stopped_idle = 0;
     }
 
     start(prompt) {
@@ -26,6 +37,10 @@ export class SelfPrompter {
             prompt = this.prompt;
         }
         this.state = ACTIVE;
+        // [ai-player] 2026-11-01: any transition out of STOPPED clears the stop record.
+        this.stopped_by = null;
+        this.stopped_at = 0;
+        this.stopped_idle = 0;
         this.prompt = prompt;
         this.goalCircuit.continueGoal(prompt);
         harnessOf(this.agent).noteGoalChange(prompt, 'start');
@@ -44,22 +59,51 @@ export class SelfPrompter {
         return this.state === PAUSED;
     }
 
-    async handleLoad(prompt, state) {
+    async handleLoad(prompt, state, stopped_by, stopped_at) {
         if (state == undefined)
             state = STOPPED;
         this.state = state;
         this.prompt = prompt;
+        // [ai-player] 2026-11-01: a saved STOPPED with no stopped_by is a legacy save -> 'model', so the
+        // watchdog restarts it instead of leaving him stopped forever.
+        this.stopped_by = state === STOPPED ? (stopped_by === 'player' ? 'player' : 'model') : null;
+        this.stopped_at = state === STOPPED && this.stopped_by === 'player' ? Number(stopped_at || 0) : 0;
+        this.stopped_idle = 0;
         if (state !== STOPPED && !prompt)
             throw new Error('No prompt loaded when self-prompting is active');
         if (state === ACTIVE) {
             await this.start(prompt);
+            return;
         }
+        // [ai-player] 2026-11-01: boot never leaves him stopped when it may resume. A player's pause that has
+        // already elapsed (or that has no timestamp) starts now; otherwise update() resumes him when it ends.
+        if (this.canAutoRestart()) this.resumeAutonomy('boot');
+    }
+
+    // [ai-player] 2026-11-01: may autonomy be resumed right now (see library/autonomy.js)?
+    canAutoRestart({ now = Date.now() } = {}) {
+        return canAutoRestart({ state: this.state, stopped_by: this.stopped_by, stopped_at: this.stopped_at, now, env: this.env });
+    }
+
+    // True while a player's stop is still holding him.
+    playerStopHolding({ now = Date.now() } = {}) {
+        return playerStopHolding({ stopped_by: this.stopped_by, stopped_at: this.stopped_at, now, env: this.env });
+    }
+
+    // [ai-player] 2026-11-01: resume the saved goal, or the default survival goal when there is none.
+    resumeAutonomy(why) {
+        const prompt = this.prompt || DEFAULT_SURVIVAL_GOAL;
+        console.log(`[ai-player] autonomy: resuming self-prompting (${why})`);
+        this.start(prompt);
+        return prompt;
     }
 
     setPromptPaused(prompt) {
         this.prompt = prompt;
         this.goalCircuit.continueGoal(prompt);
         this.state = PAUSED;
+        this.stopped_by = null; // [ai-player] 2026-11-01: paused is not stopped
+        this.stopped_at = 0;
     }
 
     noteFailure(action, target, error) {
@@ -204,9 +248,30 @@ export class SelfPrompter {
                 this.startLoop();
                 this.idle_time = 0;
             }
+            return;
         }
-        else {
-            this.idle_time = 0;
+        this.idle_time = 0;
+        // [ai-player] 2026-11-01: a stop never sticks while autonomy is on (BOB_AUTONOMY=0 keeps the old
+        // behaviour, where a stop sticks until someone starts it again).
+        if (this.state !== STOPPED || !autonomyEnabled(this.env)) {
+            this.stopped_idle = 0;
+            return;
+        }
+        const free = this.agent.isIdle() && this.agent.autonomyBlocked?.() !== true;
+        if (this.stopped_by === 'player') {
+            // A player's stop is a short pause: resume as soon as it has passed, never the 2-minute watchdog.
+            this.stopped_idle = 0;
+            if (free && this.canAutoRestart()) this.resumeAutonomy('player pause over');
+            return;
+        }
+        // A model (or legacy) stop: the idle watchdog.
+        if (free)
+            this.stopped_idle += delta;
+        else
+            this.stopped_idle = 0;
+        if (this.stopped_idle >= AUTONOMY_IDLE_RESTART_MS && this.canAutoRestart()) {
+            this.stopped_idle = 0;
+            this.resumeAutonomy('idle watchdog');
         }
     }
 
@@ -222,13 +287,18 @@ export class SelfPrompter {
         this.interrupt = false;
     }
 
-    async stop(stop_action=true) {
+    async stop(stop_action=true, by='player') {
         harnessOf(this.agent).noteGoalChange(this.prompt, 'stop');
         this.interrupt = true;
         if (stop_action)
             await this.agent.actions.stop();
         this.stopLoop();
         this.state = STOPPED;
+        // [ai-player] 2026-11-01: record who stopped him and when. A player's stop is a short pause
+        // (BOB_PLAYER_STOP_SEC); a model stop is restarted by the watchdog.
+        this.stopped_by = by;
+        this.stopped_at = Date.now();
+        this.stopped_idle = 0;
     }
 
     async pause() {

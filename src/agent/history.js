@@ -93,6 +93,10 @@ export class History {
                 turns: this.turns,
                 self_prompting_state: this.agent.self_prompter.state,
                 self_prompt: this.agent.self_prompter.isStopped() ? null : this.agent.self_prompter.prompt,
+                // [ai-player] 2026-11-01: who stopped him and when, so a player's stop is a short pause
+                // (BOB_PLAYER_STOP_SEC) across a restart instead of a permanent stop.
+                stopped_by: this.agent.self_prompter.stopped_by,
+                stopped_at: this.agent.self_prompter.stopped_at,
                 taskStart: this.agent.task.taskStartTime,
                 last_sender: this.agent.last_sender
             };

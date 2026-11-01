@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 6 round 2: a disabled code lane reports lane 'none' (report 4.5) (TESTED; NOT DEPLOYED)
+- Review of PR #32. Same branch, second commit (no force-push).
+- `codeLaneInfo()` returns `lane: 'none'` and `selected_lane: 'none'` when `codingEnabled` is false, instead of claiming the coding lane; `reason` is unchanged (`code lane disabled (allow_insecure_coding=false)`).
+- Tests: `test/bob_code_lane.test.js` **3/3** (the disabled case now asserts `lane === 'none'`). Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 6: code lane startup log with its reason (TESTED; NOT DEPLOYED)
 - Report 4.5, work-order item 6 (chore). Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
 - **Startup log** — `agent.js` logs `[ai-player] code lane: <reason>` when the coder is created; the reason carries `coder_mode` (from `BOB_CODER_MODE`, default `auto`) and `coding_enabled` (from `allow_insecure_coding`). `coder.logLaneOnce()` repeats it once on the first `generateCode`.

@@ -14,6 +14,8 @@ test('codeLaneInfo reports the lane, the mode and the reason', () => {
     const off = codeLaneInfo({ coderMode: 'manual', codingEnabled: false });
     assert.equal(off.coding_enabled, false);
     assert.equal(off.coder_mode, 'manual');
+    assert.equal(off.lane, 'none', 'a disabled code lane is not selected');
+    assert.equal(off.selected_lane, 'none');
     assert.match(off.reason, /disabled/);
     assert.equal(codeLaneInfo({}).coder_mode, 'auto', 'default mode');
 });

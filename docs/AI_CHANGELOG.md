@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 6 round 2: a disabled code lane reports lane 'none' (report 4.5) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #32 review: `codeLaneInfo` must not report the coding lane when coding is disabled.
+- **Files:** `src/agent/library/bob_eval_harness.js`, `test/bob_code_lane.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `lane`/`selected_lane` are `'none'` when `codingEnabled` is false.
+- **Tests:** `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#32); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-2 commit on the PR branch.
+
 ## 2026-10-31 — Fix 6: code lane startup log with its reason (TESTED; NOT DEPLOYED)
 - **Goal:** Report 4.5: make the code lane decision visible at startup (which lane, why) instead of silent.
 - **Files:** `src/agent/agent.js`, `src/agent/coder.js`, `src/agent/library/bob_eval_harness.js`, `test/bob_code_lane.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

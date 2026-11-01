@@ -197,9 +197,11 @@ export function defaultGoalVerifier(world, context = {}) {
 // CODER_MODE comes from BOB_CODER_MODE (default 'auto'); coding_enabled from allow_insecure_coding.
 export function codeLaneInfo({ coderMode = null, codingEnabled = true } = {}) {
     const mode = coderMode || 'auto';
+    // [ai-player] Fix 6 review: with coding disabled the code lane is not selected at all.
+    const lane = codingEnabled ? 'coding' : 'none';
     return {
-        lane: 'coding',
-        selected_lane: 'coding',
+        lane,
+        selected_lane: lane,
         coder_mode: mode,
         coding_enabled: !!codingEnabled,
         reason: codingEnabled ? 'code lane selected (coder_mode=' + mode + ')' : 'code lane disabled (allow_insecure_coding=false)',

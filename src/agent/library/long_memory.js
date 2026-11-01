@@ -92,6 +92,25 @@ const DEEP_ORE_DY = 12, DEEP_ORE_HOUSE_R = 40;
 const deepOre = (p, me) => p.kind === 'block' && /_ore$/.test(p.type) && p.y < me.y - DEEP_ORE_DY && Math.hypot(p.x - CLAIM.center.x, p.z - CLAIM.center.z) < DEEP_ORE_HOUSE_R;
 const MERGE_DIST = 12, MAX_PLACES = 200, MOB_TTL = 30 * 60e3, BLOCK_TTL = 3 * 24 * HOUR;
 
+// [ai-player] Fix 4.13: cap the lessons list so it cannot grow without bound. Highest value survives:
+// seeds first, then how often the lesson recurred (count), then the most recent.
+export const MAX_LESSONS = 150;
+
+export function lessonValue(l) {
+    return (l?.kind === 'seed' ? 1 : 0);
+}
+
+// Pure: returns a new array with at most max lessons (the lowest-value ones dropped first).
+export function pruneLessons(lessons, max = MAX_LESSONS) {
+    const list = Array.isArray(lessons) ? lessons : [];
+    if (list.length <= max) return list.slice();
+    return list.slice().sort((a, b) =>
+        lessonValue(b) - lessonValue(a) ||
+        (b?.count || 0) - (a?.count || 0) ||
+        (b?.last || 0) - (a?.last || 0)
+    ).slice(0, max);
+}
+
 export class LongMemory {
     constructor(agent) {
         this.agent = agent;
@@ -149,7 +168,7 @@ export class LongMemory {
             l = { key, text, kind, count: 1, first: now(), last: now(), emb: null }; L.push(l); this.stats.lessons_added++;
             console.log(`[ai-player] lesson learned: ${text}`);
             if (embed) this.embed(text).then(v => { if (Array.isArray(v) && v.length) { l.emb = v; this.lessons.save(); } });
-            if (L.length > 150) { L.sort((a, b) => (b.kind === 'seed') - (a.kind === 'seed') || b.last - a.last); L.length = 150; }
+            if (L.length > MAX_LESSONS) { const kept = pruneLessons(L); L.length = 0; L.push(...kept); }
         }
         this.lessons.save();
         return l;

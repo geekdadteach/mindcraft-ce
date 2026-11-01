@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7d round 2: pruned lessons are archived, the new one is kept (report 4.13) (TESTED; NOT DEPLOYED)
+- Review of PR #36. Same branch, second commit (no force-push).
+- `_archivePruned()` appends every dropped lesson to `bots/<name>/lessons.pruned.jsonl` (next to `lessons.json`) with `{ prunedAt, key, text, kind, count, first, last }` before the in-memory list is trimmed, so a pruned lesson can be recovered. The prune now keeps exactly `MAX_LESSONS` and always keeps the lesson just added (it is excluded from the prune, then appended).
+- Tests: `test/bob_lessons_prune.test.js` **3/3** (new: the archive file, its lines, and the just-added lesson surviving). Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 7d: the lessons list is capped (report 4.13) (TESTED; NOT DEPLOYED)
 - Work-order item 7d. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
 - New exports in `long_memory.js`: `MAX_LESSONS` (150), `lessonValue(lesson)` and the pure `pruneLessons(lessons, max)` (seeds first, then count, then recency; returns a new array). `_addLesson` now prunes through it instead of the old inline `sort`/`length = 150`.

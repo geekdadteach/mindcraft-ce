@@ -168,11 +168,31 @@ export class LongMemory {
             l = { key, text, kind, count: 1, first: now(), last: now(), emb: null }; L.push(l); this.stats.lessons_added++;
             console.log(`[ai-player] lesson learned: ${text}`);
             if (embed) this.embed(text).then(v => { if (Array.isArray(v) && v.length) { l.emb = v; this.lessons.save(); } });
-            if (L.length > MAX_LESSONS) { const kept = pruneLessons(L); L.length = 0; L.push(...kept); }
+            if (L.length > MAX_LESSONS) {
+                // [ai-player] Fix 4.13 review: archive the dropped lessons, and always keep the new one.
+                const kept = [...pruneLessons(L.filter(x => x !== l), MAX_LESSONS - 1), l];
+                const keep = new Set(kept);
+                this._archivePruned(L.filter(x => !keep.has(x)));
+                L.length = 0;
+                L.push(...kept);
+            }
         }
         this.lessons.save();
         return l;
     }
+    // [ai-player] Fix 4.13 review: keep a record of pruned lessons instead of dropping them silently.
+    _archivePruned(dropped) {
+        if (!Array.isArray(dropped) || !dropped.length) return 0;
+        try {
+            const file = path.join(this.dir, 'lessons.pruned.jsonl');
+            const at = now();
+            const lines = dropped.map(d => JSON.stringify({ prunedAt: at, key: d?.key, text: d?.text, kind: d?.kind, count: d?.count, first: d?.first, last: d?.last })).join('\n') + '\n';
+            fs.appendFileSync(file, lines);
+            console.log('ai-player long-memory: archived ' + dropped.length + ' pruned lesson(s) to lessons.pruned.jsonl');
+        } catch (e) { console.warn('ai-player long-memory: prune archive failed: ' + e.message); }
+        return dropped.length;
+    }
+
     observeCommand(command, result) {
         try {
             const text = String(result ?? '');

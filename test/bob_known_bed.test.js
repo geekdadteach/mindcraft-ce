@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import { initModes, getMode } from '../src/agent/modes.js';
 import { emptyHome, setActiveHome } from '../src/agent/library/bob_home.js';
 import { BOB_BED, claimBed, recordSleptBed } from '../src/agent/library/protected_area.js';
+import { SelfPrompter } from '../src/agent/self_prompter.js';
+import convoManager from '../src/agent/conversation.js';
 import {
     KNOWN_BED_MATCH_RANGE, KNOWN_BED_RANGE, hasVerifiedBed, knownBedEnabled, knownBedNear,
     shelterReason, shouldShelter,
@@ -19,13 +21,37 @@ function bedBot({ at = { x: -1140, y: 68, z: 752 }, beds = [], timeOfDay = 18000
         x: at.x, y: at.y, z: at.z,
         distanceTo: (o) => Math.hypot(at.x - o.x, at.y - o.y, at.z - o.z),
     };
-    return {
+    const bot = {
         entity: { position },
         time: { timeOfDay },
         health, entities, output: '',
-        blockAt: (v) => cells.get(`${v.x},${v.y},${v.z}`) || null,
+        blockAtCalls: 0,
+        blockAt(v) { bot.blockAtCalls++; return cells.get(`${v.x},${v.y},${v.z}`) || null; },
         findBlocks: () => [],
     };
+    return bot;
+}
+
+// A night-mode agent: a real SelfPrompter so the hold/pause can be observed.
+function mkNightAgent(bot) {
+    const labels = [];
+    const agent = {
+        bot,
+        isIdle: () => true,
+        openChat: () => {},
+        prompter: { getInitModes: () => null },
+        actions: {
+            currentActionLabel: '',
+            runAction: async (l, fn) => { labels.push(l); try { await fn(); } catch (_) {} return { message: '' }; },
+            stop: async () => {},
+        },
+        self_prompter: null,
+    };
+    const sp = new SelfPrompter(agent, { env: {} });
+    sp.startLoop = () => { sp.loop_active = false; };
+    agent.self_prompter = sp;
+    convoManager.initAgent(agent);
+    return { agent, sp, labels };
 }
 
 test('knownBedNear finds a bed at the claim bed when Bob is close', () => {
@@ -115,4 +141,76 @@ test('tryKnownBed starts the night-mode bed action and holds until dawn', async 
     assert.equal(night.holding, true, 'and he holds until dawn, like the shelter');
     assert.ok(night.bed_failed_until > 0, 'an unusable bed is recorded so the shelter can run');
     assert.ok(night.next_bed > Date.now(), 'and the trip is on a cooldown');
+});
+
+test('the nearest known bed is chosen, not the first one found', () => {
+    setActiveHome(emptyHome());
+    // Both sit near the claim bed anchor; Bob is closer to the red one, which the scan reaches second.
+    const bot = bedBot({ at: { x: -1140, y: 68, z: 752 }, beds: [
+        { x: -1146, y: 68, z: 752, name: 'white_bed' },
+        { x: -1142, y: 68, z: 752, name: 'red_bed' },
+    ] });
+    const bed = knownBedNear(bot);
+    assert.ok(bed, 'a bed is found');
+    assert.equal(bed.name, 'red_bed', 'the closer bed wins');
+    assert.deepEqual(bed.pos, { x: -1142, y: 68, z: 752 });
+    assert.equal(bed.distance, 2);
+});
+
+test('a quiet night does not scan the world for a known bed', () => {
+    setActiveHome(emptyHome());
+    const beds = [{ x: -1144, y: 68, z: 752 }];
+    const quiet = bedBot({ at: { x: -1140, y: 68, z: 752 }, beds });
+    assert.equal(shelterReason(quiet), null, 'nothing to shelter from');
+    assert.equal(quiet.blockAtCalls, 0, 'the known-bed scan is behind the cheap checks');
+
+    const zombie = { name: 'zombie', type: 'mob', position: { x: -1136, y: 68, z: 752 } };
+    const danger = bedBot({ at: { x: -1140, y: 68, z: 752 }, beds, entities: { z: zombie } });
+    assert.equal(shelterReason(danger), null, 'a bed within reach means he sleeps instead');
+    assert.ok(danger.blockAtCalls > 0, 'and the scan does run when it decides something');
+});
+
+test('the shelter decision is rate-limited, so the bed scan cannot run every tick', () => {
+    setActiveHome(emptyHome());
+    const zombie = { name: 'zombie', type: 'mob', position: { x: -1136, y: 68, z: 752 } };
+    const bot = bedBot({ at: { x: -1140, y: 68, z: 752 }, beds: [{ x: -1144, y: 68, z: 752 }], entities: { z: zombie } });
+    const { agent } = mkNightAgent(bot);
+    initModes(agent);
+    const night = getMode('night');
+    night.active = false; night.holding = false; night.boot_checked = true;
+    night.next_shelter = 0; night.bed_failed_until = 0;
+
+    night.tryEmergencyShelter(agent);
+    assert.equal(night.active, false, 'the known bed suppressed the shelter');
+    assert.ok(night.next_shelter > Date.now(), 'but the decision itself is rate-limited');
+    const afterFirst = bot.blockAtCalls;
+    night.tryEmergencyShelter(agent); // the very next tick
+    assert.equal(bot.blockAtCalls, afterFirst, 'the world is not scanned again inside the window');
+});
+
+test('the bed hold is not released while the night action is in flight', async () => {
+    setActiveHome(emptyHome());
+    const bot = bedBot({ at: { x: -1140, y: 68, z: 752 }, beds: [{ x: -1144, y: 68, z: 752 }] });
+    const { agent, sp } = mkNightAgent(bot);
+    initModes(agent);
+    const night = getMode('night');
+    night.boot_checked = true;
+    // Keep the bed trip and the shelter decision on cooldown so this test observes the hold itself and not a
+    // new trip starting in the same tick.
+    night.next_bed = Date.now() + 600000;
+    night.next_shelter = Date.now() + 600000;
+    night.bed_failed_until = 0;
+    sp.start('mine stone');
+
+    night.pauseSelfPrompt(agent);   // as tryKnownBed does
+    night.holding = true;
+    night.active = true;            // a bed trip or a shelter build is in flight
+    await night.update(agent);
+    assert.equal(night.holding, true, 'the hold survives the tick');
+    assert.equal(sp.isPaused(), true, 'and self-prompting stays paused');
+
+    night.active = false;           // once nothing is in flight
+    await night.update(agent);
+    assert.equal(night.holding, false, 'the hold is released');
+    assert.equal(sp.isActive(), true, 'and self-prompting resumes');
 });

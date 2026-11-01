@@ -430,6 +430,9 @@ export const actionsList = [
             'selfPrompt': { type: 'string', description: 'The goal prompt.' },
         },
         perform: async function (agent, prompt) {
+            // [ai-player] 2026-11-01 (C): a player's new goal also un-silences him, so a !stfu cannot leave
+            // him silent for good once he is working again.
+            agent.self_prompter.clearShutUp?.();
             if (convoManager.inConversation()) {
                 agent.self_prompter.setPromptPaused(prompt);
             }

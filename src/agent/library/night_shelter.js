@@ -133,6 +133,7 @@ export function knownBedNear(bot, { env = process.env } = {}) {
     try { anchors.push(claimBed(env)); } catch (_) {}
     try { const last = lastSleptBed(); if (last) anchors.push(last); } catch (_) {}
     const r = KNOWN_BED_MATCH_RANGE;
+    let best = null;
     for (const a of anchors) {
         if (!a || ![a.x, a.y, a.z].every(Number.isFinite)) continue;
         for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
@@ -142,10 +143,11 @@ export function knownBedNear(bot, { env = process.env } = {}) {
             if (!b || !/_bed$/.test(String(b.name))) continue;
             const d = Math.hypot(p.x - pos.x, p.y - pos.y, p.z - pos.z);
             if (!Number.isFinite(d) || d > KNOWN_BED_RANGE) continue;
-            return { pos, anchor: { x: a.x, y: a.y, z: a.z }, name: String(b.name), distance: d };
+            // [ai-player] 2026-11-01: the NEAREST bed, so he walks the shortest way (the anchors can overlap).
+            if (!best || d < best.distance) best = { pos, anchor: { x: a.x, y: a.y, z: a.z }, name: String(b.name), distance: d };
         }
     }
-    return null;
+    return best;
 }
 
 // A verified home always carries a bed (bob_home.isVerifiedHome requires one), so a verified home
@@ -173,16 +175,21 @@ export function nearestHostile(bot, range = SHELTER_HOSTILE_RANGE) {
 }
 
 // Why Bob should shelter right now, or null. 'hostiles' | 'low-health' | null.
+// The known-bed scan (a 7x7x7 blockAt lookup per anchor) runs LAST: the quiet-night call - the common one,
+// every mode tick - returns on the cheap checks without touching the world.
 export function shelterReason(bot, { env = process.env, now = Date.now(), knownBed = true } = {}) {
     if (!shelterEnabled(env)) return null;
     if (!bot?.entity?.position) return null;
-    if (hasVerifiedBed(bot, getActiveHome(), { env, knownBed })) return null;
+    if (isVerifiedHome(getActiveHome())) return null;
     if (!isNightTime(bot)) return null;
     // [ai-player] Fix 1e round 3: never seal a starving Bob in with nothing to eat; he must be free to !getFood.
     if (Number.isFinite(bot.food) && bot.food <= 6 && !hasEdibleFood(bot)) return null;
-    if (nearestHostile(bot)) return 'hostiles';
-    if (Number.isFinite(bot.health) && bot.health <= SHELTER_LOW_HEALTH) return 'low-health';
-    return null;
+    const why = nearestHostile(bot) ? 'hostiles'
+        : (Number.isFinite(bot.health) && bot.health <= SHELTER_LOW_HEALTH ? 'low-health' : null);
+    if (!why) return null;
+    // [ai-player] 2026-11-01: only now the expensive scan - a bed within reach means he walks to it and sleeps.
+    if (knownBed && knownBedNear(bot, { env })) return null;
+    return why;
 }
 
 export function shouldShelter(bot, opts = {}) {

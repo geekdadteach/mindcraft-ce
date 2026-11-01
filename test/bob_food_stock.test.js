@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { initModes, getMode } from '../src/agent/modes.js';
 import { emptyHome, setActiveHome } from '../src/agent/library/bob_home.js';
 import { clearShelter } from '../src/agent/library/shelter_state.js';
-import { foodStockEnabled } from '../src/agent/library/survival.js';
+import { foodStockEnabled, getFood } from '../src/agent/library/survival.js';
 
 const FOOD_REASON = 'no food, food/health below target';
 
@@ -132,4 +132,62 @@ test('the food trip is on a cooldown', async () => {
     const { lines, hunger } = await runHunger(agent, { ticks: 3 });
     assert.equal(lines.filter(l => l.includes(FOOD_REASON)).length, 1, 'only one trip inside the cooldown');
     assert.ok(hunger.next_stock_food > Date.now(), 'and the cooldown is armed');
+});
+
+// ---- A: the food-17 trip stays local ----
+
+test('the wide trip searches 40 then 80 blocks, and never relocates', async () => {
+    const { agent } = mkAgent();
+    const { lines } = await runHunger(agent);
+    assert.ok(lines.some(l => l.includes('within 80 blocks')), `expected the 80-block hunt; logs: ${lines.join(' | ')}`);
+    assert.ok(lines.some(l => l.includes('local search only')), 'and it is flagged as a local search');
+    assert.equal(lines.some(l => l.includes('new search area')), false, 'no relocateForFood for this trip');
+    assert.equal(lines.some(l => l.includes('fresh search ring')), false, 'and no 96-160 block hop');
+});
+
+test('relocate:false is what keeps it local; the default path still relocates', async () => {
+    const lines = [];
+    const real = console.log;
+    console.log = (...a) => { lines.push(a.map(String).join(' ')); };
+    let local, wide;
+    try {
+        local = await getFood(mkAgent({ food: 17 }).agent, { reason: FOOD_REASON, searchRange: 40, relocate: false });
+        wide = await getFood(mkAgent({ food: 17 }).agent, { reason: FOOD_REASON, searchRange: 40 });
+    } finally { console.log = real; }
+    assert.equal(local, false, 'nothing was found locally');
+    assert.equal(wide, false, 'and nothing was found on the default path either');
+    assert.equal(lines.filter(l => l.includes('no safe relocation route found')).length, 1,
+        'only the default path tried to relocate');
+});
+
+test('maxRange caps both the local and the wider hunt', async () => {
+    const lines = [];
+    const real = console.log;
+    console.log = (...a) => { lines.push(a.map(String).join(' ')); };
+    try {
+        await getFood(mkAgent({ food: 17 }).agent, { reason: FOOD_REASON, searchRange: 40, maxRange: 24, relocate: false });
+    } finally { console.log = real; }
+    assert.ok(lines.some(l => l.includes('within 24 blocks')), 'the far hunt is capped too');
+    assert.equal(lines.some(l => l.includes('within 80 blocks')), false);
+});
+
+// ---- B: dusk and low health ----
+
+test('the wide trip is skipped from timeOfDay 11000 (dusk)', async () => {
+    const before = mkAgent({ timeOfDay: 10999 });
+    assert.ok((await runHunger(before.agent)).lines.some(l => l.includes(FOOD_REASON)), 'allowed just before 11:00');
+    for (const tod of [11000, 12000, 14000]) {
+        const late = mkAgent({ timeOfDay: tod });
+        assert.equal((await runHunger(late.agent)).lines.some(l => l.includes(FOOD_REASON)), false,
+            `skipped at timeOfDay ${tod}`);
+    }
+});
+
+test('health under 10 caps the whole trip at 24 blocks instead of skipping it', async () => {
+    const { agent } = mkAgent({ food: 17, health: 8 });
+    const { lines } = await runHunger(agent);
+    assert.ok(lines.some(l => l.includes(FOOD_REASON)), 'the trip still runs when badly hurt');
+    assert.ok(lines.some(l => l.includes('within 24 blocks')), 'capped at 24 blocks');
+    assert.equal(lines.some(l => l.includes('within 80 blocks')), false, 'not the wide search');
+    assert.ok(lines.some(l => l.includes('local search only')), 'and still local');
 });

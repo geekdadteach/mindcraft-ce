@@ -381,16 +381,26 @@ const modes_list = [
                 return;
             }
             // [ai-player] 2026-11-01: he has nothing edible and food < 18 (regen needs 18) or health < 20 ->
-            // go and get food in the daytime with a wider hunt/forage search, on a cooldown. Eating from the
-            // inventory (above) stays first, and this no longer waits for food <= 12. At night, while sealed in
-            // the shelter, or with BOB_FOOD_STOCK=0, the old food <= 12 gate below still applies.
+            // go and get food, on a cooldown. Eating from the inventory (above) stays first, and this no longer
+            // waits for food <= 12.
+            //  - daytime only, and never from 11:00 (dusk) onwards: the urgent food <= 12 path below still runs
+            //    at night, this wider trip does not;
+            //  - LOCAL search only - no 96-160 block far relocation and no relocateForFood - and at most 80
+            //    blocks; when badly hurt (health < 10) the whole search is capped at 24 blocks instead of being
+            //    skipped, so he still tries nearby without a long trek;
+            //  - while sealed in the shelter, or with BOB_FOOD_STOCK=0, the old food <= 12 gate below applies.
+            const tod = nav.timeOfDay(bot);
+            const late = tod != null && tod >= 11000;
+            const hurt = Number.isFinite(bot.health) && bot.health < 10;
             if (!edibleFoods(bot, bot.food <= 6).length && (bot.food < 18 || bot.health < 20) &&
-                survival.foodStockEnabled() && !shelter.isSheltered() && !nav.isNightTime(bot)) {
+                survival.foodStockEnabled() && !shelter.isSheltered() && !nav.isNightTime(bot) && !late) {
                 this.hungry_since = 0;
                 if (now >= this.next_stock_food) {
                     this.next_stock_food = now + 120000;
+                    const opts = { escapeUp: agent.escape?.up, reason: 'no food, food/health below target', searchRange: 40, relocate: false };
+                    if (hurt) opts.maxRange = 24;
                     execute(this, agent, async () => {
-                        const got = await survival.getFood(agent, { escapeUp: agent.escape?.up, reason: 'no food, food/health below target', searchRange: 40 });
+                        const got = await survival.getFood(agent, opts);
                         if (!got) this.next_stock_food = Date.now() + 300000;
                     }, -1, 180000);
                 }
@@ -486,6 +496,10 @@ const modes_list = [
             if (this.shelterLeftForFood) return;
             const now = Date.now();
             if (now < this.next_shelter) return;
+            // [ai-player] 2026-11-01: rate-limit the DECISION, not only the build. shelterReason can scan the
+            // world for a known bed and this runs on every mode tick; 15 s is fast enough for a 12-block
+            // hostile warning (self_preservation and self_defense run before this mode anyway).
+            this.next_shelter = now + 15000;
             // [ai-player] 2026-11-01: a known bed within reach suppresses the shelter (walk to the bed and
             // sleep instead). Once that trip has failed, knownBed goes false and the shelter is the fallback.
             const knownBed = now >= this.bed_failed_until;
@@ -571,14 +585,16 @@ const modes_list = [
             // (food > 6) or dawn has arrived.
             if (this.shelterLeftForFood && (agent.bot.food > 6 || !nav.isNightTime(agent.bot))) this.shelterLeftForFood = false;
             if (!this.home_at_night) { // pr20-reconciled-20261027: independent exploration; release any hold/pause once
-                if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home off (independent exploration)');
+                // [ai-player] 2026-11-01: never release while a night action (a bed trip or a shelter build) is
+                // in flight - release() would resume self-prompting and undo the hold on the very next tick.
+                if ((this.holding || this.paused_sp || !this.boot_checked) && !this.active) this.release(agent, 'night-home off (independent exploration)');
                 this.boot_checked = true;
                 this.tryKnownBed(agent); // [ai-player] 2026-11-01: walk to a known bed and sleep
                 this.tryEmergencyShelter(agent); // [ai-player] Fix 1e: seal up when there is no bed to reach
                 return;
             }
             if (!isVerifiedHome(getActiveHome())) {
-                if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home has no verified house');
+                if ((this.holding || this.paused_sp || !this.boot_checked) && !this.active) this.release(agent, 'night-home has no verified house');
                 this.boot_checked = true;
                 this.tryKnownBed(agent); // [ai-player] 2026-11-01: walk to a known bed and sleep
                 this.tryEmergencyShelter(agent); // [ai-player] Fix 1e: seal up when there is no verified home bed

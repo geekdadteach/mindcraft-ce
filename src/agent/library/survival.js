@@ -315,17 +315,21 @@ export async function harvestCrops(bot, range = 32) {
 }
 
 // Get food: crops first (best food), then berries, crops, wider hunt; underground, go up first (animals live on
-// the surface). Returns true when Bob ate or now holds food. searchRange widens the local hunt/forage
-// (default null keeps the original 24/64 hunt and 32-block crop search) - used when he has no food at all.
-export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt = huntAnimal, relocateFar = relocateFarForFood, env = process.env, searchRange = null } = {}) {
+// the surface). Returns true when Bob ate or now holds food.
+// searchRange widens the local hunt/forage (default null keeps the original 24/64 hunt and 32-block crop
+// search). maxRange caps BOTH the local and the wider search. relocate:false keeps the search local: no
+// 96-160 block far relocation and no relocateForFood - used by the "he has nothing edible" trip, where a
+// long hop is not worth it. The urgent food <= 12 path keeps the defaults.
+export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt = huntAnimal, relocateFar = relocateFarForFood, env = process.env, searchRange = null, maxRange = null, relocate = true } = {}) {
     const bot = agent.bot;
-    const near = Number.isFinite(searchRange) && searchRange > 0 ? searchRange : 24;
-    const far = Math.max(near * 2, 64);
-    console.log(`[ai-player] food: ${reason}; food=${bot.food} health=${Math.round(bot.health)} stock=${foodStock(bot)}`);
+    const cap = (n) => (Number.isFinite(maxRange) && maxRange > 0 ? Math.min(n, maxRange) : n);
+    const near = cap(Number.isFinite(searchRange) && searchRange > 0 ? searchRange : 24);
+    const far = cap(Math.max(near * 2, 64));
+    console.log(`[ai-player] food: ${reason}; food=${bot.food} health=${Math.round(bot.health)} stock=${foodStock(bot)}${relocate ? '' : ' (local search only)'}`);
     if (foodStock(bot) > 0 && bot.food <= 14) return await eatBest(bot);
     if (!foodSearchAllowed(agent, bot.entity?.position)) {
         console.log('[ai-player] food: local search cooling down; move to a different safe area before retrying');
-        await relocateForFood(agent);
+        if (relocate) await relocateForFood(agent);
         return false;
     }
     // [ai-player] Fix 2: harvest helpers are best-effort; a world lookup failure must not abort the loop.
@@ -341,13 +345,13 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt 
     if (!r.ok) {
         const n = (emptyLocalSearches.get(agent) || 0) + 1;
         emptyLocalSearches.set(agent, n);
-        if (n >= 2 && foodRelocateEnabled(env) && !isNightTime(bot)) {
+        if (n >= 2 && foodRelocateEnabled(env) && !isNightTime(bot) && relocate) {
             console.log(`[ai-player] food: ${n} empty local searches; relocating to a fresh ring`);
             if (await relocateFar(agent)) emptyLocalSearches.set(agent, 0);
         }
     }
     if (!r.ok) r = await hunt(agent, far);
-    if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); noteFoodSearchFailure(agent, bot.entity?.position); skills.log(bot, `Could not find food nearby (${r.why}). Seeking a safe new search area.`); await relocateForFood(agent); return false; }
+    if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); noteFoodSearchFailure(agent, bot.entity?.position); skills.log(bot, `Could not find food nearby (${r.why}). Seeking a safe new search area.`); if (relocate) await relocateForFood(agent); return false; }
     emptyLocalSearches.set(agent, 0);
     await cookOrEat(bot);
     return true;

@@ -62,6 +62,13 @@ export class SelfPrompter {
     async handleLoad(prompt, state, stopped_by, stopped_at) {
         if (state == undefined)
             state = STOPPED;
+        // [ai-player] 2026-11-01: a saved ACTIVE/PAUSED state with no prompt is a broken or legacy save (an
+        // empty goal string is saved as self_prompt: ''). Fall back to STOPPED instead of throwing - a throw
+        // here happens inside the spawn handler and would abort boot.
+        if (state !== STOPPED && !prompt) {
+            console.warn('[ai-player] autonomy: saved self-prompting state without a prompt; treating it as STOPPED');
+            state = STOPPED;
+        }
         this.state = state;
         this.prompt = prompt;
         // [ai-player] 2026-11-01: a saved STOPPED with no stopped_by is a legacy save -> 'model', so the
@@ -69,8 +76,6 @@ export class SelfPrompter {
         this.stopped_by = state === STOPPED ? (stopped_by === 'player' ? 'player' : 'model') : null;
         this.stopped_at = state === STOPPED && this.stopped_by === 'player' ? Number(stopped_at || 0) : 0;
         this.stopped_idle = 0;
-        if (state !== STOPPED && !prompt)
-            throw new Error('No prompt loaded when self-prompting is active');
         if (state === ACTIVE) {
             await this.start(prompt);
             return;
@@ -90,10 +95,17 @@ export class SelfPrompter {
         return playerStopHolding({ stopped_by: this.stopped_by, stopped_at: this.stopped_at, now, env: this.env });
     }
 
+    // [ai-player] 2026-11-01 (C): a resume must also un-silence him. agent.shut_up is only cleared when a
+    // player speaks to him, so without this a player's !stfu would leave him silent for good.
+    clearShutUp() {
+        try { if (this.agent) this.agent.shut_up = false; } catch (_) {}
+    }
+
     // [ai-player] 2026-11-01: resume the saved goal, or the default survival goal when there is none.
     resumeAutonomy(why) {
         const prompt = this.prompt || DEFAULT_SURVIVAL_GOAL;
         console.log(`[ai-player] autonomy: resuming self-prompting (${why})`);
+        this.clearShutUp();
         this.start(prompt);
         return prompt;
     }

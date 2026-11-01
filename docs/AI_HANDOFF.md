@@ -1,5 +1,18 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Review round on PR #42: boot safety, scan cost, bed hold, local food trip (TESTED; NOT DEPLOYED)
+- Same branch and PR (`fix/autonomy-food-bed-20261101`, draft PR #42): one commit on top of a772978.
+- **Boot can no longer be killed by a save.** `SelfPrompter.handleLoad` used to `throw` when a saved ACTIVE/PAUSED state had no prompt - `history.js` writes `self_prompt: ''` for a paused empty goal (`!goal("")` while in a conversation), and an older save can have a state with no prompt field. A throw there happens inside the bot's `spawn` handler, so it aborted boot. It now warns and degrades to STOPPED.
+- **The night shelter decision is rate-limited.** `shelterReason` ran the 7x7x7 known-bed scan FIRST, and `tryEmergencyShelter` rate-limited only the build, not the decision - so the world was scanned on every ~300 ms mode tick, all night. The scan now runs LAST (behind the night / starving / hostile / health checks) and the decision itself is limited to one check per 15 s (`self_preservation` and `self_defense` run first, so a 12-block hostile warning is still timely).
+- **The bed hold actually holds.** `tryKnownBed` set `holding`/`paused_sp`, but the no-verified-home branch released them on the very next tick (the shelter survives this only because `isSheltered()` short-circuits at the top of `update()`), so self-prompting restarted mid-bed-trip and could supersede the `mode:night` action. `release()` is now skipped while a night action is in flight.
+- **Nearest bed.** `knownBedNear` returned the first `*_bed` the scan reached; it now returns the nearest to Bob, so he walks the shortest way.
+- **The food-17 trip is local (A).** `getFood` gained `relocate` (default true) and `maxRange` (default null). The trip passes `relocate: false`: no 96-160 block far relocation and no `relocateForFood`, searching 40 then 80 blocks. The urgent food <= 12 path keeps the old defaults.
+- **Dusk and low health (B).** The trip is skipped from `timeOfDay` 11000 onwards (the urgent food <= 12 gate still runs at night), and when health < 10 the whole search is capped at 24 blocks via `maxRange` instead of being skipped.
+- **`shut_up` is cleared on resume (C).** `resumeAutonomy()` (pause ending, watchdog, night release, boot) and a player's `!goal` now clear `agent.shut_up`, which is otherwise only cleared when a player speaks to him - without this a player's `!stfu` left him silent for good even after autonomy resumed.
+- NOT changed on purpose: a model-sent `!goal` is not gated. Bob has to be able to set his own goals or autonomy dies again.
+- Tests: `bob_autonomy_never_off` **16/16**, `bob_food_stock` **12/12**, `bob_known_bed` **11/11**, `bob_night_shelter` **14/14**. Full `npm test` on Node 22: **379/381 pass**; only the pre-existing `confirmSetHome` fails (plus the 1 skipped benchmark). Ten negative controls verified - reverting any new behaviour fails its test.
+- UNPROVEN: still no live Minecraft session.
+
 ## 2026-11-01 — Autonomy never off + food stock + known bed + honest shelter (TESTED; NOT DEPLOYED)
 - New draft PR `fix/autonomy-food-bed-20261101` off `work/bob-home-from-live-20261028` (6261d71).
 - **Autonomy never stays off** (opt-out `BOB_AUTONOMY=0`; new leaf module `src/agent/library/autonomy.js`):

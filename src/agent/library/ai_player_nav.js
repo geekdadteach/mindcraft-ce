@@ -153,10 +153,17 @@ export async function surfaceForWood(agent, type) {
 }
 
 // ---- Fix 2: night -> home -> bed ----
+
+// [ai-player] 2026-11-01: normalised time of day (0..23999), or null when the world time is unknown.
+export function timeOfDay(bot) {
+    const t = bot?.time?.timeOfDay;
+    if (t == null || !Number.isFinite(Number(t))) return null;
+    return ((Number(t) % 24000) + 24000) % 24000;
+}
+
 export function isNightTime(bot) {
-    const t = bot.time?.timeOfDay;
-    if (t == null) return false;
-    const tod = ((t % 24000) + 24000) % 24000;
+    const tod = timeOfDay(bot);
+    if (tod == null) return false;
     return (tod >= 12542 && tod <= 23460) || (bot.thunderState ?? 0) > 0;
 }
 

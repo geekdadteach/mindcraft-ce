@@ -283,3 +283,46 @@ test('a player-stopped Bob still eats: survival modes run whatever the self-prom
     assert.equal(agent.self_prompter.isStopped(), true, 'and he is still stopped');
 });
 
+test('boot survives a saved state with no prompt (degrades to STOPPED instead of throwing)', async () => {
+    // history.js saves self_prompt: '' for a paused empty goal, and an older save may have a state but no
+    // prompt. A throw here happens inside the spawn handler, so it would abort boot.
+    const { sp } = mkAgent();
+    await assert.doesNotReject(() => sp.handleLoad(null, 2), 'a PAUSED state with no prompt must not throw');
+    assert.equal(sp.isActive(), true, 'and it recovers with the default goal');
+    assert.equal(sp.prompt, DEFAULT_SURVIVAL_GOAL);
+
+    const off = mkAgent({ env: { BOB_AUTONOMY: '0' } });
+    await assert.doesNotReject(() => off.sp.handleLoad(null, 1), 'nor an ACTIVE state with no prompt');
+    assert.equal(off.sp.isStopped(), true, 'with autonomy off it stays stopped, but boot is not killed');
+});
+
+test('a resume un-silences him: shut_up clears when the pause ends, on the watchdog and on a new !goal', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: 0 });
+    const { agent, sp } = mkAgent();
+    sp.start('mine stone');
+    return sp.stop(false, 'player').then(async () => {
+        agent.shut_up = true; // as agent.shutUp() leaves it
+        t.mock.timers.tick(30000);
+        sp.update(1000);
+        assert.equal(sp.isActive(), true, 'the pause ended');
+        assert.equal(agent.shut_up, false, 'and he is un-silenced, so he really resumes');
+
+        // the idle watchdog (a model stop) un-silences him too
+        const m = mkAgent();
+        m.sp.start('x');
+        await m.sp.stop(false, 'model');
+        m.agent.shut_up = true;
+        m.sp.update(60000); m.sp.update(60000);
+        assert.equal(m.sp.isActive(), true, 'the watchdog resumed him');
+        assert.equal(m.agent.shut_up, false, 'and cleared the silence');
+
+        // a player's new !goal inside the pause clears it immediately
+        sp.start('x');
+        await sp.stop(false, 'player');
+        agent.shut_up = true;
+        await getCommand('!goal').perform(agent, 'build a wall');
+        assert.equal(agent.shut_up, false, 'a new goal un-silences him');
+        assert.equal(sp.isActive(), true);
+    });
+});
+

@@ -317,6 +317,14 @@ const modes_list = [
             if (/^mode:(self_preservation|self_defense|cowardice|ranged_threat|night)$/.test(agent.actions.currentActionLabel || '')) return;
             const now = Date.now();
             const stock = survival.foodStock(bot);
+            // [ai-player] Fix 2b: natural regen needs food >= 18; top up when hurt and below 18.
+            if (survival.shouldEatForRegen(bot)) {
+                if (!this.hungry_since) this.hungry_since = now;
+                if (now - this.hungry_since < 15000) return; // auto-eat may already handle it
+                this.hungry_since = now;
+                execute(this, agent, async () => { await survival.cookOrEat(bot); });
+                return;
+            }
             // [ai-player] keep a small food stock: in daylight, when an animal is close, hunt it (every 10 min at most)
             if (bot.food > 14) {
                 this.hungry_since = 0;

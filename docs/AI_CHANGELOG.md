@@ -1,5 +1,12 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Merged PR #42 into `work/bob-home-from-live-20261028` (TESTED; MERGED; NOT YET DEPLOYED)
+- **Goal:** Randy authorized merging PR #42 (12:05 PM ET, Nov 1 2026) and having MM20Bot deploy and restart Bob.
+- **Merge:** `--no-ff` merge `9645423` ("Merge PR #42: fix/autonomy-food-bed-20261101", head `2a59e00`) on `6261d71`; conflict-free.
+- **Tests:** full `npm test` on Node 22.23.4: **380/382 pass, 1 skipped**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** merged on GitHub only; NOT yet deployed. Deploy files: `src/agent/agent.js`, `src/agent/commands/actions.js`, `src/agent/history.js`, `src/agent/library/ai_player_nav.js`, `src/agent/library/autonomy.js` (new), `src/agent/library/night_shelter.js`, `src/agent/library/protected_area.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `src/agent/self_prompter.js` (plus the new tests and these docs).
+- **Rollback:** `git revert -m 1 9645423`.
+
 ## 2026-11-01 — PR #42 last two fixes (TESTED; NOT DEPLOYED)
 - **Goal:** a slow failed bed trip looped bed trips all night instead of sheltering, and the food trip could start too late to finish before nightfall.
 - **Files:** `src/agent/modes.js`, `test/bob_known_bed.test.js`, `test/bob_food_stock.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

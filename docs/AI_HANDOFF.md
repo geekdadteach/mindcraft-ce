@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — PR #42 merged into `work/bob-home-from-live-20261028` (MERGED; NOT YET DEPLOYED)
+- Randy authorized it at 12:05 PM ET on Nov 1 2026. It was a `--no-ff` merge `9645423` of `fix/autonomy-food-bed-20261101` (`2a59e00`) on `6261d71`; conflict-free.
+- **Current state:** the branch now has never-off autonomy (player stop = timed pause, model stop ignored, `shut_up` cleared on resume / player `!goal`), the local-only no-food trip (last start 8900, health < 10 capped at 24), the known-bed walk-and-sleep with shelter fallback, and the honest shelter seal. The entries below describe the PR itself.
+- **Not yet deployed:** MM20Bot is to deploy `src/agent/agent.js`, `src/agent/commands/actions.js`, `src/agent/history.js`, `src/agent/library/ai_player_nav.js`, `src/agent/library/autonomy.js` (new), `src/agent/library/night_shelter.js`, `src/agent/library/protected_area.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `src/agent/self_prompter.js` on top of the #27–#41 deploy, then restart Bob.
+- **Watch the first live night:** the bed trip, food trip and shelter have only run against fake bots/worlds.
+- Tests: full `npm test` on Node 22: 380/382 pass, 1 skipped; only the pre-existing `confirmSetHome` fails.
+
 ## 2026-11-01 — PR #42 last two fixes: bed-trip fallback and the dusk cutoff (TESTED; NOT DEPLOYED)
 - Same branch/PR (`fix/autonomy-food-bed-20261101`, draft PR #42): one commit on top of 2206521.
 - **A failed bed trip falls back to the shelter instead of looping.** `tryKnownBed` set `next_bed` only when a trip STARTED, so a slow trip (up to the 600 s cap) ended after its own 120 s window had already expired and the next tick started another trip - he could loop bed trips all night and never shelter. The cooldown is now set in a `finally`, i.e. measured from when the trip ENDS, and `tryKnownBed` also returns early while `bed_failed_until` is in force. (`bed_failed_until` is the value that tells `tryEmergencyShelter` to allow the shelter: `knownBed = now >= bed_failed_until`.)

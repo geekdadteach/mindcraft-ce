@@ -1,5 +1,14 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 5: full pathfinder probe, probe-aware unstuck, protected-area cache (TESTED; NOT DEPLOYED)
+- Report 4.7, work-order item 5. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. ON by default; `BOB_NAV_FULL_PROBE=0` restores the old single-shot probe.
+- **Full probe** — `skills.readPathProbe()` (via the new exported `probePathStatus()`) keeps asking `getPathTo` while the result is `partial`, up to 1500 ms, so `decidePathStrategy` sees a finished search and can pick the non-destructive route.
+- **Probe-aware unstuck** — the `unstuck` mode resets its timer while `skills.isPathProbing()` (a pathfinder search is not "being stuck").
+- **Cache** — `protected_area.js` caches `protectedAreaAt` per position+name (bounded, cleared per probe by `clearProtectedCache()`).
+- **Benchmark (Step 1)** — `test/bob_nav_probe.test.js` has a skipped-by-default synthetic micro-benchmark (`BOB_NAV_BENCH=1`). Measured here (Node 22, 200k nodes): no hook **335.6M nodes/sec**, `protectedAreaAt` uncached **44.2M nodes/sec**, cached **5.0M nodes/sec**. SYNTHETIC (no live A*), and honestly the Map cache is *slower* here because `protectedAreaAt` returns immediately with no verified house; it only pays off once a verified house makes `protectedAreaAt` do real work. Flagged for the reviewer.
+- Tests: new `test/bob_nav_probe.test.js` **5/5 active + 1 skipped benchmark**. Full `npm test` on Node 22: **260/262 pass** (1 fail = pre-existing `confirmSetHome`; 1 skip = the benchmark).
+- UNPROVEN: no live Minecraft session; the 1500 ms probe budget and the cache win/loss need an in-game measurement with a verified house.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

@@ -1093,15 +1093,41 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
     return false;
 }
 
-async function readPathProbe(bot, movements, goal, timeout) {
-    const raw = bot.pathfinder.getPathTo(movements, goal, timeout);
-    const path = (raw && typeof raw.then === 'function') ? await raw : raw;
-    return {
-        status: path?.status || 'noPath',
-        visitedNodes: path?.visitedNodes ?? path?.visited ?? 0,
-        generatedNodes: path?.generatedNodes ?? 0
-    };
+// [ai-player] Fix 5: ON by default; BOB_NAV_FULL_PROBE=0 restores the single-shot probe.
+export function fullProbeEnabled(env = process.env) { return env.BOB_NAV_FULL_PROBE != '0'; }
+
+// True while a path probe is running, so the unstuck mode does not count search time as being stuck.
+let _pathProbing = 0;
+export function isPathProbing() { return _pathProbing > 0; }
+
+// [ai-player] Fix 5: keep asking while the search is only partial, until it finishes or the budget runs out.
+export async function probePathStatus(getPathTo, { totalMs = 1500, now = Date.now, full = true } = {}) {
+    const deadline = now() + totalMs;
+    let path = null;
+    do {
+        const raw = getPathTo();
+        path = (raw && typeof raw.then === 'function') ? await raw : raw;
+        if (!full || !path || path.status !== 'partial') break;
+    } while (now() < deadline);
+    return path;
 }
+
+async function readPathProbe(bot, movements, goal, timeout, { totalMs = 1500, env = process.env } = {}) {
+    _pathProbing++;
+    try {
+        try { (await import('./protected_area.js')).clearProtectedCache(); } catch (_) {}
+        const path = await probePathStatus(
+            () => bot.pathfinder.getPathTo(movements, goal, timeout),
+            { totalMs, full: fullProbeEnabled(env) });
+        return {
+            status: path?.status || 'noPath',
+            visitedNodes: path?.visitedNodes ?? path?.visited ?? 0,
+            generatedNodes: path?.generatedNodes ?? 0
+        };
+    } finally { _pathProbing--; }
+}
+
+
 
 async function handleHouseEnclosure(bot, goal) {
     const watch = enclosureWatch(bot);

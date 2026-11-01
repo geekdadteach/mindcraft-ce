@@ -39,13 +39,28 @@ export {
 
 let movementsPatched = false;
 
+// [ai-player] Fix 5: safeToBreak runs for every A* node; cache protectedAreaAt per position+name
+// (bounded) and clear it per path so a changed world is re-read.
+const PROTECTED_CACHE = new Map();
+const PROTECTED_CACHE_MAX = 50000;
+export function clearProtectedCache() { PROTECTED_CACHE.clear(); }
+
 export function installProtectedAreaGuard(agent) {
     const bot = agent.bot;
     if (!movementsPatched) {
         const proto = pf.Movements.prototype;
         const origSafeToBreak = proto.safeToBreak;
         proto.safeToBreak = function (block) {
-            if (block && protectedAreaAt(block.position, block.name)) return false;
+            if (!block) return origSafeToBreak.call(this, block);
+            const pos = block.position;
+            const key = pos.x + ',' + pos.y + ',' + pos.z + ',' + block.name;
+            let hit = PROTECTED_CACHE.get(key);
+            if (hit === undefined) {
+                hit = !!protectedAreaAt(pos, block.name);
+                if (PROTECTED_CACHE.size >= PROTECTED_CACHE_MAX) PROTECTED_CACHE.clear();
+                PROTECTED_CACHE.set(key, hit);
+            }
+            if (hit) return false;
             return origSafeToBreak.call(this, block);
         };
         movementsPatched = true;

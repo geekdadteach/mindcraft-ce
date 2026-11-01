@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     DESPERATE_FOODS, edibleFoods, shouldEatForRegen, getFood, huntAnimal,
-    farFoodCandidates, foodRelocateEnabled,
+    farFoodCandidates, foodRelocateEnabled, relocateFarForFood, FAR_RELOCATE_MAX_SPOTS,
+    shouldStopFarRelocation, farRelocationGoal, isDesperate, desperateForJunkFood,
 } from '../src/agent/library/survival.js';
 
 const at = (x, y, z) => ({ x, y, z, distanceTo: (o) => Math.hypot(x - o.x, y - o.y, z - o.z), floored() { return at(Math.floor(x), Math.floor(y), Math.floor(z)); }, clone() { return at(this.x, this.y, this.z); } });
@@ -62,4 +63,42 @@ test('huntAnimal is ok only when a food count rises', async () => {
     const r = await huntAnimal(agent, 16, { attack: async () => {}, collect: async () => { inv.push({ name: 'beef', count: 1 }); } });
     assert.equal(r.ok, true, 'a drop makes it ok');
     assert.ok(r.got >= 1);
+});
+
+test('relocateFarForFood tries at most 3 spots and stops at night or when hurt/starving', async () => {
+    const mk = (x, y, z) => ({ x, y, z, clone() { return mk(this.x, this.y, this.z); }, distanceTo: (o) => Math.hypot(x - o.x, y - o.y, z - o.z) });
+    const bot = { entity: { position: mk(0, 64, 0) }, health: 20, food: 20, time: { timeOfDay: 6000 }, inventory: { items: () => [] }, interrupt_code: false };
+    const tried = [];
+    const navigate = async (b, goal) => { tried.push(goal); return false; };
+    assert.equal(await relocateFarForFood({ bot }, { navigate, now: () => 0 }), false);
+    assert.equal(tried.length, FAR_RELOCATE_MAX_SPOTS, 'at most 3 spots');
+    bot.time = { timeOfDay: 18000 };
+    tried.length = 0;
+    assert.equal(await relocateFarForFood({ bot }, { navigate, now: () => 0 }), false);
+    assert.equal(tried.length, 0, 'night: no spots');
+    bot.time = { timeOfDay: 6000 }; bot.health = 10;
+    tried.length = 0;
+    assert.equal(await relocateFarForFood({ bot }, { navigate, now: () => 0 }), false);
+    assert.equal(tried.length, 0, 'health <= 10: no spots');
+    bot.health = 20; bot.food = 4;
+    tried.length = 0;
+    assert.equal(await relocateFarForFood({ bot }, { navigate, now: () => 0 }), false);
+    assert.equal(tried.length, 0, 'food <= 4: no spots');
+    assert.equal(shouldStopFarRelocation(bot), true);
+    assert.equal(shouldStopFarRelocation({ health: 20, food: 20, time: { timeOfDay: 6000 } }), false, 'healthy daytime: continues');
+});
+
+test('farRelocationGoal uses GoalNearXZ when the ground height is unknown', () => {
+    const goal = farRelocationGoal({ inventory: { items: () => [] } }, { x: 100, y: 64, z: 100 });
+    assert.equal(goal.constructor.name, 'GoalNearXZ', 'unknown ground: aim at the XZ column');
+});
+
+test('spider_eye and rotten_flesh are unlocked by hunger only, not by low health', () => {
+    const items = [{ name: 'spider_eye', count: 2 }, { name: 'rotten_flesh', count: 1 }];
+    const bot = (food, health) => ({ food, health, inventory: { items: () => items }, registry: { foodsByName: FOODS }, autoEat: { options: { bannedFood: ['spider_eye', 'rotten_flesh', 'chicken'] } } });
+    assert.equal(isDesperate(bot(10, 4)), true, 'low health is desperate overall');
+    assert.equal(desperateForJunkFood(bot(10, 4)), false, 'but low health does not unlock junk food');
+    assert.deepEqual(edibleFoods(bot(10, 4), desperateForJunkFood(bot(10, 4))), [], 'no junk food at food 10');
+    assert.equal(desperateForJunkFood(bot(6, 20)), true, 'hunger unlocks junk food');
+    assert.deepEqual(edibleFoods(bot(6, 20), true).map(i => i.name).sort(), ['rotten_flesh', 'spider_eye']);
 });

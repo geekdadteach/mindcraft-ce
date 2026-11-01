@@ -92,8 +92,13 @@ const blocked = (agent, cmd, target, pos) => { try { return agent?.failures?.isB
 
 // [ai-player] Fix 2a: food Bob eats only when desperate (food <= 6 or health <= 6).
 export const DESPERATE_FOODS = new Set(['chicken', 'rotten_flesh', 'spider_eye']);
+// [ai-player] Fix 2 review: the junk edibles (spider_eye/rotten_flesh/chicken) are unlocked by hunger only
+// (food <= 6), never by low health alone.
+export function desperateForJunkFood(bot) {
+    return Number.isFinite(bot?.food) && bot.food <= 6;
+}
 export function isDesperate(bot) {
-    return (Number.isFinite(bot?.food) && bot.food <= 6) || (Number.isFinite(bot?.health) && bot.health <= 6);
+    return desperateForJunkFood(bot) || (Number.isFinite(bot?.health) && bot.health <= 6);
 }
 
 export function edibleFoods(bot, desperate = false) {
@@ -109,11 +114,11 @@ export function foodStock(bot) { return edibleFoods(bot, false).reduce((s, i) =>
 export function shouldEatForRegen(bot) {
     if (!Number.isFinite(bot?.health) || !Number.isFinite(bot?.food)) return false;
     if (bot.health >= 20 || bot.food >= 18) return false;
-    return edibleFoods(bot, isDesperate(bot)).length > 0;
+    return edibleFoods(bot, desperateForJunkFood(bot)).length > 0;
 }
 
 export async function eatBest(bot) {
-    const best = edibleFoods(bot, isDesperate(bot))[0];
+    const best = edibleFoods(bot, desperateForJunkFood(bot))[0];
     if (!best) return false;
     console.log(`[ai-player] hunger: eating ${best.name} (food=${bot.food})`);
     try { return await skills.consume(bot, best.name); } catch (e) { console.log(`[ai-player] hunger: eat failed: ${e.message}`); return false; }
@@ -446,15 +451,37 @@ export function farFoodCandidates(position, { min = FOOD_RELOCATE_MIN, max = FOO
     return out;
 }
 
-export async function relocateFarForFood(agent, { navigate = (bot, goal) => gotoWithin(bot, goal, 60000, walkMovements(bot)) } = {}) {
+// [ai-player] Fix 2 review: bound the far relocation — at most 3 spots and 180 s total, and stop early if it
+// turns night or Bob gets too hurt/hungry to keep walking.
+export const FAR_RELOCATE_MAX_SPOTS = 3;
+export const FAR_RELOCATE_TOTAL_MS = 180000;
+
+export function shouldStopFarRelocation(bot) {
+    if (!bot || bot.interrupt_code) return true;
+    if (Number.isFinite(bot.health) && bot.health <= 10) return true;
+    if (Number.isFinite(bot.food) && bot.food <= 4) return true;
+    return isNightTime(bot);
+}
+
+// Aim at the XZ column when the ground height is unknown so the pathfinder picks the surface height.
+export function farRelocationGoal(bot, candidate) {
+    const ground = foodRelocationGround(bot, candidate);
+    if (ground && Number.isFinite(ground.y)) return new pf.goals.GoalNear(ground.x, ground.y, ground.z, 4);
+    return new pf.goals.GoalNearXZ(candidate.x, candidate.z, 4);
+}
+
+export async function relocateFarForFood(agent, { navigate = (bot, goal) => gotoWithin(bot, goal, 60000, walkMovements(bot)), now = Date.now } = {}) {
     const bot = agent.bot;
     if (!bot?.entity?.position || bot.interrupt_code || bot.health <= 0) return false;
     const start = bot.entity.position.clone();
+    const deadline = now() + FAR_RELOCATE_TOTAL_MS;
+    let tried = 0;
     for (const candidate of farFoodCandidates(start)) {
-        if (bot.interrupt_code || bot.health <= 0) return false;
-        const target = foodRelocationGround(bot, candidate) || candidate;
+        if (tried >= FAR_RELOCATE_MAX_SPOTS || now() >= deadline) break;
+        if (shouldStopFarRelocation(bot)) { console.log('[ai-player] food: stopping the far relocation (night, hurt or starving)'); break; }
+        tried++;
         try {
-            const ok = await navigate(bot, new pf.goals.GoalNear(target.x, target.y, target.z, 4));
+            const ok = await navigate(bot, farRelocationGoal(bot, candidate));
             if (ok && bot.entity.position.distanceTo(start) >= 64) { console.log('[ai-player] food: relocated to a fresh search ring'); return true; }
         } catch (err) { console.log('[ai-player] food: far relocation failed: ' + (err?.message || err)); }
     }

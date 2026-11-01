@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 2 review: bounded relocation, junk-food gate, XZ goals (TESTED; NOT DEPLOYED)
+- Review of PR #28. Same branch, second commit (no force-push).
+- **Bounded relocation** — `relocateFarForFood()` stops before a spot (and ends) when it turns night, `health <= 10` or `food <= 4`, tries at most 3 spots (`FAR_RELOCATE_MAX_SPOTS`) and 180 s total (`FAR_RELOCATE_TOTAL_MS`); `shouldStopFarRelocation()` is the testable core.
+- **XZ goals** — `farRelocationGoal()` aims at the XZ column (`pf.goals.GoalNearXZ`) when the ground height is unknown, instead of a `GoalNear` at a guessed y.
+- **Junk-food gate** — `desperateForJunkFood(bot)` = `food <= 6` only; `edibleFoods`/`shouldEatForRegen`/`eatBest` use it, so `spider_eye`/`rotten_flesh`/`chicken` are never unlocked by low health alone.
+- Tests: `test/bob_food_loop.test.js` **8/8** (new: bounded relocation, GoalNearXZ, junk-food gate). Full `npm test` on Node 22: **263/264 pass**; only the pre-existing `confirmSetHome` fails.
+- NOTE for merge order: #29 also edits the imports and the end of `src/agent/library/survival.js`. Whichever of #28/#29 merges second must merge the base in (not rebase) and combine the imports, keeping the closing `}` of `relocateFarForFood`.
+
 ## 2026-10-31 — Fix 2: food loop (desperate edibles, regen eat, relocation, verified hunts) (TESTED; NOT DEPLOYED)
 - Report 4.3, work-order item 2. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. New behaviour ON by default; `BOB_FOOD_RELOCATE=0` opts out of the far relocation.
 - **(2a) Desperate edibles** — `survival.edibleFoods()` now allows `spider_eye` (and keeps `rotten_flesh`/`chicken`) when desperate; new `isDesperate(bot)` = food <= 6 or health <= 6.

@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 2 review: bounded relocation, junk-food gate, XZ goals (TESTED; NOT DEPLOYED)
+- **Goal:** PR #28 review: bound the far food relocation, aim at the XZ column when the ground height is unknown, and never unlock junk food by low health alone.
+- **Files:** `src/agent/library/survival.js`, `test/bob_food_loop.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `relocateFarForFood` stops when it turns night or `health <= 10`/`food <= 4`, tries at most 3 spots and 180 s; `farRelocationGoal` uses `GoalNearXZ` when the ground is unknown; `desperateForJunkFood` (food <= 6) gates `spider_eye`/`rotten_flesh`/`chicken`.
+- **Tests:** `test/bob_food_loop.test.js` **8/8**. Full `npm test` on Node 22: **263/264 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#28); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the review commit on the PR branch.
+- **Merge note:** #29 also touches the `survival.js` imports and the end of the file; the second to merge must merge the base in (not rebase).
+
 ## 2026-10-31 — Fix 2: food loop (TESTED; NOT DEPLOYED)
 - **Goal:** Make Bob feed himself (report 4.3: 136 food not_met goal checks, hunger mode "none found"): desperate edibles, eat to 18 for regen, relocate after repeated empty searches, and confirm hunts by counting food.
 - **Files:** `src/agent/library/survival.js`, `src/agent/modes.js`, `test/bob_food_loop.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

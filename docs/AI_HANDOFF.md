@@ -45,6 +45,16 @@
 - Work-order item 7b. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
 - New `commands/index.js` export `clampToDomain(value, domain)` clamps into the declared interval (endpoint-aware) and reports `{ value, clamped, note }`. `parseCommandMessage` now clamps an out-of-range numeric param instead of returning a parse error and returns `clampNotes`; `executeCommand` prefixes the feedback with `(Note: <param>=<value> (clamped into <domain>).)`.
 - Tests: new `test/bob_param_clamp.test.js` **2/2**. Full `npm test` on Node 22: **257/258 pass**; only the pre-existing `confirmSetHome` fails.
+## 2026-10-31 — Fix 7a round 2: consume drinks potions and milk (report 4.9) (TESTED; NOT DEPLOYED)
+- Review of PR #33. Same branch, second commit (no force-push).
+- New `skills.isDrinkable(itemName)` matches `/potion$|^milk_bucket$/`; `consume()` now refuses only when the item is neither food nor drinkable, so `!consume("potion")` and `!consume("milk_bucket")` work (they are not in `foodsByName`).
+- Tests: `test/bob_consume_edible.test.js` **3/3** (new: drinkables). Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
+## 2026-10-31 — Fix 7a: consume() uses the registry for edibility (report 4.9) (TESTED; NOT DEPLOYED)
+- Work-order item 7a. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
+- `skills.isEdible(bot, itemName)` decides edibility from `bot.registry.foodsByName` (allow by default; refuse only when the registry has the map and the item is absent), and `skills.consume()` refuses a non-food with `You cannot eat <item>; it is not food.` The named-item message (`You do not have any <item> to eat.`) is unchanged.
+- Tests: new `test/bob_consume_edible.test.js` **2/2**. Full `npm test` on Node 22: **257/258 pass**; only the pre-existing `confirmSetHome` fails.
 - UNPROVEN: no live session.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)

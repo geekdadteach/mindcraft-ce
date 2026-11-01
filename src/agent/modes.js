@@ -324,6 +324,9 @@ const modes_list = [
             const bot = agent.bot;
             if (bot.food == null) return;
             if (bot.autoEat?.isEating) return;
+            // [ai-player] Fix 1e round 3: while sealed in for the night, do not run the food loop (it would
+            // pathfind out of the shelter); the night mode leaves early when starving instead.
+            if (shelter.isSheltered() && !shelter.shouldLeaveEarlyForFood(bot)) return;
             if (/^mode:(self_preservation|self_defense|cowardice|ranged_threat|night)$/.test(agent.actions.currentActionLabel || '')) return;
             const now = Date.now();
             const stock = survival.foodStock(bot);
@@ -379,6 +382,7 @@ const modes_list = [
         far_logged: null,
         next_shelter: 0,
         exiting: false,
+        shelterLeftForFood: false, // [ai-player] Fix 1e round 3: do not re-shelter until food > 6 or dawn
         max_action_ms: 180000,
         home_at_night: nightHomeEnabled(),
         release: function (agent, why) {
@@ -398,6 +402,8 @@ const modes_list = [
         // BOB_NIGHT_HOME: that still controls going home to sleep.
         tryEmergencyShelter: function (agent) {
             if (this.active) return;
+            // [ai-player] Fix 1e round 3: do not re-shelter while Bob is still starving after leaving early.
+            if (this.shelterLeftForFood) return;
             const now = Date.now();
             if (now < this.next_shelter) return;
             const why = shelter.shelterReason(agent.bot);
@@ -432,6 +438,7 @@ const modes_list = [
             this.exiting = true;
             const bot = agent.bot;
             console.log('[ai-player] shelter: leaving early for food');
+            this.shelterLeftForFood = true; // [ai-player] Fix 1e round 3: no re-shelter until food > 6 or dawn
             execute(this, agent, async () => { await shelter.dawnExit(bot); }, -1, 60000)
                 .then(() => { this.exiting = false; this.release(agent, 'shelter left early for food'); })
                 .catch(() => { this.exiting = false; this.release(agent, 'shelter exit error (food)'); });
@@ -445,6 +452,9 @@ const modes_list = [
                 else this.holdShelter(agent);
                 return;
             }
+            // [ai-player] Fix 1e round 3: after leaving early for food, allow re-sheltering once he has eaten
+            // (food > 6) or dawn has arrived.
+            if (this.shelterLeftForFood && (agent.bot.food > 6 || !nav.isNightTime(agent.bot))) this.shelterLeftForFood = false;
             if (!this.home_at_night) { // pr20-reconciled-20261027: independent exploration; release any hold/pause once
                 if (this.holding || this.paused_sp || !this.boot_checked) this.release(agent, 'night-home off (independent exploration)');
                 this.boot_checked = true;
@@ -853,6 +863,15 @@ class ModeController {
             }
         }
     }
+}
+
+// [ai-player] Fix 1e round 3: on death/respawn, drop the night hold immediately instead of waiting for
+// the next night tick to notice the shelter is gone.
+export function releaseNightHold(why = 'death/respawn') {
+    try {
+        const night = modes_list.find(m => m.name === 'night');
+        if (night && _agent && (night.holding || night.paused_sp)) night.release(_agent, why);
+    } catch (_) {}
 }
 
 export function initModes(agent) {

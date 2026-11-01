@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1e round 3: review fixes for PR #27 (TESTED; NOT DEPLOYED)
+- **Goal:** PR #27 review: a starving Bob must never be sealed in; the pathfinder must not dig him out; the night hold must drop on death/respawn.
+- **Files:** `src/agent/library/night_shelter.js`, `src/agent/library/shelter_state.js`, `src/agent/modes.js`, `src/agent/agent.js`, `test/bob_shelter_hold.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `shelterReason` returns null for a starving Bob with no edible food; the night mode refuses to re-shelter after `leaveForFood` until food > 6 or dawn; the hunger mode stands down while sheltered; sealing sets `movements.canDig = false` (restored by `clearShelter(bot)`/`dawnExit`); `releaseNightHold()` drops the hold immediately on death/respawn.
+- **Tests:** `test/bob_shelter_hold.test.js` **5/5**. Full `npm test` on Node 22: **276/277 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#27); fourth commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-3 commit on the PR branch.
+
 ## 2026-10-31 — Fix 1e round 2: food carve-out, wider hold, lifecycle cleanup (TESTED; NOT DEPLOYED)
 - **Goal:** PR #27 review round 2: never block eating, keep Bob sealed in harder, and never pack up after a respawn elsewhere.
 - **Files:** `src/agent/library/shelter_state.js` (new), `src/agent/library/night_shelter.js`, `src/agent/library/ai_player_nav.js`, `src/agent/modes.js`, `src/agent/agent.js`, `test/bob_shelter_hold.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

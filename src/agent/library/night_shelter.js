@@ -138,6 +138,8 @@ export function shelterReason(bot, { env = process.env, now = Date.now() } = {})
     if (!bot?.entity?.position) return null;
     if (hasVerifiedBed(bot)) return null;
     if (!isNightTime(bot)) return null;
+    // [ai-player] Fix 1e round 3: never seal a starving Bob in with nothing to eat; he must be free to !getFood.
+    if (Number.isFinite(bot.food) && bot.food <= 6 && !hasEdibleFood(bot)) return null;
     if (nearestHostile(bot)) return 'hostiles';
     if (Number.isFinite(bot.health) && bot.health <= SHELTER_LOW_HEALTH) return 'low-health';
     return null;
@@ -288,7 +290,9 @@ export async function dawnExit(bot) {
     const s = shelterState();
     if (!s) return false;
     const removed = await recover(bot, s.placed, s.dug);
-    clearShelter();
+    clearShelter(bot);
+    // [ai-player] Fix 1e round 3: restore the pathfinder's ability to dig once the shelter is gone.
+    try { if (bot.pathfinder?.movements) bot.pathfinder.movements.canDig = true; } catch (_) {}
     console.log(`[ai-player] shelter: packed up (${removed}/${s.placed.length} placed blocks recovered, ${s.dug.length} pocket cell(s))`);
     return true;
 }
@@ -304,6 +308,8 @@ export async function buildShelter(bot, opts = {}) {
     else ok = await digPocket(bot, seal, record);
     if (!ok) { await recover(bot, record.placed, record.dug); return false; } // no stray blocks from a failed attempt
     markSheltered({ day: bot.time?.day ?? null, dimension: bot.game?.dimension ?? null, placed: record.placed, dug: record.dug });
+    // [ai-player] Fix 1e round 3: stop the pathfinder digging Bob out of his own shelter.
+    try { if (bot.pathfinder?.movements) bot.pathfinder.movements.canDig = false; } catch (_) {}
     console.log(`[ai-player] shelter: sealed in for the night (placed ${record.placed.length}, dug ${record.dug.length})`);
     return true;
 }

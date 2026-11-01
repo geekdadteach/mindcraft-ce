@@ -5,7 +5,7 @@ import { History } from './history.js';
 import { Coder } from './coder.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
-import { initModes } from './modes.js';
+import { initModes, releaseNightHold } from './modes.js';
 import { initBot, stampLikelyAttacker } from '../utils/mcdata.js';
 import { clearShelter, installShelterMovementGuard } from './library/night_shelter.js';
 import { containsCommand, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
@@ -703,7 +703,7 @@ export class Agent {
         });
         // Use connection handler for runtime disconnects
         this.bot.on('end', (reason) => {
-            clearShelter(); // [ai-player] Fix 1e round 2: disconnect ends the shelter
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: disconnect ends the shelter
             if (!this._disconnectHandled) {
                 const { msg } = handleDisconnection(this.name, reason);
                 this.cleanKill(msg);
@@ -711,12 +711,14 @@ export class Agent {
         });
         // [ai-player] log death / respawn positions (to check the bed respawn point).
         this.bot.on('death', () => {
-            clearShelter(); // [ai-player] Fix 1e round 2: a death ends the shelter (no pack-up, no error)
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: a death ends the shelter (no pack-up, no error)
+            releaseNightHold('death'); // [ai-player] Fix 1e round 3: drop the night hold right away
             const p = this.bot.entity?.position;
             console.log(`[ai-player] died at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
         });
         this.bot.on('spawn', () => {
-            clearShelter(); // [ai-player] Fix 1e round 2: spawn also fires at first login; a null shelter is a no-op
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: spawn also fires at first login; a null shelter is a no-op
+            releaseNightHold('respawn'); // [ai-player] Fix 1e round 3: drop the night hold right away
             setTimeout(() => {
                 const p = this.bot.entity?.position;
                 console.log(`[ai-player] spawn event at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
@@ -727,7 +729,7 @@ export class Agent {
             this.actions.stop();
         });
         this.bot.on('kicked', (reason) => {
-            clearShelter(); // [ai-player] Fix 1e round 2: kicked ends the shelter
+            clearShelter(this.bot); // [ai-player] Fix 1e round 2: kicked ends the shelter
             if (!this._disconnectHandled) {
                 const { msg } = handleDisconnection(this.name, reason);
                 this.cleanKill(msg);

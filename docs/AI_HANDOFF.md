@@ -1,5 +1,14 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1e round 3: review fixes (starving Bob never shelters, canDig guard, hold release on death) (TESTED; NOT DEPLOYED)
+- Review of PR #27. Same branch, fourth commit (no force-push).
+- **Starving Bob never shelters** — `night_shelter.shelterReason()` returns null when `food <= 6` and Bob holds nothing edible, so he is never sealed in with no way to eat; `modes.js` `night` sets `shelterLeftForFood` in `leaveForFood()` and `tryEmergencyShelter()` refuses to re-shelter until `food > 6` or dawn.
+- **Hunger stays out of the shelter** — the `hunger` mode returns early while sheltered unless `shouldLeaveEarlyForFood()` (the night mode leaves early instead).
+- **canDig guard** — sealing in sets `bot.pathfinder.movements.canDig = false`; `clearShelter(bot)` and `dawnExit` restore it.
+- **Hold release on death/respawn** — `modes.releaseNightHold()` drops the night hold immediately (called from the `death`/`spawn` handlers in `agent.js`, which now pass `this.bot` to `clearShelter`).
+- Tests: `test/bob_shelter_hold.test.js` **5/5** (new: a starving Bob does not start or re-shelter); `bob_combat_interrupt` 5/5; `bob_night_shelter` 12/12. Full `npm test` on Node 22: **276/277 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; the canDig guard and hold release need an in-game check.
+
 ## 2026-10-31 — Fix 1e round 2: food carve-out, wider hold, lifecycle cleanup (TESTED; NOT DEPLOYED)
 - Amends the Fix 1e entry below — same draft PR (#27), third commit, same branch. Review round 2.
 - **Food carve-out (eating is never blocked):** while sheltered, if `food <= 6` and Bob holds no edible item, the shelter ends early — `night_shelter.shouldLeaveEarlyForFood()`; the `night` mode logs `[ai-player] shelter: leaving early for food`, runs the same pack-up (`dawnExit`), releases the hold and resumes self-prompting, so `!getFood` is no longer blocked (his food chest is by the bed at -1143 68 752).

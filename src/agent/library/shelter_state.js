@@ -9,4 +9,9 @@ export function markSheltered(info = {}) {
     _shelter = { day: info.day ?? null, dimension: info.dimension ?? null, placed: info.placed ?? [], dug: info.dug ?? [] };
     return _shelter;
 }
-export function clearShelter() { _shelter = null; }
+// [ai-player] Fix 1e round 3: clearing the shelter also restores the pathfinder's ability to dig when
+// the caller passes the bot (death/respawn/disconnect clear the shelter without a pack-up).
+export function clearShelter(bot) {
+    _shelter = null;
+    try { if (bot?.pathfinder?.movements) bot.pathfinder.movements.canDig = true; } catch (_) {}
+}

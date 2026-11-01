@@ -127,11 +127,12 @@ test('LITE keeps coding allowed (no allow_insecure_coding=false, no !newAction b
     assert.deepEqual(r.profiles, ['./profiles/andy-api-lite.json']);
 });
 
-test('profiles: chat is LM Studio only; code_model is Gemini (live) or the Andy API (lite)', async () => {
+test('profiles: chat is LM Studio only; code_model is Gemini in both profiles', async () => {
     const fs = await import('node:fs');
     // Oct 31 2026: Randy moved the live profile's code lane to Gemini.
+    // Nov 1 2026: the lite profile (BOB_MODE=lite, the one Bob runs) moved to Gemini too.
     const codeModels = {
-        'profiles/andy-api-lite.json': { api: 'andy', model: 'claude-haiku-5.5' },
+        'profiles/andy-api-lite.json': { api: 'google', model: 'gemini-3.8-flash' },
         'profiles/andy-api.json': { api: 'google', model: 'gemini-3.8-flash' },
     };
     for (const [f, cm] of Object.entries(codeModels)) {

@@ -5,6 +5,7 @@ import { withInventoryWindow } from './bob_inventory_window.js';
 import { availableWoodNames } from './bob_wood_types.js';
 import Vec3 from 'vec3';
 import { retryPathfinding } from './bob_path_retry.js';
+import { recordSleptBed } from './protected_area.js';
 import {
     chooseCollectTarget,
     createUnreachableError,
@@ -1789,6 +1790,7 @@ export async function goToBed(bot) {
     await goToPosition(bot, loc.x, loc.y, loc.z);
     const bed = bot.blockAt(loc);
     await bot.sleep(bed);
+    try { recordSleptBed(loc); } catch (_) {} // [ai-player] protect the bed he actually slept in
     log(bot, `You are in bed.`);
     bot.modes.pause('unstuck');
     while (bot.isSleeping) {

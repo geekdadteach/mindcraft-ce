@@ -193,6 +193,13 @@
 - **Benchmark (Step 1)** — `test/bob_nav_probe.test.js` has a skipped-by-default synthetic micro-benchmark (`BOB_NAV_BENCH=1`). Measured here (Node 22, 200k nodes): no hook **335.6M nodes/sec**, `protectedAreaAt` uncached **44.2M nodes/sec**, cached **5.0M nodes/sec**. SYNTHETIC (no live A*), and honestly the Map cache is *slower* here because `protectedAreaAt` returns immediately with no verified house; it only pays off once a verified house makes `protectedAreaAt` do real work. Flagged for the reviewer.
 - Tests: new `test/bob_nav_probe.test.js` **5/5 active + 1 skipped benchmark**. Full `npm test` on Node 22: **260/262 pass** (1 fail = pre-existing `confirmSetHome`; 1 skip = the benchmark).
 - UNPROVEN: no live Minecraft session; the 1500 ms probe budget and the cache win/loss need an in-game measurement with a verified house.
+## 2026-11-01 — Bed protection: never break his own bed (TESTED; NOT DEPLOYED)
+- New draft PR `fix/protect-own-bed-20261101` off `work/bob-home-from-live-20261028` (697f560).
+- **Guard** — `protected_area.js` gained `ownBedAt(pos, blockName)`: a `*_bed` block within 2 blocks of a known bed is never diggable. `Movements.safeToBreak` returns false and the `bot.dig` wrapper throws `The <block> at x, y, z is your bed; do not break it.`
+- **Known beds** — the claim bed at -1144 68 752 (`BOB_BED`), the active home's bed, and the last bed Bob actually slept in (`recordSleptBed`, called after a successful `bot.sleep` in the `modes.js` night mode and in `skills.goToBed`).
+- **Opt-out** — ON by default; `BOB_PROTECT_BED=0` disables it (`bedProtectEnabled`).
+- Tests: new `test/bob_protect_bed.test.js` **3/3** (incl. `bot.dig` on his bed throwing). Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; the throw path and the sleep-recording hooks were not run in-game.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.

@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7c round 2: the verifier actually receives the result text (report 4.11) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #35 review: the harness never passed the result summary, so the failure-text check never ran; and the phrase list was too broad.
+- **Files:** `src/agent/library/bob_eval_harness.js`, `src/agent/library/bob_goal_verifier.js`, `test/bob_verifier_failure_text.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `_lastResultText` is captured per command and passed as `resultText` to `verifyGoal`; only a `met` verdict is downgraded by a failing text; the phrase list is narrowed to whole-action failures.
+- **Tests:** `test/bob_verifier_failure_text.test.js` **5/5**. Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#35); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-2 commit on the PR branch.
+
 ## 2026-10-31 — Fix 7c: a failing task text can never be verified met (report 4.11) (TESTED; NOT DEPLOYED)
 - **Goal:** Report 4.11: a task whose text says it failed must never be reported as met.
 - **Files:** `src/agent/library/bob_goal_verifier.js`, `test/bob_verifier_failure_text.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

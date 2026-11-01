@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7c round 2: the verifier actually receives the result text (report 4.11) (TESTED; NOT DEPLOYED)
+- Review of PR #35. Same branch, second commit (no force-push).
+- **Wired** — `bob_eval_harness` now stores the last command's result summary (`_lastResultText`, set in `noteExecEnd`, cleared in `noteExecStart`) and passes it to `verifyGoal` as `resultText`, so the Fix 4.11 check actually runs (before, it never did).
+- **Narrow phrases** — `FAILURE_PHRASES` drops the broad `could not` / `cannot` / `failed` (they also appear in partial successes) and keeps only whole-action failures (`not confirmed`, `no path`, `unreachable`, `don't have`, `inventory full`, `could not find`, `could not get`, `timed out`).
+- **Only `met` is downgraded** — a failing result text downgrades a `met` verdict to `not_met` (`result-text`); a kind verifier that already said `not_met`/`progress` keeps its own label (so `!getFood` still reports `verifier: 'food'`).
+- Tests: `test/bob_verifier_failure_text.test.js` **5/5** (new: the harness wiring, the downgrade, the partial-success case, and the label-preservation case). Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 7c: a failing task text can never be verified met (report 4.11) (TESTED; NOT DEPLOYED)
 - Work-order item 7c. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
 - New exports in `bob_goal_verifier.js`: `FAILURE_PHRASES` (shared list: not confirmed, could not, cannot, failed, don't have, no path, unreachable, timed out, inventory full) and `textReportsFailure(text)`. `verifyGoal()` now returns `not_met` (source `result-text`) when the task/result text reports failure, before any kind-specific check.

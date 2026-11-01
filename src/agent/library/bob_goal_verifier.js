@@ -16,16 +16,19 @@ const VERDICTS = new Set(['met', 'not_met', 'progress', 'unevaluated']);
 
 // [ai-player] Fix 4.11: a task text that says it failed must never be reported as met.
 export const FAILURE_PHRASES = Object.freeze([
+    // [ai-player] Fix 4.11 review: only unambiguous whole-action failures. Broad words like 'could not'
+    // or 'failed' also appear in partial successes, which must stay eligible for met.
     'not confirmed',
-    'could not',
-    'cannot',
-    'failed',
-    "don't have",
     'no path',
     'unreachable',
-    'timed out',
+    "don't have",
     'inventory full',
+    'could not find',
+    'could not get',
+    'timed out',
 ]);
+
+
 
 export function textReportsFailure(text) {
     const s = String(text || '').toLowerCase();
@@ -706,11 +709,6 @@ export function verifyGoal(input = {}) {
         if (!desc.block && mapped.kind === 'place' && mapped.item) desc.block = mapped.item;
         if (!desc.entity && mapped.kind === 'attack' && mapped.item) desc.entity = mapped.item;
 
-        // [ai-player] Fix 4.11: a task text that says it failed can never be met.
-        const resultText = input.resultText ?? input.result ?? input.result_summary ?? '';
-        if (textReportsFailure(resultText)) {
-            return result('not_met', 'result-text', `Task text reports failure: "${String(resultText).slice(0, 120)}"`, before, after);
-        }
         const kind = kindForCommand(desc.command) || mapped.kind;
         if (!kind) {
             return unevaluated(
@@ -722,7 +720,14 @@ export function verifyGoal(input = {}) {
         }
         if (!before && !after)
             return unevaluated(kind, 'No world snapshots.', before, after);
-        return runKind(kind, before, after, desc);
+        const outcome = runKind(kind, before, after, desc);
+        // [ai-player] Fix 4.11 review: a task text that says it failed can never be met. Only a 'met'
+        // verdict is downgraded, so the kind verifier's own label is kept when it already said not_met.
+        const resultText = input.resultText ?? input.result ?? input.result_summary ?? '';
+        if (outcome?.verdict === 'met' && textReportsFailure(resultText)) {
+            return result('not_met', 'result-text', `Task text reports failure: "${String(resultText).slice(0, 120)}"`, before, after);
+        }
+        return outcome;
     } catch {
         return unevaluated('unknown', 'Verifier threw; left unevaluated.', input.before, input.after);
     }

@@ -214,3 +214,37 @@ test('the bed hold is not released while the night action is in flight', async (
     assert.equal(night.holding, false, 'the hold is released');
     assert.equal(sp.isActive(), true, 'and self-prompting resumes');
 });
+
+test('a failed bed trip lasting over 120 s falls back to the shelter instead of looping', async (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: 0 });
+    setActiveHome(emptyHome());
+    const zombie = { name: 'zombie', type: 'mob', position: { x: -1136, y: 68, z: 752 } };
+    const bot = bedBot({ at: { x: -1140, y: 68, z: 752 }, beds: [{ x: -1144, y: 68, z: 752 }], entities: { z: zombie } });
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const { agent, labels } = mkNightAgent(bot);
+    agent.actions.runAction = async (l, fn) => { labels.push(l); await gate; try { await fn(); } catch (_) {} return { message: '' }; };
+    initModes(agent);
+    const night = getMode('night');
+    night.boot_checked = true; night.next_bed = 0; night.bed_failed_until = 0; night.next_shelter = 0;
+
+    const lines = [];
+    const real = console.log;
+    console.log = (...a) => { lines.push(a.map(String).join(' ')); };
+    try {
+        night.tryKnownBed(agent);
+        assert.ok(lines.some(l => l.includes('going to sleep')), 'the bed trip started at t=0');
+        t.mock.timers.tick(200000);   // the trip is slow: 200 s, longer than its own 120 s window
+        release();                    // and then it fails
+        for (let i = 0; i < 12; i++) await new Promise(r => setImmediate(r));
+
+        assert.equal(night.active, false, 'the trip has ended');
+        assert.ok(night.bed_failed_until > Date.now(), 'the failure blocks bed trips');
+        assert.ok(night.next_bed > Date.now(), 'and the cooldown is measured from the END of the trip');
+
+        night.tryKnownBed(agent);     // the very next tick
+        assert.equal(labels.filter(l => l === 'mode:night').length, 1, 'no new bed trip starts');
+        night.tryEmergencyShelter(agent);
+        assert.ok(lines.some(l => l.includes('building the emergency shelter')), 'the shelter takes over');
+    } finally { console.log = real; }
+});

@@ -1,9 +1,17 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — PR #42 last two fixes (TESTED; NOT DEPLOYED)
+- **Goal:** a slow failed bed trip looped bed trips all night instead of sheltering, and the food trip could start too late to finish before nightfall.
+- **Files:** `src/agent/modes.js`, `test/bob_known_bed.test.js`, `test/bob_food_stock.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the bed-trip cooldown (`BED_TRIP_COOLDOWN_MS`) is now measured from when a trip ENDS and `tryKnownBed` also returns early while `bed_failed_until` is in force, so a failed trip hands over to the emergency shelter; the food trip's dusk cutoff is `FOOD_TRIP_LAST_START = 8900` (12542 minus the 3600-tick max trip) instead of 11000.
+- **Tests:** `bob_known_bed` **12/12**, `bob_food_stock` **12/12**. Full `npm test` on Node 22: **380/382 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** same draft PR #42 (`fix/autonomy-food-bed-20261101`), one commit on top of 2206521. Not merged, not deployed.
+- **Rollback:** Do not merge. Delete the branch.
+
 ## 2026-11-01 — Review round on PR #42 (TESTED; NOT DEPLOYED)
 - **Goal:** a boot-time throw, a per-tick world scan, a bed hold that was undone on the next tick, and a food trip that could hop 96-160 blocks.
 - **Files:** `src/agent/self_prompter.js`, `src/agent/library/night_shelter.js`, `src/agent/library/survival.js`, `src/agent/library/ai_player_nav.js`, `src/agent/modes.js`, `src/agent/commands/actions.js`, `test/bob_autonomy_never_off.test.js`, `test/bob_food_stock.test.js`, `test/bob_known_bed.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
-- **Behavior:** `handleLoad` degrades to STOPPED instead of throwing; the known-bed scan runs last and the shelter decision is limited to one check per 15 s; `release()` is skipped while a night action is in flight; the nearest known bed wins; the food-17 trip is local (`relocate:false`, 40/80 blocks), skipped from `timeOfDay` 11000 and capped at 24 blocks when health < 10; `shut_up` clears on resume and on a player's `!goal`. Model-sent `!goal` deliberately stays ungated.
+- **Behavior:** `handleLoad` degrades to STOPPED instead of throwing; the known-bed scan runs last and the shelter decision is limited to one check per 15 s; `release()` is skipped while a night action is in flight; the nearest known bed wins; the food-17 trip is local (`relocate:false`, 40/80 blocks), skipped from `timeOfDay` 8900 (moved down from 11000 in the next entry) and capped at 24 blocks when health < 10; `shut_up` clears on resume and on a player's `!goal`. Model-sent `!goal` deliberately stays ungated.
 - **Tests:** `bob_autonomy_never_off` **16/16**, `bob_food_stock` **12/12**, `bob_known_bed` **11/11**. Full `npm test` on Node 22: **379/381 pass**; only the pre-existing `confirmSetHome` fails. Ten negative controls verified.
 - **Deploy status:** same draft PR #42 (`fix/autonomy-food-bed-20261101`), one commit on top of a772978. Not merged, not deployed.
 - **Rollback:** Do not merge. Delete the branch.

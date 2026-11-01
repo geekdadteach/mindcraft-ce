@@ -173,13 +173,13 @@ test('maxRange caps both the local and the wider hunt', async () => {
 
 // ---- B: dusk and low health ----
 
-test('the wide trip is skipped from timeOfDay 11000 (dusk)', async () => {
-    const before = mkAgent({ timeOfDay: 10999 });
-    assert.ok((await runHunger(before.agent)).lines.some(l => l.includes(FOOD_REASON)), 'allowed just before 11:00');
-    for (const tod of [11000, 12000, 14000]) {
+test('the wide trip is skipped from timeOfDay 8900 so it finishes before nightfall', async () => {
+    const before = mkAgent({ timeOfDay: 8899 });
+    assert.ok((await runHunger(before.agent)).lines.some(l => l.includes(FOOD_REASON)), 'allowed just before 8900');
+    for (const tod of [8900, 9000, 11000, 12000, 14000]) {
         const late = mkAgent({ timeOfDay: tod });
         assert.equal((await runHunger(late.agent)).lines.some(l => l.includes(FOOD_REASON)), false,
-            `skipped at timeOfDay ${tod}`);
+            `no trip starts at timeOfDay ${tod}`);
     }
 });
 

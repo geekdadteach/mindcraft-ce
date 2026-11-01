@@ -72,6 +72,13 @@ async function junkAllowedHere(bot) {
 // the order of this list matters! first modes will be prioritized
 // while update functions are async, they should *not* be awaited longer than ~100ms as it will block the update loop
 // to perform longer actions, use the execute function which won't block the update loop
+// [ai-player] 2026-11-01: how long after a bed trip ENDS before another one may start, and how long a failed
+// trip blocks bed trips so the emergency shelter can take over.
+const BED_TRIP_COOLDOWN_MS = 120000;
+// [ai-player] 2026-11-01: the "he has nothing edible" food trip may take up to ~3600 ticks, so it must not
+// start within 3600 ticks of nightfall (12542) - 8900 is the last safe start.
+const FOOD_TRIP_LAST_START = 8900;
+
 const modes_list = [
     {
         name: 'self_preservation',
@@ -383,14 +390,15 @@ const modes_list = [
             // [ai-player] 2026-11-01: he has nothing edible and food < 18 (regen needs 18) or health < 20 ->
             // go and get food, on a cooldown. Eating from the inventory (above) stays first, and this no longer
             // waits for food <= 12.
-            //  - daytime only, and never from 11:00 (dusk) onwards: the urgent food <= 12 path below still runs
-            //    at night, this wider trip does not;
+            //  - daytime only, and never from FOOD_TRIP_LAST_START (8900) onwards: the trip may take up to
+            //    ~3600 ticks, so it has to finish before nightfall (12542). The urgent food <= 12 path below
+            //    still runs at night, this wider trip does not;
             //  - LOCAL search only - no 96-160 block far relocation and no relocateForFood - and at most 80
             //    blocks; when badly hurt (health < 10) the whole search is capped at 24 blocks instead of being
             //    skipped, so he still tries nearby without a long trek;
             //  - while sealed in the shelter, or with BOB_FOOD_STOCK=0, the old food <= 12 gate below applies.
             const tod = nav.timeOfDay(bot);
-            const late = tod != null && tod >= 11000;
+            const late = tod != null && tod >= FOOD_TRIP_LAST_START;
             const hurt = Number.isFinite(bot.health) && bot.health < 10;
             if (!edibleFoods(bot, bot.food <= 6).length && (bot.food < 18 || bot.health < 20) &&
                 survival.foodStockEnabled() && !shelter.isSheltered() && !nav.isNightTime(bot) && !late) {
@@ -516,28 +524,38 @@ const modes_list = [
             if (!shelter.knownBedEnabled()) return;
             if (!nav.isNightTime(agent.bot)) return;
             const now = Date.now();
+            // [ai-player] 2026-11-01: after a failed trip, do not start another one - the emergency shelter is
+            // the fallback for the rest of this window (and tryEmergencyShelter is asked with knownBed:false).
+            if (now < this.bed_failed_until) return;
             if (now < this.next_bed) return;
             const bed = shelter.knownBedNear(agent.bot);
             if (!bed) return;
-            this.next_bed = now + 120000;
+            this.next_bed = now + BED_TRIP_COOLDOWN_MS;
             const b = bed.pos;
             console.log(`[ai-player] night: known bed (${bed.name}) at ${b.x} ${b.y} ${b.z}, ${Math.round(bed.distance)} blocks away; going to sleep`);
             this.boot_checked = true;
             this.pauseSelfPrompt(agent);
             this.holding = true; // hold like the shelter: self-prompting paused and lower modes off until dawn
             execute(this, agent, async () => {
-                const target = shelter.knownBedNear(agent.bot);
-                if (!target) return;
-                const p = target.pos;
                 try {
-                    if (agent.bot.entity.position.distanceTo(new Vec3(p.x, p.y, p.z)) > 24)
-                        await nav.gotoWithin(agent.bot, new pf.goals.GoalNear(p.x, p.y, p.z, 3), 90000, nav.walkMovements(agent.bot));
-                } catch (e) { console.log(`[ai-player] night: walking to the known bed failed (${e.message})`); }
-                let ok = false;
-                try { ok = await skills.goToBed(agent.bot); } catch (e) { console.log(`[ai-player] night: sleeping in the known bed failed (${e.message})`); }
-                if (!ok) {
-                    this.bed_failed_until = Date.now() + 120000;
-                    console.log('[ai-player] night: could not use the known bed; the emergency shelter may run');
+                    const target = shelter.knownBedNear(agent.bot);
+                    if (!target) return;
+                    const p = target.pos;
+                    try {
+                        if (agent.bot.entity.position.distanceTo(new Vec3(p.x, p.y, p.z)) > 24)
+                            await nav.gotoWithin(agent.bot, new pf.goals.GoalNear(p.x, p.y, p.z, 3), 90000, nav.walkMovements(agent.bot));
+                    } catch (e) { console.log(`[ai-player] night: walking to the known bed failed (${e.message})`); }
+                    let ok = false;
+                    try { ok = await skills.goToBed(agent.bot); } catch (e) { console.log(`[ai-player] night: sleeping in the known bed failed (${e.message})`); }
+                    if (!ok) {
+                        this.bed_failed_until = Date.now() + BED_TRIP_COOLDOWN_MS;
+                        console.log('[ai-player] night: could not use the known bed; the emergency shelter may run');
+                    }
+                } finally {
+                    // [ai-player] 2026-11-01: the cooldown is measured from when the trip ENDS. A slow trip (up
+                    // to the 600 s cap) used to end after its own 120 s window had already expired, so the next
+                    // tick started another trip and he looped bed trips all night instead of sheltering.
+                    this.next_bed = Date.now() + BED_TRIP_COOLDOWN_MS;
                 }
             }, -1, 600000);
         },

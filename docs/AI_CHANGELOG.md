@@ -1,5 +1,15 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Merged PRs #27–#40 into `work/bob-home-from-live-20261028` (TESTED; MERGED; NOT YET DEPLOYED)
+- **Goal:** Randy authorized merging all 14 open draft PRs (7:19 AM ET, Nov 1 2026) and having MM20Bot deploy and restart Bob.
+- **Merge order (each `--no-ff`, message `Merge PR #N: <branch>`), on base `697f560`:** #39 `sync/live-to-git-20261101`, #37 `chore/entity-metadata-readerror-diag-20261031`, #36 `fix/lessons-prune-20261031`, #35 `fix/verifier-failure-text-20261031`, #34 `fix/preempt-feedback-param-clamp-20261031`, #33 `fix/consume-edible-check-20261031`, #32 `chore/code-lane-startup-log-20261031`, #29 `fix/craft-planks-starter-tools-20261031`, #28 `fix/food-loop-20261031`, #30 `fix/chest-deposit-verify-20261031`, #27 `fix/combat-interrupt-night-shelter-20261031`, #31 `fix/pathfinder-probe-20261031`, #38 `fix/protect-own-bed-20261101`, #40 `fix/regen-eat-sheltered-20261101`.
+- **Final merge head:** `5fa9ef8` (Merge PR #40). This docs commit sits on top of it.
+- **Conflict resolutions:** docs kept both sides. `survival.js` (#28): both import sets, with #29's starter-tools functions before #28's `collectDropsFor`. `modes.js`: #29 `starter_tools` then #30 `auto_junk` modes; #27 `getMode` and `releaseNightHold` kept as separate exports; #31 unstuck guard `shelter.isSheltered() || skills.isPathProbing()`; #38 imports both `night_shelter` and `recordSleptBed`. `bob_eval_harness.js` (#30): stores `_lastResultText` and emits both `result_summary` and `result_text_failure`. `protected_area.js` (#38): imports `getActiveHome, onActiveHomeChange`; `safeToBreak` checks the cached area first, then uncached `ownBedAt`.
+- **Tests:** `node --check` clean on all changed JS. Full `npm test` on Node 22.23.4: **332/334 pass, 1 skipped**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- **Secret scan:** full diff vs `697f560` is clean (no keys, tokens, webhooks, Discord IDs, logs or `bots/` data).
+- **Deploy status:** merged on GitHub only; NOT yet deployed to `.20`. MM20Bot will deploy and restart Bob.
+- **Rollback:** on the branch, `git revert -m 1` the merge commits (newest first), or reset the deploy to `697f560` plus #39's five already-live files.
+
 ## 2026-11-01 — Fix 2b round 2: the regen top-up never cooks while sheltered (TESTED; NOT DEPLOYED)
 - **Goal:** the Fix 2b regen branch (#28) runs before the shelter branches (#27) and called `cookOrEat`, which can walk to a furnace the shelter guard forbids.
 - **Files:** `src/agent/modes.js`, `test/bob_regen_eat_sheltered.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

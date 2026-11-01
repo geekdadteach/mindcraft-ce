@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — PRs #27–#40 merged into `work/bob-home-from-live-20261028` (MERGED; NOT YET DEPLOYED)
+- Randy authorized merging all 14 at 7:19 AM ET on Nov 1 2026. They were merged in this order, each `--no-ff` on base `697f560`: #39, #37, #36, #35, #34, #33, #32, #29, #28, #30, #27, #31, #38, #40. The final merge head is `5fa9ef8`, with this docs commit on top.
+- **Current state:** the branch now contains every fix in the entries below (sync to live, Fix 2/2b food loop and regen-while-sheltered, Fix 3 chest deposit plus auto-junk, Fix 5 combat interrupt and night shelter, Fix 6 pathfinder probe, Fix 7a–7e, the starter-tools/planks fix, and own-bed protection). Older entries that say "Not merged" describe the PR at the time it was written.
+- **Not yet deployed:** live `.20` still runs the pre-merge tree plus #39's five files. MM20Bot is to deploy the files changed vs `697f560` and restart Bob. Only #39's five files (`profiles/andy-api*.json`, `src/utils/lm_endpoints.js`, `src/models/andy_pool.js`, `src/models/lmstudio.js`) overlap live-only edits, and they already match live.
+- Tests: full `npm test` on Node 22: 332/334 pass, 1 skipped; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session with the combined build yet.
+
 ## 2026-11-01 — Fix 2b round 2: the regen top-up never cooks while sheltered (TESTED; NOT DEPLOYED)
 - New draft PR `fix/regen-eat-sheltered-20261101`, branched from `fix/combat-interrupt-night-shelter-20261031` (#27) with `fix/food-loop-20261031` (#28) merged in. **It must land after #27 and #28.**
 - `shouldEatForRegen` (Fix 2b, #28) sits above #27's sheltered branches, so a sealed-in, hurt Bob with food < 18 ran `cookOrEat` — which can walk to a furnace, exactly what the shelter guard forbids. The branch now reads `shelter.isSheltered() ? survival.eatBest(bot) : survival.cookOrEat(bot)`.

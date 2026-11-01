@@ -605,6 +605,33 @@ export const actionsList = [
         })
     },
     {
+        // [ai-player] 2026-11-01 (item 4): the model sent !unstuck, which did not exist. This is the real
+        // recovery: climb or dig 1-2 blocks up out of a hole (then step away), and clear the stuck guard so
+        // the next attempt at the task is not refused.
+        name: '!unstuck',
+        description: 'Get unstuck: climb or dig 1-2 blocks up out of a hole and take a short step away from where you got stuck.',
+        params: {},
+        perform: runAsAction(async (agent) => {
+            const bot = agent.bot;
+            let moved = false;
+            try {
+                if (agent.escape?.up) {
+                    const r = await agent.escape.up(agent, { reason: 'unstuck', maxMs: 30000 });
+                    moved = !!r?.ok;
+                }
+            } catch (e) { console.log(`[ai-player] unstuck: escape.up failed (${e.message})`); }
+            if (!moved) {
+                try { await skills.goToSurface(bot); moved = true; }
+                catch (e) { console.log(`[ai-player] unstuck: goToSurface failed (${e.message})`); }
+            }
+            if (!moved) {
+                try { await skills.moveAway(bot, 5); } catch (_) {}
+            }
+            try { agent.stuck_guard = null; } catch (_) {} // a deliberate recovery clears the stuck guard
+            skills.log(bot, 'Recovered from being stuck; continue from here.');
+        })
+    },
+    {
         name: '!useOn',
         description: 'Use (right click) the given tool on the nearest target of the given type.',
         params: {

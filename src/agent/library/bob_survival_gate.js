@@ -1,6 +1,7 @@
 // Guard model-selected optional actions during critical survival states.
 // This intentionally does not interrupt an already-running action (the modes handle that).
 // Never blocks the actions that get Bob food, sleep, a chest, or away from a fight.
+import { isEdibleItemName } from './survival.js';
 
 const CONTROL = new Set([
     '!stop', '!stfu', '!stay', '!endGoal', '!inventory', '!stats', '!health', '!goal',
@@ -24,6 +25,10 @@ const FOOD_BLOCKS = new Set([
     'sweet_berry_bush', 'cave_vines', 'cave_vines_plant', 'melon', 'pumpkin',
     'hay_block',
 ]);
+// [ai-player] 2026-11-01 (item 2a): genuinely edible items only. 'wheat' and 'egg' used to sit here by
+// mistake (they are planting/crafting items, not food), so the gate told the model to eat them and
+// skills.consume refused ("not food"). 'wheat' is still a FOOD_BLOCK below, so !collectBlocks wheat stays
+// allowed during a critical state.
 const FOOD_ITEMS = new Set([
     'bread', 'apple', 'golden_apple', 'golden_carrot', 'carrot', 'potato',
     'baked_potato', 'beetroot', 'sweet_berries', 'glow_berries', 'melon_slice',
@@ -32,7 +37,6 @@ const FOOD_ITEMS = new Set([
     'cooked_beef', 'cooked_porkchop', 'cooked_chicken', 'cooked_mutton',
     'cooked_rabbit', 'cooked_cod', 'cooked_salmon',
     'beef', 'porkchop', 'chicken', 'mutton', 'rabbit', 'cod', 'salmon',
-    'wheat', 'egg',
 ]);
 const HOME_PLACE = /^(house|home|bed|spawn)$/i;
 const BED_NEAR = 24;
@@ -54,8 +58,11 @@ function firstEdibleName(bot) {
         for (const item of items) {
             const name = String(item?.name || '');
             if (!name) continue;
+            // [ai-player] item 2a: the registry decides when present (and rejects *_seeds / a 0 food
+            // value); otherwise fall back to the known-edible set. A planting/crafting item (wheat_seeds,
+            // wheat, egg) is never offered as food.
+            if (isEdibleItemName(name, foods)) return name;
             if (FOOD_ITEMS.has(name) || name.startsWith('cooked_')) return name;
-            if (foods && name in foods) return name;
         }
     } catch { /* inventory must never throw */ }
     return null;

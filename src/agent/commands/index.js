@@ -129,7 +129,12 @@ export function parseCommandMessage(message) {
     else args = [];
 
     const command = getCommand(commandName);
-    if(!command) return `${commandName} is not a command.`
+    if(!command) {
+        // [ai-player] 2026-11-01 (item 4): name the valid commands so a hallucinated one (e.g. !unstuck)
+        // can be corrected instead of merely refused.
+        const names = commandList.filter(c => c && c.name).map(c => c.name).join(', ');
+        return `${commandName} is not a command. Valid commands: ${names}.`;
+    }
 
     const params = commandParams(command);
     const paramNames = commandParamNames(command);

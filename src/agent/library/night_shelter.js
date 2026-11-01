@@ -18,6 +18,7 @@ import { isNightTime } from './ai_player_nav.js';
 import { protectedAreaAt } from './house_bounds.js';
 import { zoneAt } from './no_go_zones.js';
 import { shelterState, isSheltered, markSheltered, clearShelter } from './shelter_state.js';
+import { isEdibleItemName } from './survival.js';
 
 export const SHELTER_HOSTILE_RANGE = 12;
 export const SHELTER_LOW_HEALTH = 10;
@@ -69,21 +70,40 @@ export function installShelterMovementGuard() {
     return true;
 }
 
-// True when Bob holds at least one edible item.
+// Exact edible names for the no-registry fallback. A whole-name match (not a prefix) keeps
+// beetroot_seeds from being mistaken for beetroot (item 2a).
+const EDIBLE_FALLBACK = new Set([
+    'bread', 'apple', 'golden_apple', 'golden_carrot', 'carrot', 'potato', 'baked_potato', 'beetroot',
+    'beetroot_soup', 'sweet_berries', 'glow_berries', 'melon_slice', 'dried_kelp', 'mushroom_stew',
+    'rabbit_stew', 'pumpkin_pie', 'cookie', 'honey_bottle',
+    'mutton', 'beef', 'porkchop', 'chicken', 'rabbit', 'cod', 'salmon',
+    'spider_eye', 'rotten_flesh', 'poisonous_potato', 'pufferfish', 'tropical_fish',
+]);
+
+// True when Bob holds at least one edible item. Non-edibles (wheat_seeds, wheat, egg, ...) never count.
 export function hasEdibleFood(bot) {
     try {
         const foods = bot?.registry?.foodsByName;
         const items = bot?.inventory?.items?.() || [];
-        if (foods) return items.some(i => i && i.name in foods);
-        return items.some(i => /^(bread|apple|golden_apple|cooked_|carrot|potato|baked_potato|beetroot|sweet_berries|melon_slice|dried_kelp|mutton|beef|porkchop|chicken|rabbit|cod|salmon|spider_eye|rotten_flesh)/.test(String(i?.name || '')));
+        if (foods) return items.some(i => isEdibleItemName(i?.name, foods));
+        return items.some(i => {
+            const n = String(i?.name || '');
+            return EDIBLE_FALLBACK.has(n) || n.startsWith('cooked_');
+        });
     } catch (_) { return false; }
 }
 
-// [ai-player] Fix 1e round 2: eating must never be blocked. If Bob is starving with nothing to eat, the
-// shelter ends early so !getFood can run (his food chest sits by the bed at -1143 68 752).
+// [ai-player] Fix 1e round 2 / item 2b: eating must never be blocked. If Bob is starving (food <= 6) or
+// badly hurt (health < 8) with nothing edible, the shelter ends early so an urgent local getFood can run
+// (his food chest sits by the bed at -1143 68 752). Otherwise he waits out the night and the daytime food
+// trip runs at dawn.
+export const SHELTER_LEAVE_FOOD = 6;
+export const SHELTER_LEAVE_HEALTH = 8;
 export function shouldLeaveEarlyForFood(bot) {
     if (!isSheltered()) return false;
-    if (!Number.isFinite(bot?.food) || bot.food > 6) return false;
+    const starving = Number.isFinite(bot?.food) && bot.food <= SHELTER_LEAVE_FOOD;
+    const badlyHurt = Number.isFinite(bot?.health) && bot.health < SHELTER_LEAVE_HEALTH;
+    if (!starving && !badlyHurt) return false;
     return !hasEdibleFood(bot);
 }
 

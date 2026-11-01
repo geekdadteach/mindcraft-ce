@@ -26,8 +26,12 @@ every hook returns immediately: no file, no extra awaits, no change to
 prompts, history, timing, command selection, guard outcomes, or return values.
 
 The writer is a background queue plus an append stream. Callers never await
-it. Errors are swallowed. The file is created mode `0600`. Writes stop at 8
-MiB or after three consecutive errors.
+it. Errors are swallowed. The file is created mode `0600`. When the active
+file would pass 8 MiB the writer rotates it (`bob-eval.jsonl` ->
+`bob-eval.jsonl.1` -> `.2` -> `.3` -> `.4`, the oldest dropped) and reopens a
+fresh active file instead of stopping; set `BOB_EVAL_HARNESS_ROTATE=0` to
+restore the old stop-at-cap behavior. After three consecutive write errors it
+disables itself.
 
 Do **not** log into this repository. Do **not** reuse a V2 receipt path.
 

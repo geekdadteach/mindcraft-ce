@@ -1769,9 +1769,11 @@ export async function useDoor(bot, door_pos=null) {
 
 export async function goToBed(bot) {
     /**
-     * Sleep in the nearest bed.
+     * Sleep in the nearest bed. Walks to a standable spot next to the bed first — digging or towering up
+     * to climb out of a hole — and only sleeps once he is within reach (<= 2 blocks). If the bed is still
+     * "too far" the walk is retried once. Returns false without sleeping if the bed can never be reached.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
-     * @returns {Promise<boolean>} true if the bed was found, false otherwise.
+     * @returns {Promise<boolean>} true if he slept, false otherwise.
      * @example
      * await skills.goToBed(bot);
      **/
@@ -1786,10 +1788,54 @@ export async function goToBed(bot) {
         log(bot, `Could not find a bed to sleep in.`);
         return false;
     }
-    let loc = beds[0];
-    await goToPosition(bot, loc.x, loc.y, loc.z);
+    const loc = beds[0];
     const bed = bot.blockAt(loc);
-    await bot.sleep(bed);
+    if (!bed) {
+        log(bot, `Could not find a bed to sleep in.`);
+        return false;
+    }
+    const bedPos = bed.position;
+    // [ai-player] 2026-11-01 (item 1): the bed is only usable within ~2 blocks. Path to a standable tile
+    // NEXT to the bed, climbing out of a hole if needed (dig + 1x1 tower), and confirm the distance before
+    // sleeping — otherwise mineflayer throws "the bed is too far" and the emergency shelter runs needlessly.
+    const withinReach = () => {
+        const p = bot.entity?.position;
+        return !!(p && typeof p.distanceTo === 'function' && p.distanceTo(bedPos) <= 2);
+    };
+    const walkToBed = async () => {
+        try {
+            const movements = new pf.Movements(bot);
+            movements.canDig = true;
+            movements.allow1by1towers = true;
+            movements.canOpenDoors = true;
+            bot.pathfinder.setMovements(movements);
+            await bot.pathfinder.goto(new pf.goals.GoalNear(bedPos.x, bedPos.y, bedPos.z, 1));
+        } catch (e) {
+            log(bot, `Pathfinding to the bed failed (${e.message}).`);
+        }
+    };
+    let slept = false;
+    for (let attempt = 0; attempt < 2 && !slept; attempt++) {
+        if (!withinReach()) await walkToBed();
+        if (!withinReach()) {
+            const p = bot.entity?.position;
+            const d = p ? p.distanceTo(bedPos).toFixed(1) : '?';
+            log(bot, `Still ${d} blocks from the bed; ${attempt === 0 ? 'retrying the walk' : 'giving up'}.`);
+            continue;
+        }
+        try {
+            await bot.sleep(bed);
+            slept = true;
+        } catch (e) {
+            log(bot, `sleeping in the bed failed (${e.message}).`);
+            if (attempt >= 1 || !/too far/i.test(String(e.message || ''))) return false;
+            // "the bed is too far": fall through and retry the walk once
+        }
+    }
+    if (!slept) {
+        log(bot, `Could not reach the bed to sleep in.`);
+        return false;
+    }
     try { recordSleptBed(loc); } catch (_) {} // [ai-player] protect the bed he actually slept in
     log(bot, `You are in bed.`);
     bot.modes.pause('unstuck');

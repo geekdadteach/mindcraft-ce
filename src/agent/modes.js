@@ -442,10 +442,14 @@ const modes_list = [
             if (shelter.isSheltered() && !shelter.shouldLeaveEarlyForFood(bot)) return;
             this.hungry_since = 0;
             // [ai-player] no food at food <= 12 (was <= 6: he only started looking when already starving)
-            if (bot.food > 12 || now < this.next_try) return;
+            // [ai-player] item 2b: also when badly hurt (health < 8). The urgent trip is LOCAL
+            // (relocate:false, 24 blocks): a starving or hurt Bob who just left the night shelter finds
+            // food nearby instead of trekking 96-160 blocks off in the dark.
+            const urgentHurt = Number.isFinite(bot.health) && bot.health < 8;
+            if ((bot.food > 12 && !urgentHurt) || now < this.next_try) return;
             this.next_try = now + 120000;
             execute(this, agent, async () => {
-                const got = await survival.getFood(agent, { escapeUp: agent.escape?.up, reason: 'hungry and no food' });
+                const got = await survival.getFood(agent, { escapeUp: agent.escape?.up, reason: 'hungry and no food', searchRange: 24, relocate: false });
                 if (!got) this.next_try = Date.now() + 180000;
             }, -1, 150000);
         }
@@ -541,9 +545,16 @@ const modes_list = [
                     const target = shelter.knownBedNear(agent.bot);
                     if (!target) return;
                     const p = target.pos;
+                    // [ai-player] item 1: close the distance from afar, then skills.goToBed walks the last
+                    // stretch to a standable tile NEXT TO the bed (climbing out of a hole) and only sleeps
+                    // once he is within reach — a bed 3 blocks below him in a hole is now reachable.
                     try {
-                        if (agent.bot.entity.position.distanceTo(new Vec3(p.x, p.y, p.z)) > 24)
-                            await nav.gotoWithin(agent.bot, new pf.goals.GoalNear(p.x, p.y, p.z, 3), 90000, nav.walkMovements(agent.bot));
+                        if (agent.bot.entity.position.distanceTo(new Vec3(p.x, p.y, p.z)) > 24) {
+                            const climb = new pf.Movements(agent.bot);
+                            climb.canDig = true;
+                            climb.allow1by1towers = true;
+                            await nav.gotoWithin(agent.bot, new pf.goals.GoalNear(p.x, p.y, p.z, 1), 90000, climb);
+                        }
                     } catch (e) { console.log(`[ai-player] night: walking to the known bed failed (${e.message})`); }
                     let ok = false;
                     try { ok = await skills.goToBed(agent.bot); } catch (e) { console.log(`[ai-player] night: sleeping in the known bed failed (${e.message})`); }

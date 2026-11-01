@@ -35,6 +35,14 @@ export function ensureLongMemoryPlaceholder(template) {
     return template + '\n$LONG_MEMORY';
 }
 
+// [ai-player] 2026-11-01 (item 5): a coding-lane failure is retried once only when it is a transport or
+// server (5xx, e.g. 503) failure; a prompt-specific 4xx would fail again with the same prompt.
+export function codingFailureIsRetryable(err) {
+    const msg = String(err?.message || err || '').toLowerCase();
+    if (!msg) return false;
+    return /\b5\d\d\b|status:\s*5\d\d|timeout|timed out|econn|etimedout|socket hang up|network|fetch failed|temporarily|unavailable|overloaded|rate limit|429/.test(msg);
+}
+
 export class Prompter {
     constructor(agent, profile) {
         this.agent = agent;
@@ -358,16 +366,33 @@ export class Prompter {
             return '```//no response```';
         }
         this.awaiting_coding = true;
-        await this.checkCooldown();
-        let prompt = this.profile.coding;
-        prompt = await this.replaceStrings(prompt, messages, this.coding_examples, [], null, 'coding');
+        // [ai-player] 2026-11-01 (item 5): always clear the in-flight flag, even when the model call
+        // throws. A 503 used to leave awaiting_coding=true for good, so every later code lane returned
+        // nothing until Bob restarted.
+        try {
+            await this.checkCooldown();
+            let prompt = this.profile.coding;
+            prompt = await this.replaceStrings(prompt, messages, this.coding_examples, [], null, 'coding');
 
-        let resp = await this._sendObservedModel(
-            'coding', this.code_model, 'sendRequest', [messages, prompt]
-        );
-        this.awaiting_coding = false;
-        await this._saveLog(prompt, messages, resp, 'coding');
-        return resp;
+            let resp;
+            try {
+                resp = await this._sendObservedModel(
+                    'coding', this.code_model, 'sendRequest', [messages, prompt]
+                );
+            } catch (err) {
+                // [ai-player] item 5: retry a transport/5xx (e.g. 503) coding failure once.
+                if (!codingFailureIsRetryable(err)) throw err;
+                console.warn(`[ai-player] coding call failed (${err?.message || err}); retrying once`);
+                await new Promise(r => setTimeout(r, 3000));
+                resp = await this._sendObservedModel(
+                    'coding', this.code_model, 'sendRequest', [messages, prompt]
+                );
+            }
+            await this._saveLog(prompt, messages, resp, 'coding');
+            return resp;
+        } finally {
+            this.awaiting_coding = false;
+        }
     }
 
     async promptMemSaving(to_summarize) {

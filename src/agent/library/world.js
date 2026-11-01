@@ -235,23 +235,24 @@ export function getVillagerProfession(entity) {
         14: 'Weaponsmith'
     };
     
-    if (entity.metadata && entity.metadata[18]) {
+    const meta = mc.readMetadata(entity);
+    if (meta && meta[18]) {
         // Check if metadata[18] is an object with villagerProfession property
-        if (typeof entity.metadata[18] === 'object' && entity.metadata[18].villagerProfession !== undefined) {
-            const professionId = entity.metadata[18].villagerProfession;
-            const level = entity.metadata[18].level || 1;
+        if (typeof meta[18] === 'object' && meta[18].villagerProfession !== undefined) {
+            const professionId = meta[18].villagerProfession;
+            const level = meta[18].level || 1;
             const professionName = professions[professionId] || 'Unknown';
             return `${professionName} L${level}`;
         }
         // Fallback for direct profession ID
-        else if (typeof entity.metadata[18] === 'number') {
-            const professionId = entity.metadata[18];
+        else if (typeof meta[18] === 'number') {
+            const professionId = meta[18];
             return professions[professionId] || 'Unknown';
         }
     }
     
     // If we can't determine profession but it's an adult villager
-    if (entity.metadata && entity.metadata[16] !== 1) { // Not a baby
+    if (meta && meta[16] !== 1) { // Not a baby
         return 'Adult';
     }
     

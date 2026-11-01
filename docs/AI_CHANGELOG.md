@@ -9,6 +9,13 @@
 - **Secret scan:** diff clean (no keys, tokens, webhooks, Discord IDs). LAN IP `192.168.1.144` was already in both profiles; no new IPs.
 - **Deploy status:** Already running live (Bob `BOB_MODE=lite`, active profile `andy-api-lite.json`). This PR is the git record only. Not merged; nothing on `.20` touched.
 - **Rollback:** revert the PR commit; on live, restore the previous profile/code files and restart (Randy's call).
+## 2026-10-31 — Fix 7e: entity metadata read-error diagnostic (report 4.10) (TESTED; NOT DEPLOYED)
+- **Goal:** Report 4.10: reading `entity.metadata` can throw "read error"; log it once with the entity name and a hint instead of crashing.
+- **Files:** `src/utils/mcdata.js`, `src/agent/library/world.js`, `test/bob_metadata_diag.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `readMetadata` catches the throw, rate-limits one log per entity name, names the entity and gives a hint, and returns null; `isHuntable` and the world.js villager/baby checks use it.
+- **Tests:** `test/bob_metadata_diag.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.

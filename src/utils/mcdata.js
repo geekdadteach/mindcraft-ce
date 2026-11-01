@@ -186,10 +186,27 @@ export function initBot(username) {
     return bot;
 }
 
+// [ai-player] Fix 4.10: reading entity.metadata can throw 'read error' on a partially-loaded entity.
+// Log it once per entity name (rate-limited) with a hint, and treat the metadata as unknown.
+const METADATA_ERROR_LOGGED = new Map();
+export function readMetadata(entity, { now = Date.now, windowMs = 60000, warn = console.warn } = {}) {
+    try {
+        return entity?.metadata ?? null;
+    } catch (e) {
+        const name = String(entity?.name || entity?.displayName || 'unknown');
+        const last = METADATA_ERROR_LOGGED.get(name) || 0;
+        if (now() - last >= windowMs) {
+            METADATA_ERROR_LOGGED.set(name, now());
+            try { warn('[ai-player] entity metadata read error for ' + name + ' (' + (e?.message || e) + '); treating it as unknown. Hint: skip baby/profession checks for this entity.'); } catch (_) {}
+        }
+        return null;
+    }
+}
+
 export function isHuntable(mob) {
     if (!mob || !mob.name) return false;
     const animals = ['chicken', 'cow', 'llama', 'mooshroom', 'pig', 'rabbit', 'sheep'];
-    return animals.includes(mob.name.toLowerCase()) && !mob.metadata[16]; // metadata 16 is not baby
+    return animals.includes(mob.name.toLowerCase()) && !(readMetadata(mob)?.[16]); // metadata 16 is not baby
 }
 
 export function isHostile(mob) {

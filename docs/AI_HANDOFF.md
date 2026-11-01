@@ -9,6 +9,11 @@
 - Leon-patience fix (live 5:33 AM ET): connect timeout 1.5 s → **5 s** (profiles `lmstudio_connect_timeout_ms` and embedding `connect_timeout_ms` = 5000, code defaults also 5000); `pickLmUrl` retries the probe **once** after 1 s; a down endpoint is skipped **10 s** (was 30 s); new `clearLmUrlDown`. In LM-only mode (`api_fallback: false`) `andy_pool` waits out a pause of ≤15 s and **retries a failed LM call once after 3 s** before replying "My brain disconnected"; LM-only backoff is **10–60 s** (API mode keeps 30–300 s).
 - Test: `test/andy_pool_no_api_fallback.test.js` profile test now expects Gemini for both profiles. Full `npm test` on Node 22: 255/256, only the pre-existing `confirmSetHome` failure.
 - Nothing on live `.20` was changed or restarted for this PR.
+## 2026-10-31 — Fix 7e: entity metadata read-error diagnostic (report 4.10) (TESTED; NOT DEPLOYED)
+- Work-order item 7e. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
+- New `mcdata.readMetadata(entity, { now, windowMs, warn })`: wraps the `entity.metadata` read, logs once per entity name (rate-limited, default 60 s) with the entity name and a hint when the getter throws `read error`, and returns null instead of crashing. Wired into `mcdata.isHuntable` and the villager-profession/baby checks in `world.js`.
+- Tests: new `test/bob_metadata_diag.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.

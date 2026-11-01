@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 4 review: scorecard text-failures, auto-junk wired (TESTED; NOT DEPLOYED)
+- Review of PR #30. Same branch, second commit (no force-push).
+- **Scorecard** — `bob_scorecard.action_outcome()` now returns `failed` when `result_text_failure` is set or the `result_summary` says "not confirmed" (a call that returned normally but reported failure is no longer counted as succeeded).
+- **Auto-junk wired** — a new idle-only `auto_junk` mode calls `survival.autoJunk(bot)` when idle in daylight, with free slots <= 2, and only when away from the house (24 blocks) and protected areas; `BOB_AUTO_JUNK=0` opts out. The docs no longer claim "defined but unwired".
+- Tests: `test/bob_scorecard.test.js` **4/4** (new: a text-failed action counts as failed); `test/bob_chest_deposit.test.js` **4/4** (new: the wiring check). Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; the auto_junk mode and the scorecard change have not run against live JSONL in-game.
+
 ## 2026-10-31 — Fix 4: chest deposit verification and auto-junk (TESTED; NOT DEPLOYED)
 - Report 4.6, work-order item 4. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Auto-junk is ON by default; `BOB_AUTO_JUNK=0` opts out.
 - **Window count** — `skills.windowItemCount()` counts the player section of the OPEN container window (falling back to `bot.inventory`), and `putInChest`/`takeFromChest` use it before/after, so a real deposit no longer reads as `0/N not confirmed` (mineflayer only reconciles `bot.inventory` on window close).

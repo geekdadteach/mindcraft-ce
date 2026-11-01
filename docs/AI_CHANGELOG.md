@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 4 review: scorecard text-failures, auto-junk wired (TESTED; NOT DEPLOYED)
+- **Goal:** PR #30 review: count text-reported failures as failed in the scorecard, and actually run auto-junk (or stop claiming it is on).
+- **Files:** `scripts/bob_scorecard.py`, `src/agent/modes.js`, `test/bob_scorecard.test.js`, `test/bob_chest_deposit.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `action_outcome` returns `failed` for `result_text_failure` or a `not confirmed` summary; a new idle daytime `auto_junk` mode calls `survival.autoJunk(bot)` when free slots <= 2, away from the house and protected areas. `BOB_AUTO_JUNK=0` opts out.
+- **Tests:** `test/bob_scorecard.test.js` **4/4**; `test/bob_chest_deposit.test.js` **4/4**. Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#30); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the review commit on the PR branch.
+
 ## 2026-10-31 — Fix 4: chest deposit verification and auto-junk (TESTED; NOT DEPLOYED)
 - **Goal:** Stop the false "Chest deposit not confirmed (0/N)" (report 4.6) and give Bob a way to clear junk when his inventory clogs.
 - **Files:** `src/agent/library/skills.js`, `src/agent/library/bob_eval_harness.js`, `test/bob_chest_deposit.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

@@ -36,3 +36,11 @@ test('auto-junk is ON by default and the deposit path uses the window count', ()
     const harness = fs.readFileSync(new URL('../src/agent/library/bob_eval_harness.js', import.meta.url), 'utf8');
     assert.match(harness, /result_text_failure: \/not confirmed\/i\.test/);
 });
+
+test('auto-junk is wired into an idle daytime mode away from the house', () => {
+    const modes = fs.readFileSync(new URL('../src/agent/modes.js', import.meta.url), 'utf8');
+    assert.match(modes, /name: 'auto_junk'/, 'the mode exists');
+    assert.match(modes, /survival\.autoJunk\(bot\)/, 'it calls autoJunk');
+    assert.match(modes, /junkAllowedHere/, 'it checks the house/protected area');
+    assert.match(modes, /protectedAreaAt/, 'protected areas are honoured');
+});

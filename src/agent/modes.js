@@ -1,4 +1,5 @@
 import { getActiveHome, isVerifiedHome } from './library/bob_home.js';
+import { protectedAreaAt } from './library/house_bounds.js';
 import * as skills from './library/skills.js';
 import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
@@ -20,6 +21,18 @@ async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
     if (agent.shut_up || !settings.narrate_behavior) return;
     agent.openChat(message);
+}
+
+// [ai-player] Fix 4 review: never drop junk inside the house or a protected area.
+function junkAllowedHere(bot) {
+    const p = bot?.entity?.position;
+    if (!p) return false;
+    try { if (protectedAreaAt(p)) return false; } catch (_) {}
+    try {
+        const inside = getActiveHome()?.inside;
+        if (inside && p.distanceTo(new Vec3(inside.x, inside.y, inside.z)) < 24) return false;
+    } catch (_) {}
+    return true;
 }
 
 // a mode is a function that is called every tick to respond immediately to the world
@@ -566,6 +579,33 @@ const modes_list = [
                 }
                 this.next_change = Date.now() + Math.random() * 10000 + 2000;
             }
+        }
+    },
+    {
+        // [ai-player] Fix 4 review: when idle in daylight and away from the house/protected areas, clear junk
+        // (excess clay/string/flowers, extra chests/furnaces) so the inventory does not clog. BOB_AUTO_JUNK=0.
+        name: 'auto_junk',
+        description: 'Drop junk when idle in daylight, away from the house and protected areas.',
+        interrupts: [],
+        on: true,
+        active: false,
+        next_try: 0,
+        update: async function (agent) {
+            if (!survival.autoJunkEnabled()) return;
+            if (!agent.isIdle()) return;
+            const bot = agent.bot;
+            if (nav.isNightTime(bot)) return;
+            const now = Date.now();
+            if (now < this.next_try) return;
+            this.next_try = now + 120000;
+            if (!junkAllowedHere(bot)) return;
+            let free = 99;
+            try { free = bot.inventory.emptySlotCount(); } catch (_) {}
+            if (free > 2) return;
+            execute(this, agent, async () => {
+                const done = await survival.autoJunk(bot);
+                if (done.length) skills.log(bot, `Cleared junk: ${done.join(', ')}.`);
+            }, -1, 60000);
         }
     },
     {

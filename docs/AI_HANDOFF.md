@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — PR #41 merged into `work/bob-home-from-live-20261028` (MERGED; NOT YET DEPLOYED)
+- Randy authorized it at 7:39 AM ET on Nov 1 2026. It was a `--no-ff` merge `7852c71` of `fix/lm-retry-and-identity-20261101` (`19bf1a3`) on `eb193af`; conflict-free.
+- **Current state:** the branch now has the transport-only LM retry, the per-call pause bypass, and the identity-safe YOUR BRAIN line. The entry below describes the PR itself.
+- **Not yet deployed:** MM20Bot is to deploy `src/models/andy_pool.js`, `profiles/andy-api.json` and `profiles/andy-api-lite.json` on top of the #27–#40 deploy, then restart Bob.
+- Tests: full `npm test` on Node 22: 337/339 pass, 1 skipped; only the pre-existing `confirmSetHome` fails.
+
 ## 2026-11-01 — LM retry gating + Bob's identity line (TESTED; NOT DEPLOYED)
 - New draft PR `fix/lm-retry-and-identity-20261101` off `work/bob-home-from-live-20261028` (eb193af).
 - **Retry gating** — the one-shot 3 s LM retry now runs only for transport failures. New `lmFailureIsRetryable()`: `error` (connection errors and 5xx) and `timeout` retry; `http400` and `length` (context overflow) are prompt-specific and are never retried; `empty` is not retried either.

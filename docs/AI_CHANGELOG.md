@@ -1,5 +1,12 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Merged PR #41 into `work/bob-home-from-live-20261028` (TESTED; MERGED; NOT YET DEPLOYED)
+- **Goal:** Randy authorized merging PR #41 (7:39 AM ET, Nov 1 2026) and having MM20Bot deploy and restart Bob.
+- **Merge:** `--no-ff` merge `7852c71` ("Merge PR #41: fix/lm-retry-and-identity-20261101", head `19bf1a3`) on `eb193af`; conflict-free.
+- **Tests:** full `npm test` on Node 22.23.4: **337/339 pass, 1 skipped**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** merged on GitHub only; NOT yet deployed. Deploy files: `src/models/andy_pool.js`, `profiles/andy-api.json`, `profiles/andy-api-lite.json` (plus the new test and these docs).
+- **Rollback:** `git revert -m 1 7852c71`.
+
 ## 2026-11-01 — LM retry gating + Bob's identity line (TESTED; NOT DEPLOYED)
 - **Goal:** the one-shot LM retry fired for prompt-specific failures and cleared the shared pause; and the conversing prompt leaked the machine (Randy / Mac mini / living room / Leon) into Bob's identity.
 - **Files:** `src/models/andy_pool.js`, `profiles/andy-api.json`, `profiles/andy-api-lite.json`, `test/lm_retry_identity.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

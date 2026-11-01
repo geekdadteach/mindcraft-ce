@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3: planks alias and starter tools (TESTED; NOT DEPLOYED)
+- Report 4.4, work-order item 3. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. ON by default; `BOB_STARTER_TOOLS=0` opts out.
+- **Planks alias** — `long_memory.correctName()` maps `planks`/`plank`/`wooden_planks` to the held log's own wood type (via `bob_wood_types.isNaturalWoodBlockName`), falling back to `oak_planks` only when no natural log is held. Previously it always forced oak.
+- **Starter tools** — new `survival.starterToolsEnabled/needsStarterTools/starterPlanksName/craftStarterTools`; a new idle-only `starter_tools` mode (daylight, `interrupts: []`) crafts planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword with `skills.craftRecipe` when Bob holds logs but lacks a pickaxe or sword.
+- Tests: new `test/bob_starter_tools.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- UNPROVEN: no live Minecraft session; the crafting order and the idle trigger need an in-game check.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

@@ -10,6 +10,7 @@ import { zoneAt } from './no_go_zones.js';
 import { protectedAreaAt } from './house_bounds.js';
 import { isInClaim } from './bob_claim.js';
 import { gotoWithin, walkMovements } from './ai_player_nav.js';
+import { isNaturalWoodBlockName } from './bob_wood_types.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
 export const RAW_FOODS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'potato'];
@@ -384,3 +385,38 @@ export function creeperClose(bot, r = 6) {
     return world.getNearestEntityWhere(bot, e => e.name === 'creeper', r);
 }
 export { FOOD_STOCK_TARGET };
+
+// [ai-player] Fix 3: craft basic wooden tools from held logs when idle in daylight. ON by default;
+// BOB_STARTER_TOOLS=0 opts out.
+export function starterToolsEnabled(env = process.env) { return env.BOB_STARTER_TOOLS !== '0'; }
+
+// The planks to make: the held log's own wood type, else oak.
+export function starterPlanksName(bot) {
+    try {
+        const held = bot.inventory.items().find(i => isNaturalWoodBlockName(i.name));
+        return held ? String(held.name).replace(/_log$|_stem$/, '') + '_planks' : 'oak_planks';
+    } catch (_) { return 'oak_planks'; }
+}
+
+// True when Bob holds logs but lacks a pickaxe or a sword.
+export function needsStarterTools(bot) {
+    try {
+        const items = bot.inventory.items();
+        const hasPick = items.some(i => i.name.endsWith('_pickaxe'));
+        const hasSword = items.some(i => i.name.endsWith('_sword'));
+        if (hasPick && hasSword) return false;
+        return items.some(i => isNaturalWoodBlockName(i.name));
+    } catch (_) { return false; }
+}
+
+// Craft planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword in order. Returns the names
+// that were crafted. `craft` is injectable for tests.
+export async function craftStarterTools(bot, { craft = (b, name) => skills.craftRecipe(b, name) } = {}) {
+    const steps = [starterPlanksName(bot), 'crafting_table', 'stick', 'wooden_pickaxe', 'wooden_sword'];
+    const crafted = [];
+    for (const name of steps) {
+        if (bot.interrupt_code) break;
+        try { if (await craft(bot, name)) crafted.push(name); } catch (_) {}
+    }
+    return crafted;
+}

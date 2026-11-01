@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 3: planks alias and starter tools (TESTED; NOT DEPLOYED)
+- **Goal:** Stop the forced-oak planks alias and make Bob build basic wooden tools (report 4.4: he never made a sword or pickaxe).
+- **Files:** `src/agent/library/long_memory.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `test/bob_starter_tools.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `correctName` maps `planks`/`plank`/`wooden_planks` to the held log's wood type, else `oak_planks`; a new idle daylight `starter_tools` mode crafts planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword when logs are held and a pickaxe/sword is missing. `BOB_STARTER_TOOLS=0` opts out.
+- **Tests:** `test/bob_starter_tools.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
 - **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

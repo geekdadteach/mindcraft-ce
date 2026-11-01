@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { cosineSimilarity } from '../../utils/math.js';
 import { zoneAt } from './no_go_zones.js';
+import { isNaturalWoodBlockName } from './bob_wood_types.js';
 
 const HOUR = 3600e3;
 const now = () => Date.now();
@@ -373,7 +374,14 @@ export function correctName(agent, commandName, name, kind) {
         const inv = bot.inventory?.items?.().find(i => i.name.endsWith('_log')); if (inv) return inv.name;
         return 'oak_log';
     }
-    const alias = { raw_coal: 'coal', cobble: 'cobblestone', planks: 'oak_planks', plank: 'oak_planks', wooden_planks: 'oak_planks', stick_: 'stick', pickaxe: 'wooden_pickaxe' };
+    // [ai-player] Fix 3: planks -> the held log's own planks (not always oak).
+    if (['planks', 'plank', 'wooden_planks'].includes(n)) {
+        const held = bot.inventory?.items?.().find(i => isNaturalWoodBlockName(i.name));
+        const nm = held ? String(held.name).replace(/_log$|_stem$/, '') + '_planks' : null;
+        if (nm && valid(nm)) return nm;
+        return valid('oak_planks') ? 'oak_planks' : null;
+    }
+    const alias = { raw_coal: 'coal', cobble: 'cobblestone', stick_: 'stick', pickaxe: 'wooden_pickaxe' };
     if (alias[n] && valid(alias[n])) return alias[n];
     if (n.endsWith('s') && valid(n.slice(0, -1))) return n.slice(0, -1);
     if (n.endsWith('es') && valid(n.slice(0, -2))) return n.slice(0, -2);

@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Fix 2b round 2: the regen top-up never cooks while sheltered (TESTED; NOT DEPLOYED)
+- New draft PR `fix/regen-eat-sheltered-20261101`, branched from `fix/combat-interrupt-night-shelter-20261031` (#27) with `fix/food-loop-20261031` (#28) merged in. **It must land after #27 and #28.**
+- `shouldEatForRegen` (Fix 2b, #28) sits above #27's sheltered branches, so a sealed-in, hurt Bob with food < 18 ran `cookOrEat` — which can walk to a furnace, exactly what the shelter guard forbids. The branch now reads `shelter.isSheltered() ? survival.eatBest(bot) : survival.cookOrEat(bot)`.
+- Also added `ModeController.get(name)` so a test can drive one mode's `update()` (this is separate from #30's `getMode`, which is inserted near `initModes`, so the two branches do not conflict).
+- Tests: new `test/bob_regen_eat_sheltered.test.js` **3/3**. It drives the real hunger mode against the real shelter state: sheltered + hurt + food 12 → `bot.consume()` runs and `inventory.slots` is never read (so `cookRaw` never ran); the same state unsheltered → `inventory.slots` IS read (the `cookOrEat` path). Negative control: reverting the ternary fails the test. Full `npm test` on Node 22: **288/289 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
+
 ## 2026-11-01 — Branch synced to live `.20`: Gemini code lane in LITE + Leon-patience LM fix (TESTED; ALREADY LIVE; PR NOT MERGED)
 - Draft PR `sync/live-to-git-20261101` → `work/bob-home-from-live-20261028` (base `697f560`). Do not merge without Randy's OK.
 - **Current state once merged:** for these five files the branch matches Bob's live tree on `.20` (`~/BobRuntime/cutover/mindcraft-m4`) byte for byte: `profiles/andy-api-lite.json`, `profiles/andy-api.json`, `src/utils/lm_endpoints.js`, `src/models/andy_pool.js`, `src/models/lmstudio.js`. A drift check of the rest of `src/` and `profiles/` found no other differences (only an untracked `stuck_home.js.bak-20261026-nodistance` backup on live).
@@ -395,4 +403,3 @@ See `AGENTS.md`: public-repo warning (no secrets, Discord IDs or ops), Randy's r
 
 ## 2026-10-31 — git now mirrors live .20 (pending merge of sync/live-to-git-20261031)
 After this PR merges, `work/bob-home-from-live-20261028` runtime code (src/, profiles) matches Bob's live tree on .20 byte for byte. Live code lane: Gemini `gemini-3.8-flash` (key in live keys.json only, never in git). Known pre-existing failing test: `confirmSetHome sets the flag only after a server ok reply` (bob_stuck_home.test.js).
-

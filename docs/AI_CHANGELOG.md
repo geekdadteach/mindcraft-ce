@@ -1,5 +1,14 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Fix 2b round 2: the regen top-up never cooks while sheltered (TESTED; NOT DEPLOYED)
+- **Goal:** the Fix 2b regen branch (#28) runs before the shelter branches (#27) and called `cookOrEat`, which can walk to a furnace the shelter guard forbids.
+- **Files:** `src/agent/modes.js`, `test/bob_regen_eat_sheltered.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the regen branch is now `shelter.isSheltered() ? survival.eatBest(bot) : survival.cookOrEat(bot)`; `ModeController.get(name)` exposes a single mode for tests.
+- **Tests:** `test/bob_regen_eat_sheltered.test.js` **3/3**. Full `npm test` on Node 22: **288/289 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR; branched from #27 with #28 merged in, so it must land after both. Not merged, not deployed.
+- **Rollback:** Do not merge. Delete the branch.
+
+
 ## 2026-11-01 — MM20Bot — Sync branch to live `.20`: LITE Gemini code lane + Leon-patience LM connect/retry (TESTED; ALREADY LIVE; NOT MERGED)
 - **Goal:** Randy approved recording two live edits from this morning so `work/bob-home-from-live-20261028` matches what Bob runs.
 - **Change 1 — profiles (live 5:22 AM ET):** `andy-api-lite.json` `code_model` → `{api: google, model: gemini-3.8-flash}` (was Andy API `claude-haiku-5.5`, `max_tokens` 8192); both profiles: embedding model `text-embedding-nomic-embed-text-v1.5` (was `…@q8_0`) and a `YOUR BRAIN` sentence in `conversing` describing Andy 4.2 Air on Leon, Gemini for `!newAction` code, nomic embedder on Leon.
@@ -466,4 +475,3 @@ Append one dated entry per logical change, newest first. Never erase prior entri
 - Result: 240/241 pass. `confirmSetHome sets the flag only after a server ok reply` fails on live too (pre-existing, not touched).
 - Git-only lines in those files (mostly branch navigation/house changes that never went live, e.g. PR #20) are replaced by live; they stay in history.
 - Docs, deploy patches, scripts and CI stay as in git. Secret scan of the diff: clean. Nothing on .20 changed.
-

@@ -80,6 +80,37 @@
 - **Behavior:** the agent logs `[ai-player] code lane: <reason>` at startup and the coder repeats it once on first use; `codeLaneInfo`/`noteLaneSelection` record `lane`/`lane_reason`/`coder_mode`/`coding_enabled` on every `turn_start` harness event.
 - **Tests:** `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
 - **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed.
+## 2026-10-31 — Fix 3 round 3b: stripped logs are not planks (report 4.4) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #29 review: `starterWoodType` must not treat `stripped_*_log` as a plank source.
+- **Files:** `src/agent/library/survival.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `starterWoodType` requires `isNaturalWoodBlockName(name)` (which excludes `stripped_*`), so stripped logs are ignored by `heldLogCount`, `bestStarterWood`/`starterPlanksName` and `correctName`.
+- **Tests:** `test/bob_starter_tools.test.js` **8/8**. Full `npm test` on Node 22: **263/264 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#29); fourth commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-3b commit on the PR branch.
+
+## 2026-10-31 — Fix 3 round 3: most plentiful wood type, 16-block table reach (report 4.4) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #29 review: use the wood type Bob actually has enough of, and match craftRecipe's table reach.
+- **Files:** `src/agent/library/survival.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `logCountsByWood`/`bestStarterWood` pick the most plentiful wood type; `starterPlanksName` and `heldLogCount` use it (>= 3 of that type); `craftingTableAtHand` defaults to 16 blocks.
+- **Tests:** `test/bob_starter_tools.test.js` **7/7**. Full `npm test` on Node 22: **262/263 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#29); third commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-3 commit on the PR branch.
+
+## 2026-10-31 — Fix 3 review: 3-log minimum, table/tool skips, bamboo excluded (TESTED; NOT DEPLOYED)
+- **Goal:** PR #29 review: only start with enough logs, skip what Bob already has, and never turn bamboo into planks.
+- **Files:** `src/agent/library/survival.js`, `src/agent/library/long_memory.js`, `test/bob_starter_tools.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `craftStarterTools` needs >= 3 logs and makes 3 planks at once; it skips the table when one is held or within 4 blocks and skips a tool Bob already has; `starterWoodType`/`heldLogCount` exclude bamboo, and `correctName` no longer maps bamboo to planks.
+- **Tests:** `test/bob_starter_tools.test.js` **5/5**. Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#29); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the review commit on the PR branch.
+- **Merge note:** #28 also touches the `survival.js` imports and the end of the file; the second to merge must merge the base in (not rebase).
+
+## 2026-10-31 — Fix 3: planks alias and starter tools (TESTED; NOT DEPLOYED)
+- **Goal:** Stop the forced-oak planks alias and make Bob build basic wooden tools (report 4.4: he never made a sword or pickaxe).
+- **Files:** `src/agent/library/long_memory.js`, `src/agent/library/survival.js`, `src/agent/modes.js`, `test/bob_starter_tools.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `correctName` maps `planks`/`plank`/`wooden_planks` to the held log's wood type, else `oak_planks`; a new idle daylight `starter_tools` mode crafts planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword when logs are held and a pickaxe/sword is missing. `BOB_STARTER_TOOLS=0` opts out.
+- **Tests:** `test/bob_starter_tools.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed. Live Bob and `.20` untouched.
 - **Rollback:** Do not merge. Revert the single commit on the PR branch.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)

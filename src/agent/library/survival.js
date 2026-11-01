@@ -10,6 +10,7 @@ import { zoneAt } from './no_go_zones.js';
 import { protectedAreaAt } from './house_bounds.js';
 import { isInClaim } from './bob_claim.js';
 import { gotoWithin, walkMovements } from './ai_player_nav.js';
+import { isNaturalWoodBlockName } from './bob_wood_types.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
 export const RAW_FOODS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'potato'];
@@ -384,3 +385,98 @@ export function creeperClose(bot, r = 6) {
     return world.getNearestEntityWhere(bot, e => e.name === 'creeper', r);
 }
 export { FOOD_STOCK_TARGET };
+
+// [ai-player] Fix 3: craft basic wooden tools from held logs when idle in daylight. ON by default;
+// BOB_STARTER_TOOLS=0 opts out.
+export function starterToolsEnabled(env = process.env) { return env.BOB_STARTER_TOOLS !== '0'; }
+
+// The planks to make: the held log's own wood type, else oak.
+// [ai-player] Fix 3 review: bamboo is not a plank source here (bamboo_planks are not a wood type Bob builds
+// with), so it never maps to planks.
+export function starterWoodType(logName) {
+    const name = String(logName || '');
+    // [ai-player] Fix 3 round 3: a stripped log is not a plank source here (isNaturalWoodBlockName excludes
+    // stripped_*), and bamboo_planks are not a wood type Bob builds with.
+    if (!isNaturalWoodBlockName(name) || name === 'bamboo') return null;
+    const wood = name.replace(/_log$|_stem$/, '');
+    return wood && wood !== name ? wood : null;
+}
+
+// [ai-player] Fix 3 review: logs counted per wood type (bamboo excluded).
+export function logCountsByWood(bot) {
+    const counts = {};
+    try {
+        for (const i of bot.inventory.items()) {
+            const wood = starterWoodType(i.name);
+            if (!wood) continue;
+            counts[wood] = (counts[wood] || 0) + (i.count || 0);
+        }
+    } catch (_) {}
+    return counts;
+}
+
+// The wood type Bob holds the most of, or null.
+export function bestStarterWood(bot) {
+    let best = null, bestN = 0;
+    for (const [wood, n] of Object.entries(logCountsByWood(bot))) {
+        if (n > bestN) { best = wood; bestN = n; }
+    }
+    return best ? { wood: best, count: bestN } : null;
+}
+
+// The planks to make: the wood type Bob holds the most of (never bamboo), else oak.
+export function starterPlanksName(bot) {
+    const best = bestStarterWood(bot);
+    return best ? best.wood + '_planks' : 'oak_planks';
+}
+
+// [ai-player] Fix 3 review: a starter run needs at least 3 logs of ONE wood type, and makes 3 planks.
+export const STARTER_TOOLS_MIN_LOGS = 3;
+export const STARTER_TOOLS_PLANKS = 3;
+
+// The count of the most plentiful wood type Bob holds.
+export function heldLogCount(bot) {
+    return bestStarterWood(bot)?.count || 0;
+}
+
+
+
+// A crafting table is at hand if one is held or a block is within reach (16 blocks, matching craftRecipe).
+export function craftingTableAtHand(bot, range = 16) {
+    try { if (bot.inventory.items().some(i => i.name === 'crafting_table')) return true; } catch (_) {}
+    try { return !!world.getNearestBlock(bot, 'crafting_table', range); } catch (_) { return false; }
+}
+
+// True when Bob holds enough logs but lacks a pickaxe or a sword.
+export function needsStarterTools(bot) {
+    try {
+        const items = bot.inventory.items();
+        const hasPick = items.some(i => i.name.endsWith('_pickaxe'));
+        const hasSword = items.some(i => i.name.endsWith('_sword'));
+        if (hasPick && hasSword) return false;
+        return heldLogCount(bot) >= STARTER_TOOLS_MIN_LOGS;
+    } catch (_) { return false; }
+}
+
+// Craft 3 planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword, skipping what Bob already
+// has and the table when one is at hand. Needs >= 3 logs. craft/tableNearby are injectable for tests.
+export async function craftStarterTools(bot, { craft = (b, name, count) => skills.craftRecipe(b, name, count), tableNearby = null } = {}) {
+    const crafted = [];
+    if (heldLogCount(bot) < STARTER_TOOLS_MIN_LOGS) return crafted;
+    const items = (() => { try { return bot.inventory.items(); } catch (_) { return []; } })();
+    const hasPick = items.some(i => i.name.endsWith('_pickaxe'));
+    const hasSword = items.some(i => i.name.endsWith('_sword'));
+    const tableAtHand = tableNearby != null ? !!tableNearby : craftingTableAtHand(bot);
+    const steps = [[starterPlanksName(bot), STARTER_TOOLS_PLANKS]];
+    if (!tableAtHand) steps.push(['crafting_table', 1]);
+    steps.push(['stick', 1]);
+    if (!hasPick) steps.push(['wooden_pickaxe', 1]);
+    if (!hasSword) steps.push(['wooden_sword', 1]);
+    for (const [name, count] of steps) {
+        if (bot.interrupt_code) break;
+        try { if (await craft(bot, name, count)) crafted.push(name); } catch (_) {}
+    }
+    return crafted;
+}
+
+

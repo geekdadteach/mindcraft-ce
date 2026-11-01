@@ -569,6 +569,30 @@ const modes_list = [
         }
     },
     {
+        // [ai-player] Fix 3: when idle in daylight, make starter tools from held logs (planks ->
+        // crafting_table -> sticks -> wooden_pickaxe -> wooden_sword). ON by default; BOB_STARTER_TOOLS=0.
+        name: 'starter_tools',
+        description: 'Craft basic wooden tools from held logs when idle in daylight.',
+        interrupts: [],
+        on: true,
+        active: false,
+        next_try: 0,
+        update: async function (agent) {
+            if (!survival.starterToolsEnabled()) return;
+            if (!agent.isIdle()) return;
+            const bot = agent.bot;
+            if (nav.isNightTime(bot)) return;
+            const now = Date.now();
+            if (now < this.next_try) return;
+            if (!survival.needsStarterTools(bot)) return;
+            this.next_try = now + 60000;
+            execute(this, agent, async () => {
+                const made = await survival.craftStarterTools(bot);
+                if (made.length) skills.log(bot, `Made starter tools: ${made.join(', ')}.`);
+            }, -1, 60000);
+        }
+    },
+    {
         name: 'cheat',
         description: 'Use cheats to instantly place blocks and teleport. Locked off on NewEarth.',
         interrupts: [],

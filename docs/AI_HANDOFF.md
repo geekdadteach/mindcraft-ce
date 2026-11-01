@@ -68,6 +68,33 @@
 - **Harness** — new `bob_eval_harness.codeLaneInfo()` builds the lane record; `noteLaneSelection()` stores it so every subsequent `turn_start` event carries `lane`, `lane_reason`, `coder_mode` and `coding_enabled`.
 - Tests: new `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
 - UNPROVEN: no live session; `BOB_CODER_MODE` is a new optional env knob (unset = `auto`), so live behaviour is unchanged.
+## 2026-10-31 — Fix 3 round 3b: stripped logs are not planks (report 4.4) (TESTED; NOT DEPLOYED)
+- Review of PR #29. Same branch, fourth commit (no force-push).
+- `starterWoodType()` now gates on the already-imported `isNaturalWoodBlockName()`, so `stripped_oak_log` / `stripped_crimson_stem` / `stripped_birch_wood` return `null`: they never count as logs, never win the wood-type pick, and never become a `!craftRecipe("planks")` source.
+- Tests: `test/bob_starter_tools.test.js` **8/8** (new: stripped logs are ignored). Full `npm test` on Node 22: **263/264 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
+## 2026-10-31 — Fix 3 round 3: most plentiful wood type, 16-block table reach (report 4.4) (TESTED; NOT DEPLOYED)
+- Review of PR #29. Same branch, third commit (no force-push).
+- **Most plentiful wood** — new `logCountsByWood()`/`bestStarterWood()`; `starterPlanksName()` uses the wood type Bob holds the most of, and `heldLogCount()` returns that type's count, so a starter run needs >= 3 logs of ONE wood type instead of 3 logs of any mix.
+- **Table reach** — `craftingTableAtHand()` now defaults to 16 blocks, matching `skills.craftRecipe`'s `craftingTableRange`.
+- Tests: `test/bob_starter_tools.test.js` **7/7** (new: wood-type selection + the 16-block reach). Full `npm test` on Node 22: **262/263 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
+## 2026-10-31 — Fix 3 review: 3-log minimum, table/tool skips, bamboo excluded (TESTED; NOT DEPLOYED)
+- Review of PR #29. Same branch, second commit (no force-push).
+- **3-log minimum** — `craftStarterTools()` returns immediately unless `heldLogCount(bot) >= STARTER_TOOLS_MIN_LOGS` (3), and crafts `STARTER_TOOLS_PLANKS` (3) planks in one `craftRecipe(bot, planks, 3)` call.
+- **Skips** — the crafting table is skipped when one is held or within 4 blocks (`craftingTableAtHand()`), and the pickaxe/sword steps are skipped when Bob already has one of each.
+- **Bamboo excluded** — `starterWoodType()` returns null for `bamboo`, so bamboo never maps to planks (in `survival.js` and `long_memory.correctName()`); `heldLogCount` does not count bamboo as a log.
+- Tests: `test/bob_starter_tools.test.js` **5/5** (new: one log, two logs, table at hand, already-has-tools, bamboo). Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- NOTE for merge order: #28 also edits the imports and the end of `src/agent/library/survival.js`. Whichever of #28/#29 merges second must merge the base in (not rebase), combine the imports, and keep the closing `}` of `relocateFarForFood`.
+
+## 2026-10-31 — Fix 3: planks alias and starter tools (TESTED; NOT DEPLOYED)
+- Report 4.4, work-order item 3. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. ON by default; `BOB_STARTER_TOOLS=0` opts out.
+- **Planks alias** — `long_memory.correctName()` maps `planks`/`plank`/`wooden_planks` to the held log's own wood type (via `bob_wood_types.isNaturalWoodBlockName`), falling back to `oak_planks` only when no natural log is held. Previously it always forced oak.
+- **Starter tools** — new `survival.starterToolsEnabled/needsStarterTools/starterPlanksName/craftStarterTools`; a new idle-only `starter_tools` mode (daylight, `interrupts: []`) crafts planks -> crafting_table -> sticks -> wooden_pickaxe -> wooden_sword with `skills.craftRecipe` when Bob holds logs but lacks a pickaxe or sword.
+- Tests: new `test/bob_starter_tools.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- UNPROVEN: no live Minecraft session; the crafting order and the idle trigger need an in-game check.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.

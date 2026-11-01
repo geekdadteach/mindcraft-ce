@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 4: chest deposit verification and auto-junk (TESTED; NOT DEPLOYED)
+- Report 4.6, work-order item 4. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Auto-junk is ON by default; `BOB_AUTO_JUNK=0` opts out.
+- **Window count** — `skills.windowItemCount()` counts the player section of the OPEN container window (falling back to `bot.inventory`), and `putInChest`/`takeFromChest` use it before/after, so a real deposit no longer reads as `0/N not confirmed` (mineflayer only reconciles `bot.inventory` on window close).
+- **Auto-junk** — `skills.junkPolicy()` (pure) + `autoJunk()`: when free slots <= 2, drop excess `clay_ball` (keep 32), `string` (keep 16), all `big_dripleaf` and flowers, and extra `chest`/`furnace` (keep 1). Never tools, food, logs or planks.
+- **Harness** — `bob_eval_harness.noteExecEnd` now records `result_text_failure` for a summary containing `not confirmed`.
+- Tests: new `test/bob_chest_deposit.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- UNPROVEN / NOT DONE: no live Minecraft session; `putInChest`/`takeFromChest` end-to-end (real chest window) and auto-junk were not run in-game. `autoJunk` is defined and tested at the policy level but is NOT yet wired into a mode or command.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

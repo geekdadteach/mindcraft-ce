@@ -44,6 +44,22 @@
 - Tests: `test/bob_combat_interrupt.test.js` **4/4**, `test/bob_night_shelter.test.js` **5/5**. Full `npm test` on Node 22: **264/265 pass**; the only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply`.
 - UNPROVEN: no live Minecraft session was run. The "who damaged Bob" signal is a heuristic (nearest mob within 6 blocks when health drops), and the shelter's wall-in/dig mechanics need an in-game check.
 
+## 2026-10-31 — Fix 2 review: bounded relocation, junk-food gate, XZ goals (TESTED; NOT DEPLOYED)
+- Review of PR #28. Same branch, second commit (no force-push).
+- **Bounded relocation** — `relocateFarForFood()` stops before a spot (and ends) when it turns night, `health <= 10` or `food <= 4`, tries at most 3 spots (`FAR_RELOCATE_MAX_SPOTS`) and 180 s total (`FAR_RELOCATE_TOTAL_MS`); `shouldStopFarRelocation()` is the testable core.
+- **XZ goals** — `farRelocationGoal()` aims at the XZ column (`pf.goals.GoalNearXZ`) when the ground height is unknown, instead of a `GoalNear` at a guessed y.
+- **Junk-food gate** — `desperateForJunkFood(bot)` = `food <= 6` only; `edibleFoods`/`shouldEatForRegen`/`eatBest` use it, so `spider_eye`/`rotten_flesh`/`chicken` are never unlocked by low health alone.
+- Tests: `test/bob_food_loop.test.js` **8/8** (new: bounded relocation, GoalNearXZ, junk-food gate). Full `npm test` on Node 22: **263/264 pass**; only the pre-existing `confirmSetHome` fails.
+- NOTE for merge order: #29 also edits the imports and the end of `src/agent/library/survival.js`. Whichever of #28/#29 merges second must merge the base in (not rebase) and combine the imports, keeping the closing `}` of `relocateFarForFood`.
+
+## 2026-10-31 — Fix 2: food loop (desperate edibles, regen eat, relocation, verified hunts) (TESTED; NOT DEPLOYED)
+- Report 4.3, work-order item 2. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. New behaviour ON by default; `BOB_FOOD_RELOCATE=0` opts out of the far relocation.
+- **(2a) Desperate edibles** — `survival.edibleFoods()` now allows `spider_eye` (and keeps `rotten_flesh`/`chicken`) when desperate; new `isDesperate(bot)` = food <= 6 or health <= 6.
+- **(2b) Eat to 18 for regen** — new `survival.shouldEatForRegen(bot)` (health < 20 and food < 18 and something edible); the `hunger` mode eats on it, before auto-eat's startAt 14 would fire.
+- **(2c) Relocate after 2 empty searches** — `getFood()` counts consecutive empty local searches; after 2, in daylight it relocates to a ring 96–160 blocks out outside no-go zones (`relocateFarForFood`, `farFoodCandidates`) and retries `huntAnimal(64)` before reporting failure. `BOB_FOOD_RELOCATE=0` disables it.
+- **(2d) Verified hunts** — `huntAnimal()` now walks to drops within 6 blocks for up to 5 s (`collectDropsFor`) and returns ok only when a food count actually rose.
+- Tests: new `test/bob_food_loop.test.js` **5/5**. Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- UNPROVEN: no live Minecraft session; the far relocation ring (96–160 blocks) and the drop-walk need an in-game check.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.

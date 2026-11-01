@@ -9,7 +9,7 @@ import * as mc from '../../utils/mcdata.js';
 import { zoneAt } from './no_go_zones.js';
 import { protectedAreaAt } from './house_bounds.js';
 import { isInClaim } from './bob_claim.js';
-import { gotoWithin, walkMovements } from './ai_player_nav.js';
+import { gotoWithin, walkMovements, isNightTime } from './ai_player_nav.js';
 
 export const FOOD_ANIMALS = ['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom'];
 export const RAW_FOODS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'potato'];
@@ -43,6 +43,8 @@ const FOOD_SEARCH_CELL = 16;
 // Per-agent cooldown: a failed local search should not run every hunger tick.
 // Moving into a different area immediately permits another search.
 const foodSearchCooldown = new WeakMap();
+// [ai-player] Fix 2c: consecutive empty local searches per agent.
+const emptyLocalSearches = new WeakMap();
 export function foodSearchAllowed(agent, position, time = now()) {
     if (!position) return true;
     const cell = [position.x, position.y, position.z].map(v => Math.floor(v / FOOD_SEARCH_CELL)).join(',');
@@ -108,16 +110,35 @@ export async function relocateForFood(agent, { navigate = (bot, goal) => gotoWit
 const fail = (agent, cmd, target, pos, error) => { try { agent?.failures?.record(cmd, target, pos, error); } catch (_) {} };
 const blocked = (agent, cmd, target, pos) => { try { return agent?.failures?.isBlocked(cmd, target, pos) || false; } catch (_) { return false; } };
 
+// [ai-player] Fix 2a: food Bob eats only when desperate (food <= 6 or health <= 6).
+export const DESPERATE_FOODS = new Set(['chicken', 'rotten_flesh', 'spider_eye']);
+// [ai-player] Fix 2 review: the junk edibles (spider_eye/rotten_flesh/chicken) are unlocked by hunger only
+// (food <= 6), never by low health alone.
+export function desperateForJunkFood(bot) {
+    return Number.isFinite(bot?.food) && bot.food <= 6;
+}
+export function isDesperate(bot) {
+    return desperateForJunkFood(bot) || (Number.isFinite(bot?.health) && bot.health <= 6);
+}
+
 export function edibleFoods(bot, desperate = false) {
     const banned = bot.autoEat?.options?.bannedFood || [];
     const foods = bot.registry.foodsByName;
-    const ok = (n) => n in foods && (!banned.includes(n) || (desperate && (n === 'chicken' || n === 'rotten_flesh')));
+    const ok = (n) => n in foods && (!banned.includes(n) || (desperate && DESPERATE_FOODS.has(n)));
     return bot.inventory.items().filter(i => ok(i.name)).sort((a, b) => foods[b.name].foodPoints - foods[a.name].foodPoints);
 }
 export function foodStock(bot) { return edibleFoods(bot, false).reduce((s, i) => s + i.count, 0); }
 
+// [ai-player] Fix 2b: natural health regen needs food >= 18, but auto-eat only starts at 14. Top up
+// when hurt and below 18, if Bob has anything edible.
+export function shouldEatForRegen(bot) {
+    if (!Number.isFinite(bot?.health) || !Number.isFinite(bot?.food)) return false;
+    if (bot.health >= 20 || bot.food >= 18) return false;
+    return edibleFoods(bot, desperateForJunkFood(bot)).length > 0;
+}
+
 export async function eatBest(bot) {
-    const best = edibleFoods(bot, bot.food <= 6)[0];
+    const best = edibleFoods(bot, desperateForJunkFood(bot))[0];
     if (!best) return false;
     console.log(`[ai-player] hunger: eating ${best.name} (food=${bot.food})`);
     try { return await skills.consume(bot, best.name); } catch (e) { console.log(`[ai-player] hunger: eat failed: ${e.message}`); return false; }
@@ -224,7 +245,7 @@ export async function breedNearbyAnimals(agent, range = 16) {
     return false;
 }
 
-export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {}) {
+export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS, attack = skills.attackEntity, collect = collectDropsFor } = {}) {
     const bot = agent.bot;
     const before = foodStock(bot) + RAW_FOODS.reduce((s, n) => s + (world.getInventoryCounts(bot)[n] || 0), 0);
     const animal = world.getNearestEntityWhere(bot, e => types.includes(e.name) && mc.isHuntable(e) && canHuntSpecies(bot, e.name) &&
@@ -238,8 +259,8 @@ export async function huntAnimal(agent, range = 32, { types = FOOD_ANIMALS } = {
         await agent.escape.gotoChecked(agent, new pf.goals.GoalNear(p.x, p.y, p.z, 4), { ms: 45000, label: `hunt ${animal.name}` });
     }
     const target = bot.entities[animal.id];
-    if (target && target.position.distanceTo(bot.entity.position) <= 24) await skills.attackEntity(bot, target, true);
-    await skills.pickupNearbyItems(bot);
+    if (target && target.position.distanceTo(bot.entity.position) <= 24) await attack(bot, target, true);
+    await collect(bot, { range: 6, ms: 5000 }); // [ai-player] Fix 2d: walk to the drops, then count
     const after = foodStock(bot) + RAW_FOODS.reduce((s, n) => s + (world.getInventoryCounts(bot)[n] || 0), 0);
     if (after <= before) {
         fail(agent, 'hunt', animal.name, where, 'animal not killed or drops not collected');
@@ -294,7 +315,7 @@ export async function harvestCrops(bot) {
 
 // Get food: crops first (best food), then berries, crops, wider hunt; underground, go up first (animals live on
 // the surface). Returns true when Bob ate or now holds food.
-export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}) {
+export async function getFood(agent, { escapeUp = null, reason = 'hungry', hunt = huntAnimal, relocateFar = relocateFarForFood, env = process.env } = {}) {
     const bot = agent.bot;
     console.log(`[ai-player] food: ${reason}; food=${bot.food} health=${Math.round(bot.health)} stock=${foodStock(bot)}`);
     if (foodStock(bot) > 0 && bot.food <= 14) return await eatBest(bot);
@@ -303,15 +324,27 @@ export async function getFood(agent, { escapeUp = null, reason = 'hungry' } = {}
         await relocateForFood(agent);
         return false;
     }
-    let r = { ok: await harvestCrops(bot) };
-    if (!r.ok) { const b = await harvestBerries(agent, 24); if (b.ok) r = b; }
-    if (!r.ok) r = await huntAnimal(agent, 24);
+    // [ai-player] Fix 2: harvest helpers are best-effort; a world lookup failure must not abort the loop.
+    let r = { ok: false };
+    try { r = { ok: await harvestCrops(bot) }; } catch (_) {}
+    if (!r.ok) { try { const b = await harvestBerries(agent, 24); if (b.ok) r = b; } catch (_) {} }
+    if (!r.ok) r = await hunt(agent, 24);
     if (!r.ok && escapeUp && (await import('./ai_player_nav.js')).isUnderground(bot)) {
         console.log('[ai-player] food: nothing to eat down here; going up to the surface to hunt');
         await escapeUp(agent, { reason: 'food' });
     }
-    if (!r.ok) r = await huntAnimal(agent, 64);
+    // [ai-player] Fix 2c: after 2 consecutive empty local searches, relocate to a fresh ring (daylight only).
+    if (!r.ok) {
+        const n = (emptyLocalSearches.get(agent) || 0) + 1;
+        emptyLocalSearches.set(agent, n);
+        if (n >= 2 && foodRelocateEnabled(env) && !isNightTime(bot)) {
+            console.log(`[ai-player] food: ${n} empty local searches; relocating to a fresh ring`);
+            if (await relocateFar(agent)) emptyLocalSearches.set(agent, 0);
+        }
+    }
+    if (!r.ok) r = await hunt(agent, 64);
     if (!r.ok) { console.log(`[ai-player] food: none found (${r.why})`); noteFoodSearchFailure(agent, bot.entity?.position); skills.log(bot, `Could not find food nearby (${r.why}). Seeking a safe new search area.`); await relocateForFood(agent); return false; }
+    emptyLocalSearches.set(agent, 0);
     await cookOrEat(bot);
     return true;
 }
@@ -404,3 +437,74 @@ export function creeperClose(bot, r = 6) {
     return world.getNearestEntityWhere(bot, e => e.name === 'creeper', r);
 }
 export { FOOD_STOCK_TARGET };
+
+// [ai-player] Fix 2d: walk to dropped items within range for up to ms and pick them up.
+export async function collectDropsFor(bot, { range = 6, ms = 5000 } = {}) {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline && !bot.interrupt_code) {
+        const items = world.getNearbyEntities(bot, range).filter(e => e?.name === 'item');
+        if (!items.length) break;
+        const item = items[0];
+        try { await skills.goToPosition(bot, item.position.x, item.position.y, item.position.z, 1); } catch (_) {}
+        try { await skills.pickupNearbyItems(bot); } catch (_) {}
+        await new Promise(r => setTimeout(r, 200));
+    }
+    return true;
+}
+
+// [ai-player] Fix 2c: relocate far for a fresh food search. ON by default; BOB_FOOD_RELOCATE=0 opts out.
+export function foodRelocateEnabled(env = process.env) { return env.BOB_FOOD_RELOCATE !== '0'; }
+export const FOOD_RELOCATE_MIN = 96;
+export const FOOD_RELOCATE_MAX = 160;
+
+// Candidate landing spots on a ring 96..160 blocks out, outside every no-go zone.
+export function farFoodCandidates(position, { min = FOOD_RELOCATE_MIN, max = FOOD_RELOCATE_MAX } = {}) {
+    if (!position) return [];
+    const x = Math.floor(position.x), z = Math.floor(position.z);
+    const out = [];
+    for (const d of [min, Math.round((min + max) / 2), max]) {
+        for (const [dx, dz] of [[d, 0], [-d, 0], [0, d], [0, -d], [d, d], [-d, -d], [d, -d], [-d, d]]) {
+            const p = { x: x + dx, y: Math.floor(position.y), z: z + dz };
+            if (!zoneAt(p.x, p.z)) out.push(p);
+        }
+    }
+    return out;
+}
+
+// [ai-player] Fix 2 review: bound the far relocation — at most 3 spots and 180 s total, and stop early if it
+// turns night or Bob gets too hurt/hungry to keep walking.
+export const FAR_RELOCATE_MAX_SPOTS = 3;
+export const FAR_RELOCATE_TOTAL_MS = 180000;
+
+export function shouldStopFarRelocation(bot) {
+    if (!bot || bot.interrupt_code) return true;
+    if (Number.isFinite(bot.health) && bot.health <= 10) return true;
+    if (Number.isFinite(bot.food) && bot.food <= 4) return true;
+    return isNightTime(bot);
+}
+
+// Aim at the XZ column when the ground height is unknown so the pathfinder picks the surface height.
+export function farRelocationGoal(bot, candidate) {
+    const ground = foodRelocationGround(bot, candidate);
+    if (ground && Number.isFinite(ground.y)) return new pf.goals.GoalNear(ground.x, ground.y, ground.z, 4);
+    return new pf.goals.GoalNearXZ(candidate.x, candidate.z, 4);
+}
+
+export async function relocateFarForFood(agent, { navigate = (bot, goal) => gotoWithin(bot, goal, 60000, walkMovements(bot)), now = Date.now } = {}) {
+    const bot = agent.bot;
+    if (!bot?.entity?.position || bot.interrupt_code || bot.health <= 0) return false;
+    const start = bot.entity.position.clone();
+    const deadline = now() + FAR_RELOCATE_TOTAL_MS;
+    let tried = 0;
+    for (const candidate of farFoodCandidates(start)) {
+        if (tried >= FAR_RELOCATE_MAX_SPOTS || now() >= deadline) break;
+        if (shouldStopFarRelocation(bot)) { console.log('[ai-player] food: stopping the far relocation (night, hurt or starving)'); break; }
+        tried++;
+        try {
+            const ok = await navigate(bot, farRelocationGoal(bot, candidate));
+            if (ok && bot.entity.position.distanceTo(start) >= 64) { console.log('[ai-player] food: relocated to a fresh search ring'); return true; }
+        } catch (err) { console.log('[ai-player] food: far relocation failed: ' + (err?.message || err)); }
+    }
+    console.log('[ai-player] food: could not reach a fresh search ring');
+    return false;
+}

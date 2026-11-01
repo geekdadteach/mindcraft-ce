@@ -1,4 +1,5 @@
 import { getActiveHome, isVerifiedHome } from './library/bob_home.js';
+import { CLAIM } from './library/bob_claim.js';
 import { protectedAreaAt } from './library/house_bounds.js';
 import * as skills from './library/skills.js';
 import * as world from './library/world.js';
@@ -23,8 +24,24 @@ async function say(agent, message) {
     agent.openChat(message);
 }
 
-// [ai-player] Fix 4 review: never drop junk inside the house or a protected area.
-function junkAllowedHere(bot) {
+// [ai-player] Fix 4 review: never drop junk inside the house or a protected area, near the claim centre
+// or Bob's own bed, or while he is sealed in the night shelter.
+const JUNK_CLEAR_CLAIM_R = 32;
+const JUNK_CLEAR_BED_R = 16;
+const JUNK_BED = Object.freeze({ x: -1144, y: 68, z: 752 });
+
+// The shelter state only exists once the night-shelter branch is present; probe it lazily so this
+// module loads either way.
+let _shelterMod = null, _shelterProbed = false;
+async function isShelteredNow() {
+    if (!_shelterProbed) {
+        _shelterProbed = true;
+        try { _shelterMod = await import('./library/shelter_state.js'); } catch (_) { _shelterMod = null; }
+    }
+    try { return !!_shelterMod?.isSheltered?.(); } catch (_) { return false; }
+}
+
+async function junkAllowedHere(bot) {
     const p = bot?.entity?.position;
     if (!p) return false;
     try { if (protectedAreaAt(p)) return false; } catch (_) {}
@@ -32,8 +49,15 @@ function junkAllowedHere(bot) {
         const inside = getActiveHome()?.inside;
         if (inside && p.distanceTo(new Vec3(inside.x, inside.y, inside.z)) < 24) return false;
     } catch (_) {}
+    try {
+        if (Math.hypot(p.x - CLAIM.center.x, p.z - CLAIM.center.z) < JUNK_CLEAR_CLAIM_R) return false;
+        if (p.distanceTo(new Vec3(JUNK_BED.x, JUNK_BED.y, JUNK_BED.z)) < JUNK_CLEAR_BED_R) return false;
+    } catch (_) {}
+    if (await isShelteredNow()) return false;
     return true;
 }
+
+
 
 // a mode is a function that is called every tick to respond immediately to the world
 // it has the following fields:
@@ -591,20 +615,22 @@ const modes_list = [
         active: false,
         next_try: 0,
         update: async function (agent) {
-            if (!survival.autoJunkEnabled()) return;
+            if (!skills.autoJunkEnabled()) return;
             if (!agent.isIdle()) return;
             const bot = agent.bot;
             if (nav.isNightTime(bot)) return;
             const now = Date.now();
             if (now < this.next_try) return;
             this.next_try = now + 120000;
-            if (!junkAllowedHere(bot)) return;
+            if (!(await junkAllowedHere(bot))) return;
             let free = 99;
             try { free = bot.inventory.emptySlotCount(); } catch (_) {}
             if (free > 2) return;
             execute(this, agent, async () => {
-                const done = await survival.autoJunk(bot);
-                if (done.length) skills.log(bot, `Cleared junk: ${done.join(', ')}.`);
+                try {
+                    const done = await skills.autoJunk(bot);
+                    if (done.length) skills.log(bot, `Cleared junk: ${done.join(', ')}.`);
+                } catch (e) { console.warn('[ai-player] auto-junk failed: ' + (e?.message || e)); }
             }, -1, 60000);
         }
     },
@@ -826,6 +852,11 @@ class ModeController {
             }
         }
     }
+}
+
+// [ai-player] Fix 4 review: expose a single mode so a test can run its update() directly.
+export function getMode(name) {
+    return modes_map[name] || null;
 }
 
 export function initModes(agent) {

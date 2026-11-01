@@ -1,5 +1,14 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 4 round 3: auto_junk wiring fixes (report 4.6) (TESTED; NOT DEPLOYED)
+- Review of PR #30. Same branch, third commit (no force-push).
+- **Wrong module** — the `auto_junk` mode called `survival.autoJunkEnabled()`/`survival.autoJunk()`, but those live in `skills.js`; it now calls `skills.autoJunkEnabled()`/`skills.autoJunk(bot)`, wrapped in try/catch.
+- **Clear zones** — `junkAllowedHere()` also refuses within 32 blocks of the claim centre (-1144, 752), within 16 of the bed at -1144 68 752, and while sheltered (probed lazily via `shelter_state.js`, so it works before and after the night-shelter branch merges).
+- **Test** — `test/bob_auto_junk_mode.test.js` really runs the mode's `update()` with a fake agent/bot and asserts the excess `clay_ball` is tossed far from home and that nothing is tossed at the claim centre/bed.
+- **Docs** — the stale "autoJunk is not yet wired" lines in both docs are corrected.
+- Tests: `test/bob_auto_junk_mode.test.js` **2/2**, `test/bob_chest_deposit.test.js` 4/4. Full `npm test` on Node 22: **262/263 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; the shelter refusal only takes effect once the night-shelter branch (#27) merges, since `shelter_state.js` does not exist on this branch yet.
+
 ## 2026-10-31 — Fix 4 review: scorecard text-failures, auto-junk wired (TESTED; NOT DEPLOYED)
 - Review of PR #30. Same branch, second commit (no force-push).
 - **Scorecard** — `bob_scorecard.action_outcome()` now returns `failed` when `result_text_failure` is set or the `result_summary` says "not confirmed" (a call that returned normally but reported failure is no longer counted as succeeded).
@@ -13,7 +22,7 @@
 - **Auto-junk** — `skills.junkPolicy()` (pure) + `autoJunk()`: when free slots <= 2, drop excess `clay_ball` (keep 32), `string` (keep 16), all `big_dripleaf` and flowers, and extra `chest`/`furnace` (keep 1). Never tools, food, logs or planks.
 - **Harness** — `bob_eval_harness.noteExecEnd` now records `result_text_failure` for a summary containing `not confirmed`.
 - Tests: new `test/bob_chest_deposit.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
-- UNPROVEN / NOT DONE: no live Minecraft session; `putInChest`/`takeFromChest` end-to-end (real chest window) and auto-junk were not run in-game. `autoJunk` is defined and tested at the policy level but is NOT yet wired into a mode or command.
+- UNPROVEN / NOT DONE: no live Minecraft session; `putInChest`/`takeFromChest` end-to-end (real chest window) and auto-junk were not run in-game. `autoJunk` is now wired through the idle daytime `auto_junk` mode (see the entry above).
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.

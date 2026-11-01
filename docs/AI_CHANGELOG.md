@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 4 round 3: auto_junk wiring fixes (report 4.6) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #30 review: the auto_junk mode called the wrong module, and the clear zones were too narrow.
+- **Files:** `src/agent/modes.js`, `test/bob_auto_junk_mode.test.js` (new), `test/bob_chest_deposit.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the mode uses `skills.autoJunkEnabled()`/`skills.autoJunk(bot)` in a try/catch; `junkAllowedHere` refuses within 32 of the claim centre, 16 of the bed at -1144 68 752, and while sheltered; `getMode()` is exported so the test runs the real `update()`.
+- **Tests:** `test/bob_auto_junk_mode.test.js` **2/2**; `test/bob_chest_deposit.test.js` **4/4**. Full `npm test` on Node 22: **262/263 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#30); third commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-3 commit on the PR branch.
+
 ## 2026-10-31 — Fix 4 review: scorecard text-failures, auto-junk wired (TESTED; NOT DEPLOYED)
 - **Goal:** PR #30 review: count text-reported failures as failed in the scorecard, and actually run auto-junk (or stop claiming it is on).
 - **Files:** `scripts/bob_scorecard.py`, `src/agent/modes.js`, `test/bob_scorecard.test.js`, `test/bob_chest_deposit.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
@@ -15,7 +23,7 @@
 - **Tests:** `test/bob_chest_deposit.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
 - **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed. Live Bob and `.20` untouched.
 - **Rollback:** Do not merge. Revert the single commit on the PR branch.
-- **Not done:** `autoJunk` is not yet wired into a mode or command (policy + routine only).
+- **Wired:** the idle daytime `auto_junk` mode (see the entry above) calls `skills.autoJunk(bot)`; this line is corrected by the Fix 4 round-2 review commit.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.

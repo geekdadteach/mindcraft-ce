@@ -40,7 +40,11 @@ test('auto-junk is ON by default and the deposit path uses the window count', ()
 test('auto-junk is wired into an idle daytime mode away from the house', () => {
     const modes = fs.readFileSync(new URL('../src/agent/modes.js', import.meta.url), 'utf8');
     assert.match(modes, /name: 'auto_junk'/, 'the mode exists');
-    assert.match(modes, /survival\.autoJunk\(bot\)/, 'it calls autoJunk');
+    assert.match(modes, /skills\.autoJunk\(bot\)/, 'it calls skills.autoJunk');
+    assert.match(modes, /skills\.autoJunkEnabled\(\)/, 'it reads skills.autoJunkEnabled');
+    assert.match(modes, /JUNK_CLEAR_CLAIM_R/, 'it keeps clear of the claim centre');
+    assert.match(modes, /JUNK_CLEAR_BED_R/, 'it keeps clear of the bed');
+    assert.match(modes, /isShelteredNow/, 'it refuses while sheltered');
     assert.match(modes, /junkAllowedHere/, 'it checks the house/protected area');
     assert.match(modes, /protectedAreaAt/, 'protected areas are honoured');
 });

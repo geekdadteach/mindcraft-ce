@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 2: food loop (TESTED; NOT DEPLOYED)
+- **Goal:** Make Bob feed himself (report 4.3: 136 food not_met goal checks, hunger mode "none found"): desperate edibles, eat to 18 for regen, relocate after repeated empty searches, and confirm hunts by counting food.
+- **Files:** `src/agent/library/survival.js`, `src/agent/modes.js`, `test/bob_food_loop.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `edibleFoods` allows `spider_eye`/`rotten_flesh`/`chicken` when desperate (food <= 6 or health <= 6); `shouldEatForRegen` eats when health < 20 and food < 18; `getFood` relocates to a 96–160-block ring outside no-go zones after 2 consecutive empty local searches (daylight) then retries `huntAnimal(64)`; `huntAnimal` walks to drops within 6 blocks for up to 5 s and is ok only if a food count rose. `BOB_FOOD_RELOCATE=0` opts out.
+- **Tests:** `test/bob_food_loop.test.js` **5/5**. Full `npm test` on Node 22: **260/261 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
 - **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

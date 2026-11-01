@@ -7,6 +7,7 @@ import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
 import { initModes } from './modes.js';
 import { initBot, stampLikelyAttacker } from '../utils/mcdata.js';
+import { clearShelter, installShelterMovementGuard } from './library/night_shelter.js';
 import { containsCommand, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
 import { ActionManager } from './action_manager.js';
 import { NPCContoller } from './npc/controller.js';
@@ -220,6 +221,7 @@ export class Agent {
                 this.clearBotLogs();
                 installNoGoZoneGuard(this);
                 installProtectedAreaGuard(this);
+                try { installShelterMovementGuard(); } catch (e) { console.warn('[ai-player] shelter movement guard skipped:', e.message); }
                 try { installResetRecovery(this); } catch (e) { console.warn('[ai-player] reset-recovery disabled:', e.message); } // reset-recovery-20261026
                 try { installChatGuard(this.bot); installStuckHome(this); } catch (e) { console.warn('[ai-player] stuck-home disabled:', e.message); } // stuck-home-20261026
               
@@ -701,6 +703,7 @@ export class Agent {
         });
         // Use connection handler for runtime disconnects
         this.bot.on('end', (reason) => {
+            clearShelter(); // [ai-player] Fix 1e round 2: disconnect ends the shelter
             if (!this._disconnectHandled) {
                 const { msg } = handleDisconnection(this.name, reason);
                 this.cleanKill(msg);
@@ -708,10 +711,12 @@ export class Agent {
         });
         // [ai-player] log death / respawn positions (to check the bed respawn point).
         this.bot.on('death', () => {
+            clearShelter(); // [ai-player] Fix 1e round 2: a death ends the shelter (no pack-up, no error)
             const p = this.bot.entity?.position;
             console.log(`[ai-player] died at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
         });
         this.bot.on('spawn', () => {
+            clearShelter(); // [ai-player] Fix 1e round 2: spawn also fires at first login; a null shelter is a no-op
             setTimeout(() => {
                 const p = this.bot.entity?.position;
                 console.log(`[ai-player] spawn event at ${p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : '?'}`);
@@ -722,6 +727,7 @@ export class Agent {
             this.actions.stop();
         });
         this.bot.on('kicked', (reason) => {
+            clearShelter(); // [ai-player] Fix 1e round 2: kicked ends the shelter
             if (!this._disconnectHandled) {
                 const { msg } = handleDisconnection(this.name, reason);
                 this.cleanKill(msg);

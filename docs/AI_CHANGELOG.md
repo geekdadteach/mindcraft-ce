@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1e round 2: food carve-out, wider hold, lifecycle cleanup (TESTED; NOT DEPLOYED)
+- **Goal:** PR #27 review round 2: never block eating, keep Bob sealed in harder, and never pack up after a respawn elsewhere.
+- **Files:** `src/agent/library/shelter_state.js` (new), `src/agent/library/night_shelter.js`, `src/agent/library/ai_player_nav.js`, `src/agent/modes.js`, `src/agent/agent.js`, `test/bob_shelter_hold.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** if sheltered, starving (`food <= 6`) and holding no edible item, the shelter ends early (log `[ai-player] shelter: leaving early for food`) so `!getFood` can run; `cowardice`/`ranged_threat` are skipped and no pathfinding may dig while sheltered; `death`/`spawn`/`end`/`kicked` and a dimension change clear the shelter and release the hold, and the dawn pack-up never runs after a respawn.
+- **Tests:** `test/bob_shelter_hold.test.js` **4/4**. Full `npm test` on Node 22: **275/276 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- **Deploy status:** Same draft PR (#27); third commit, no force-push. Not merged, not deployed. Live Bob and `.20` untouched.
+- **Rollback:** Do not merge. Revert the round-2 commit on the PR branch.
+
 ## 2026-10-31 — Fix 1 follow-up: shelter hold, dawn exit, mob-only stamping (TESTED; NOT DEPLOYED)
 - **Goal:** Address PR #27 review findings on Fix 1e (the emergency night shelter): hold until dawn, exit cleanly at dawn, and stop non-mob damage from stamping a false attacker.
 - **Files:** `src/agent/library/night_shelter.js`, `src/agent/modes.js`, `src/agent/commands/index.js`, `src/utils/mcdata.js`, `test/bob_combat_interrupt.test.js`, `test/bob_night_shelter.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

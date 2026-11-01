@@ -9,12 +9,14 @@
 // It never breaks or places a block inside a protected house area (house_bounds) or a no-go zone
 // (no_go_zones), and never throws — the model still decides what Bob does; this only keeps him alive.
 import Vec3 from 'vec3';
+import pf from 'mineflayer-pathfinder';
 import * as mc from '../../utils/mcdata.js';
 import * as skills from './skills.js';
 import { getActiveHome, isVerifiedHome } from './bob_home.js';
 import { isNightTime } from './ai_player_nav.js';
 import { protectedAreaAt } from './house_bounds.js';
 import { zoneAt } from './no_go_zones.js';
+import { shelterState, isSheltered, markSheltered, clearShelter } from './shelter_state.js';
 
 export const SHELTER_HOSTILE_RANGE = 12;
 export const SHELTER_LOW_HEALTH = 10;
@@ -42,15 +44,56 @@ export const SHELTER_ALLOWED_COMMANDS = new Set([
     '!consume', '!eat', '!stop', '!stfu', '!stay', '!inventory', '!stats', '!health',
 ]);
 
-// The shelter Bob is sealed in right now, or null: { day, placed: [{x,y,z,name}], dug: [{x,y,z}] }.
-let _shelter = null;
-export function shelterState() { return _shelter; }
-export function isSheltered() { return _shelter !== null; }
-export function markSheltered(info = {}) {
-    _shelter = { day: info.day ?? null, placed: info.placed ?? [], dug: info.dug ?? [] };
-    return _shelter;
+// The shelter state lives in its own leaf module (shelter_state.js) so movement code can read it
+// without importing this heavier module. Re-exported here for the existing callers.
+export { shelterState, isSheltered, markSheltered, clearShelter };
+
+// [ai-player] Fix 1e round 2: while sealed in, no pathfinding may dig (that would tunnel Bob out of the
+// shelter). shelterMovements() is the testable core; installShelterMovementGuard() applies it to every
+// pf.Movements (same monkey-patch pattern as installProtectedAreaGuard in protected_area.js).
+export function shelterMovements(m) {
+    if (isSheltered() && m && typeof m === 'object') m.canDig = false;
+    return m;
 }
-export function clearShelter() { _shelter = null; }
+
+let movementsGuarded = false;
+export function installShelterMovementGuard() {
+    if (movementsGuarded || typeof pf?.Movements !== 'function') return false;
+    const Orig = pf.Movements;
+    const Guarded = function (bot, ...rest) { return shelterMovements(new Orig(bot, ...rest)); };
+    Guarded.prototype = Orig.prototype;
+    Object.setPrototypeOf(Guarded, Orig);
+    pf.Movements = Guarded;
+    movementsGuarded = true;
+    return true;
+}
+
+// True when Bob holds at least one edible item.
+export function hasEdibleFood(bot) {
+    try {
+        const foods = bot?.registry?.foodsByName;
+        const items = bot?.inventory?.items?.() || [];
+        if (foods) return items.some(i => i && i.name in foods);
+        return items.some(i => /^(bread|apple|golden_apple|cooked_|carrot|potato|baked_potato|beetroot|sweet_berries|melon_slice|dried_kelp|mutton|beef|porkchop|chicken|rabbit|cod|salmon|spider_eye|rotten_flesh)/.test(String(i?.name || '')));
+    } catch (_) { return false; }
+}
+
+// [ai-player] Fix 1e round 2: eating must never be blocked. If Bob is starving with nothing to eat, the
+// shelter ends early so !getFood can run (his food chest sits by the bed at -1143 68 752).
+export function shouldLeaveEarlyForFood(bot) {
+    if (!isSheltered()) return false;
+    if (!Number.isFinite(bot?.food) || bot.food > 6) return false;
+    return !hasEdibleFood(bot);
+}
+
+// True when the shelter was built in a different dimension than Bob is in now (portal / respawn).
+export function dimensionChanged(bot) {
+    const s = shelterState();
+    if (!s || s.dimension == null) return false;
+    const now = bot?.game?.dimension;
+    return now != null && now !== s.dimension;
+}
+
 
 // Guard model commands while sheltered: travel commands are refused, eating is always allowed.
 export function shelterGuard(commandName) {
@@ -242,7 +285,7 @@ async function recover(bot, placed, dug) {
 // At dawn: dig back the blocks the shelter placed (to collect them), refill a dug pocket if a seal
 // block is held, and clear the shelter state. Never digs a block the shelter did not place.
 export async function dawnExit(bot) {
-    const s = _shelter;
+    const s = shelterState();
     if (!s) return false;
     const removed = await recover(bot, s.placed, s.dug);
     clearShelter();
@@ -260,7 +303,7 @@ export async function buildShelter(bot, opts = {}) {
     if (seal && await wallIn(bot, seal, record)) ok = true;
     else ok = await digPocket(bot, seal, record);
     if (!ok) { await recover(bot, record.placed, record.dug); return false; } // no stray blocks from a failed attempt
-    markSheltered({ day: bot.time?.day ?? null, placed: record.placed, dug: record.dug });
+    markSheltered({ day: bot.time?.day ?? null, dimension: bot.game?.dimension ?? null, placed: record.placed, dug: record.dug });
     console.log(`[ai-player] shelter: sealed in for the night (placed ${record.placed.length}, dug ${record.dug.length})`);
     return true;
 }

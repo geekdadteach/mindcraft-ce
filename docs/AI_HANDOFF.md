@@ -1,5 +1,14 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 1e round 2: food carve-out, wider hold, lifecycle cleanup (TESTED; NOT DEPLOYED)
+- Amends the Fix 1e entry below — same draft PR (#27), third commit, same branch. Review round 2.
+- **Food carve-out (eating is never blocked):** while sheltered, if `food <= 6` and Bob holds no edible item, the shelter ends early — `night_shelter.shouldLeaveEarlyForFood()`; the `night` mode logs `[ai-player] shelter: leaving early for food`, runs the same pack-up (`dawnExit`), releases the hold and resumes self-prompting, so `!getFood` is no longer blocked (his food chest is by the bed at -1143 68 752).
+- **Wider hold:** `cowardice` and `ranged_threat` are now skipped while sheltered (like `unstuck`/`item_collecting`), and no pathfinding may dig: `shelterMovements()` forces `canDig = false` and `installShelterMovementGuard()` patches `pf.Movements` (installed in `agent.js` next to the protected-area guard); `escapeMovements` also clears `canDig` while sheltered. `self_defense` still fights only a mob inside the box (range 2).
+- **Lifecycle cleanup:** `clearShelter()` is called on `death`, `spawn`, `end` and `kicked` in `agent.js` (a silent no-op when there is no shelter — `spawn` also fires at first login); the `night` tick also clears on a dimension change. The dawn pack-up is never run from those paths.
+- **State module:** shelter state moved to a leaf `src/agent/library/shelter_state.js` so movement code can read it without an import cycle; `night_shelter.js` re-exports it.
+- Tests: new `test/bob_shelter_hold.test.js` **4/4**; `test/bob_combat_interrupt.test.js` **5/5**; `test/bob_night_shelter.test.js` **12/12**. Full `npm test` on Node 22: **275/276 pass**; only the pre-existing `confirmSetHome sets the flag only after a server ok reply` fails.
+- UNPROVEN: no live Minecraft session. The `pf.Movements` patch is a monkey-patch (same pattern as the protected-area guard) and needs an in-game sanity check.
+
 ## 2026-10-31 — Fix 1 follow-up: shelter stay-in hold, dawn exit, mob-only attacker stamping (TESTED; NOT DEPLOYED)
 - Amends the Fix 1 entry below — same draft PR (#27), second commit, same branch. Four review findings.
 - **Stay-in hold:** once `buildShelter` seals Bob in, `night_shelter.js` records the shelter (`markSheltered`) and the `night` mode holds him until dawn — it pauses the self-prompter the same way night-home's hold does, and the `unstuck` and `item_collecting` modes are skipped while sheltered. Travel model commands (`!searchForEntity`, `!collectBlocks`, `!goTo*`, `!getFood`, …) are refused by a new `shelterGuard` wired into `commands/index.js`; eating (`!consume`/`!eat`) is never blocked. `self_preservation` (water/lava/fire) still runs, and `self_defense` only engages a mob actually inside the box (range 2).

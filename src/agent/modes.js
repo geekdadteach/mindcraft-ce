@@ -237,6 +237,7 @@ const modes_list = [
         on: true,
         active: false,
         update: async function (agent) {
+            if (shelter.isSheltered()) return; // [ai-player] Fix 1e: sealed in, do not flee
             const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity), 16);
             if (enemy && await world.isClearPath(agent.bot, enemy)) {
                 say(agent, `Aaa! A ${enemy.name.replace("_", " ")}!`);
@@ -257,6 +258,7 @@ const modes_list = [
         active: false,
         next_check: 0,
         update: async function (agent) {
+            if (shelter.isSheltered()) return; // [ai-player] Fix 1e: sealed in, do not take cover
             const bot = agent.bot;
             const now = Date.now();
             if (now < this.next_check) return;
@@ -424,9 +426,21 @@ const modes_list = [
                 .then(() => { this.exiting = false; this.release(agent, 'dawn (shelter packed up)'); })
                 .catch(() => { this.exiting = false; this.release(agent, 'dawn (shelter exit error)'); });
         },
+        // [ai-player] Fix 1e round 2: eating must never be blocked; leave early when starving.
+        leaveForFood: function (agent) {
+            if (this.exiting) return;
+            this.exiting = true;
+            const bot = agent.bot;
+            console.log('[ai-player] shelter: leaving early for food');
+            execute(this, agent, async () => { await shelter.dawnExit(bot); }, -1, 60000)
+                .then(() => { this.exiting = false; this.release(agent, 'shelter left early for food'); })
+                .catch(() => { this.exiting = false; this.release(agent, 'shelter exit error (food)'); });
+        },
         update: async function (agent) {
             // [ai-player] Fix 1e: the emergency shelter holds until dawn, whatever BOB_NIGHT_HOME says.
             if (shelter.isSheltered()) {
+                if (shelter.dimensionChanged(agent.bot)) { shelter.clearShelter(); this.release(agent, 'shelter cleared (dimension change)'); return; }
+                if (shelter.shouldLeaveEarlyForFood(agent.bot)) { this.leaveForFood(agent); return; }
                 if (!nav.isNightTime(agent.bot)) this.dawnExit(agent);
                 else this.holdShelter(agent);
                 return;

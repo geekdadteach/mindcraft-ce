@@ -22,6 +22,7 @@ import {
     protectedAreas,
     walkingLane
 } from './house_bounds.js';
+import { getActiveHome } from './bob_home.js';
 
 export {
     HOUSE_AREA,
@@ -37,6 +38,44 @@ export {
     protectedAreaAt
 };
 
+// [ai-player] Bed protection: never let Bob break his own bed. A bed is a *_bed block within 2
+// blocks of a known bed: the active home's bed, the last bed he slept in, and the claim bed -1144 68 752.
+export const BOB_BED = Object.freeze({ x: -1144, y: 68, z: 752 });
+export const BED_PROTECT_RANGE = 2;
+let _lastSleptBed = null;
+
+// ON by default; only BOB_PROTECT_BED=0 turns it off.
+export function bedProtectEnabled(env = process.env) {
+    return env?.BOB_PROTECT_BED !== '0';
+}
+
+export function recordSleptBed(pos) {
+    if (pos && [pos.x, pos.y, pos.z].every(Number.isFinite)) {
+        _lastSleptBed = { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) };
+    }
+    return _lastSleptBed;
+}
+export function lastSleptBed() { return _lastSleptBed; }
+
+export function knownBeds() {
+    const out = [BOB_BED];
+    const homeBed = getActiveHome()?.bed;
+    if (homeBed && [homeBed.x, homeBed.y, homeBed.z].every(Number.isFinite)) out.push(homeBed);
+    if (_lastSleptBed) out.push(_lastSleptBed);
+    return out;
+}
+
+// The bed this block belongs to, or null. Only *_bed blocks within BED_PROTECT_RANGE of a known bed count.
+export function ownBedAt(pos, blockName, { env = process.env } = {}) {
+    if (!bedProtectEnabled(env)) return null;
+    if (!pos || !/_bed$/.test(String(blockName || ''))) return null;
+    for (const bed of knownBeds()) {
+        const d = Math.hypot(Number(pos.x) - bed.x, Number(pos.y) - bed.y, Number(pos.z) - bed.z);
+        if (Number.isFinite(d) && d <= BED_PROTECT_RANGE) return { name: 'your bed', bed };
+    }
+    return null;
+}
+
 let movementsPatched = false;
 
 export function installProtectedAreaGuard(agent) {
@@ -46,6 +85,7 @@ export function installProtectedAreaGuard(agent) {
         const origSafeToBreak = proto.safeToBreak;
         proto.safeToBreak = function (block) {
             if (block && protectedAreaAt(block.position, block.name)) return false;
+            if (block && ownBedAt(block.position, block.name)) return false; // [ai-player] own bed is never diggable
             return origSafeToBreak.call(this, block);
         };
         movementsPatched = true;
@@ -58,6 +98,12 @@ export function installProtectedAreaGuard(agent) {
                 const p = block.position;
                 console.log(`[ai-player] protected-area: refused to break ${block.name} at ${p.x} ${p.y} ${p.z} (${area.name})`);
                 throw new Error(`The ${block.name} at ${p.x}, ${p.y}, ${p.z} is part of your ${area.name}; do not break it.`);
+            }
+            const bed = block && ownBedAt(block.position, block.name);
+            if (bed) {
+                const p = block.position;
+                console.log(`[ai-player] protect-bed: refused to break ${block.name} at ${p.x} ${p.y} ${p.z} (your bed)`);
+                throw new Error(`The ${block.name} at ${p.x}, ${p.y}, ${p.z} is your bed; do not break it.`);
             }
             return origDig(block, ...rest);
         };

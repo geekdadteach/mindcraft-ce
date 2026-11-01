@@ -1,5 +1,13 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Bed protection: never break his own bed (TESTED; NOT DEPLOYED)
+- New draft PR `fix/protect-own-bed-20261101` off `work/bob-home-from-live-20261028` (697f560).
+- **Guard** — `protected_area.js` gained `ownBedAt(pos, blockName)`: a `*_bed` block within 2 blocks of a known bed is never diggable. `Movements.safeToBreak` returns false and the `bot.dig` wrapper throws `The <block> at x, y, z is your bed; do not break it.`
+- **Known beds** — the claim bed at -1144 68 752 (`BOB_BED`), the active home's bed, and the last bed Bob actually slept in (`recordSleptBed`, called after a successful `bot.sleep` in the `modes.js` night mode and in `skills.goToBed`).
+- **Opt-out** — ON by default; `BOB_PROTECT_BED=0` disables it (`bedProtectEnabled`).
+- Tests: new `test/bob_protect_bed.test.js` **3/3** (incl. `bot.dig` on his bed throwing). Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; the throw path and the sleep-recording hooks were not run in-game.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

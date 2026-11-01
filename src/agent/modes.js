@@ -8,6 +8,7 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import * as nav from './library/ai_player_nav.js';
 import * as survival from './library/survival.js';
+import { recordSleptBed } from './library/protected_area.js';
 
 // [ai-player] spectators (e.g. Randy via /bobwatch) are invisible observers: never stare at, avoid or react to them
 function isSpectator(bot, entity) {
@@ -436,6 +437,7 @@ const modes_list = [
                     await nav.gotoWithin(bot, new pf.goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 1), 20000, nav.walkMovements(bot));
                 try {
                     await bot.sleep(bed);
+                    recordSleptBed(bed.position); // [ai-player] protect the bed he actually slept in
                     console.log(`[ai-player] night: in bed at ${bed.position} (${bed.name})`);
                     skills.log(bot, 'You are in bed for the night.');
                 } catch (e) {

@@ -74,6 +74,25 @@ function parseBoolean(input) {
  * @param {number} upperBound
  * @param {string} endpointType - The type of the endpoints represented as a two character string. `'[)'` `'()'` 
  */
+// [ai-player] Fix 4.8: clamp a numeric value into its declared domain and say whether it was clamped.
+export function clampToDomain(value, domain) {
+    if (!domain || !Number.isFinite(value)) return { value, clamped: false, belowMin: false, note: null };
+    const lower = domain[0], upper = domain[1];
+    const endpoints = domain[2] || '[)';
+    const int = Number.isInteger(value);
+    const lo = endpoints[0] === '[' ? lower : (int ? lower + 1 : lower);
+    // [ai-player] Fix 4.8 review: a value below the minimum stays an error (never turned into 1).
+    const belowMin = Number.isFinite(lo) && value < lo;
+    // An open upper bound must clamp strictly inside the range (y stays below 320).
+    const tiny = Number.isFinite(upper) ? (Math.abs(upper) * 1e-9 || 1e-9) : 0;
+    const hi = endpoints[1] === ']' ? upper : (int ? upper - 1 : upper - tiny);
+    let out = value, clamped = false;
+    if (!belowMin && Number.isFinite(hi) && value > hi) { out = hi; clamped = true; }
+    return { value: out, clamped, belowMin, note: clamped ? 'clamped into ' + endpoints[0] + lower + ', ' + upper + endpoints[1] : null };
+}
+
+
+
 function checkInInterval(number, lowerBound, upperBound, endpointType) {
     switch (endpointType) {
         case '[)':
@@ -113,6 +132,7 @@ export function parseCommandMessage(message) {
 
     const params = commandParams(command);
     const paramNames = commandParamNames(command);
+    const clampNotes = []; // [ai-player] Fix 4.8: numeric params clamped into their domain.
     
     if (args.length !== params.length)
         return `Command ${command.name} was given ${args.length} args, but requires ${params.length} args.`;
@@ -157,8 +177,12 @@ export function parseCommandMessage(message) {
                 if (!domain[2]) domain[2] = '[)'; //By default, lower bound is included. Upper is not.
 
                 if(!checkInInterval(arg, ...domain)) {
-                    return `Error: Param '${paramNames[i]}' must be an element of ${domain[2][0]}${domain[0]}, ${domain[1]}${domain[2][1]}.`;
-                    //Alternatively arg could be set to the nearest value in the domain.
+                    // [ai-player] Fix 4.8 review: clamp only ABOVE the maximum; a value below the minimum
+                    // stays a parse error (silently turning num=0 into 1 changed what Bob asked for).
+                    const c = clampToDomain(arg, domain);
+                    if (c.belowMin) return `Error: Param '${paramNames[i]}' must be an element of ${domain[2][0]}${domain[0]}, ${domain[1]}${domain[2][1]}.`;
+                    arg = c.value;
+                    clampNotes.push(`${paramNames[i]}=${arg} (${c.note})`);
                 }
             } else if (!suppressNoDomainWarning) {
                 console.warn(`Command '${commandName}' parameter '${paramNames[i]}' has no domain set. Expect any value [-Infinity, Infinity].`)
@@ -174,7 +198,7 @@ export function parseCommandMessage(message) {
         args[i] = arg;
     }
     
-    return { commandName, args };
+    return { commandName, args, clampNotes };
 }
 
 export function truncCommandMessage(message) {
@@ -263,6 +287,10 @@ export async function executeCommand(agent, message) {
     let parsed = parseCommandMessage(message);
     // [ai-player] fix common name mistakes ('log' -> nearest log type, 'iron_ore' smelt -> raw_iron, plurals)
     let name_note = '';
+    // [ai-player] Fix 4.8: note any numeric param clamped into its domain (goes into the feedback).
+    const clamp_note = (typeof parsed !== 'string' && parsed.clampNotes?.length)
+        ? `(Note: ${parsed.clampNotes.join('; ')}.) ` : '';
+    if (clamp_note) console.log(`[ai-player] param-clamp: ${clamp_note}`);
     try {
         const bad = typeof parsed === 'string' && parsed.match(/^Invalid (block|item|block or item) type: (\w+)\.?$/);
         if (bad) {
@@ -283,13 +311,13 @@ export async function executeCommand(agent, message) {
         const blocked = aiPlayerGuard(agent, parsed);
         if (blocked) {
             ev.noteGuard({ kind: inferGuardKind(blocked), blocked: true, note: blocked });
-            return name_note + blocked;
+            return clamp_note + name_note + blocked;
         }
         ev.noteExecStart({ command_name: parsed.commandName, args: parsed.args }, agent);
         const t0 = ev.markNow();
         const res = await executeCommand._run(agent, parsed);
         ev.noteExecEnd({ duration_ms: ev.elapsedMs(t0), result: res, threw: false }, agent);
-        return name_note + (res ?? '');
+        return clamp_note + name_note + (res ?? '');
     }
     if (typeof parsed === 'string') {
         ev.noteParse({ has_command: !!containsCommand(message), command_name: containsCommand(message), exists: false, parse_ok: false, error: parsed });
@@ -309,13 +337,13 @@ export async function executeCommand(agent, message) {
             const blocked = aiPlayerGuard(agent, parsed);
             if (blocked) {
                 ev.noteGuard({ kind: inferGuardKind(blocked), blocked: true, note: blocked });
-                return blocked;
+                return clamp_note + blocked;
             }
             ev.noteExecStart({ command_name: parsed.commandName, args: parsed.args }, agent);
             const t0 = ev.markNow();
             const result = await performParsed(agent, parsed);
             ev.noteExecEnd({ duration_ms: ev.elapsedMs(t0), result, threw: false }, agent);
-            return result;
+            return clamp_note + result;
         }
     }
 }

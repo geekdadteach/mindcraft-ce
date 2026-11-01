@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7a round 2: consume drinks potions and milk (report 4.9) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #33 review: `!consume` must also drink potions and milk, which are not food.
+- **Files:** `src/agent/library/skills.js`, `test/bob_consume_edible.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `isDrinkable` matches `/potion$|^milk_bucket$/`; `consume` refuses only when the item is neither food nor drinkable.
+- **Tests:** `test/bob_consume_edible.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#33); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-2 commit on the PR branch.
+
 ## 2026-10-31 — Fix 7a: consume() uses the registry for edibility (report 4.9) (TESTED; NOT DEPLOYED)
 - **Goal:** Report 4.9: edibility should come from the registry, not a hardcoded list.
 - **Files:** `src/agent/library/skills.js`, `test/bob_consume_edible.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

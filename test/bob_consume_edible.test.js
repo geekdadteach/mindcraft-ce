@@ -1,7 +1,7 @@
 // [ai-player] Fix 4.9 - consume() decides edibility from the registry.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consume, isEdible } from '../src/agent/library/skills.js';
+import { consume, isEdible, isDrinkable } from '../src/agent/library/skills.js';
 
 const FOODS = { bread: {}, glow_berries: {}, dried_kelp: {} };
 function foodBot(itemName) {
@@ -28,5 +28,19 @@ test('consume eats a registry food and refuses a non-food with the named message
     const empty = foodBot('nothing');
     assert.equal(await consume(empty, 'apple'), false, 'missing item');
     assert.match(empty.output, /You do not have any apple to eat/);
+});
+
+
+test('consume drinks potions and milk even though they are not in foodsByName', async () => {
+    assert.equal(isDrinkable('potion'), true);
+    assert.equal(isDrinkable('splash_potion'), true);
+    assert.equal(isDrinkable('milk_bucket'), true);
+    assert.equal(isDrinkable('bread'), false);
+    assert.equal(isDrinkable(''), false);
+    assert.equal(await consume(foodBot('potion'), 'potion'), true, 'a potion is drunk');
+    assert.equal(await consume(foodBot('milk_bucket'), 'milk_bucket'), true, 'milk is drunk');
+    const bot = foodBot('diamond');
+    assert.equal(await consume(bot, 'diamond'), false, 'a plain non-food is still refused');
+    assert.match(bot.output, /cannot eat diamond/);
 });
 

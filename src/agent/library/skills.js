@@ -1006,6 +1006,11 @@ export function isEdible(bot, itemName) {
     } catch (_) { return true; }
 }
 
+// [ai-player] Fix 4.9 review: potions and milk are drinkable, not food, but !consume must allow them.
+export function isDrinkable(itemName) {
+    return /potion$|^milk_bucket$/.test(String(itemName || ''));
+}
+
 export async function consume(bot, itemName="") {
     /**
      * Eat/drink the given item.
@@ -1024,8 +1029,9 @@ export async function consume(bot, itemName="") {
         log(bot, `You do not have any ${name} to eat.`);
         return false;
     }
-    // [ai-player] Fix 4.9: only refuse when the registry says this is not food.
-    if (!isEdible(bot, item.name)) {
+    // [ai-player] Fix 4.9: only refuse when the registry says this is not food (potions and milk are
+    // drinkable, so they are allowed too).
+    if (!isEdible(bot, item.name) && !isDrinkable(item.name)) {
         log(bot, `You cannot eat ${item.name}; it is not food.`);
         return false;
     }

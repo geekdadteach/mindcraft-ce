@@ -193,6 +193,19 @@ export function defaultGoalVerifier(world, context = {}) {
     };
 }
 
+// [ai-player] Fix 6: the code lane decision, for the startup log and the turn_start event.
+// CODER_MODE comes from BOB_CODER_MODE (default 'auto'); coding_enabled from allow_insecure_coding.
+export function codeLaneInfo({ coderMode = null, codingEnabled = true } = {}) {
+    const mode = coderMode || 'auto';
+    return {
+        lane: 'coding',
+        selected_lane: 'coding',
+        coder_mode: mode,
+        coding_enabled: !!codingEnabled,
+        reason: codingEnabled ? 'code lane selected (coder_mode=' + mode + ')' : 'code lane disabled (allow_insecure_coding=false)',
+    };
+}
+
 export class EvalHarnessWriter {
     constructor(config, options = {}) {
         this.config = config || { enabled: false, rejected: false, reason: 'BOB_EVAL_HARNESS_LOG is unset' };
@@ -440,6 +453,17 @@ export class BobEvalHarness {
         } catch { /* never throw */ }
     }
 
+    // [ai-player] Fix 6: remember the code lane decision so every turn_start carries it.
+    noteLaneSelection(info = {}) {
+        try {
+            if (!this.enabled) return null;
+            const lane = codeLaneInfo(info);
+            this._lane = { lane: lane.lane, lane_reason: lane.reason, coder_mode: lane.coder_mode, coding_enabled: lane.coding_enabled };
+            this.log?.log?.(`[bob-eval] code lane: ${lane.reason}`);
+            return this._lane;
+        } catch { return null; }
+    }
+
     noteTurnStart(agent, info = {}) {
         try {
             if (!this.enabled) return;
@@ -448,11 +472,16 @@ export class BobEvalHarness {
             this._cmdN = 0;
             this.command_id = null;
             this.task_id = null;
-            this._emit('turn_start', {
+            const rec = {
+                ...(this._lane || {}),
                 source: clipText(info.source, 40),
                 self_prompt: !!info.self_prompt,
                 iteration: Number.isFinite(info.iteration) ? info.iteration : 0,
-            });
+            };
+            if (info.lane) { rec.lane = clipText(info.lane, 20); rec.lane_reason = clipText(info.lane_reason, 120); }
+            if (info.coder_mode != null) rec.coder_mode = clipText(info.coder_mode, 20);
+            if (info.coding_enabled != null) rec.coding_enabled = !!info.coding_enabled;
+            this._emit('turn_start', rec);
         } catch { /* never throw */ }
     }
 

@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 6: code lane startup log with its reason (TESTED; NOT DEPLOYED)
+- Report 4.5, work-order item 6 (chore). Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
+- **Startup log** — `agent.js` logs `[ai-player] code lane: <reason>` when the coder is created; the reason carries `coder_mode` (from `BOB_CODER_MODE`, default `auto`) and `coding_enabled` (from `allow_insecure_coding`). `coder.logLaneOnce()` repeats it once on the first `generateCode`.
+- **Harness** — new `bob_eval_harness.codeLaneInfo()` builds the lane record; `noteLaneSelection()` stores it so every subsequent `turn_start` event carries `lane`, `lane_reason`, `coder_mode` and `coding_enabled`.
+- Tests: new `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; `BOB_CODER_MODE` is a new optional env knob (unset = `auto`), so live behaviour is unchanged.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

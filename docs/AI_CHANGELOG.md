@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 6: code lane startup log with its reason (TESTED; NOT DEPLOYED)
+- **Goal:** Report 4.5: make the code lane decision visible at startup (which lane, why) instead of silent.
+- **Files:** `src/agent/agent.js`, `src/agent/coder.js`, `src/agent/library/bob_eval_harness.js`, `test/bob_code_lane.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the agent logs `[ai-player] code lane: <reason>` at startup and the coder repeats it once on first use; `codeLaneInfo`/`noteLaneSelection` record `lane`/`lane_reason`/`coder_mode`/`coding_enabled` on every `turn_start` harness event.
+- **Tests:** `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the single commit on the PR branch.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
 - **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

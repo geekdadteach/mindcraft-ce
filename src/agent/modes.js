@@ -156,7 +156,8 @@ const modes_list = [
                 this.prev_location = null; this.stuck_time = 0; this.last_time = Date.now(); return;
             }
             // [ai-player] Fix 1e: while sealed in the night shelter, being still is expected — do not try to unstick.
-            if (shelter.isSheltered()) {
+            // [ai-player] Fix 5: a pathfinder search is not being stuck; do not count its time.
+            if (shelter.isSheltered() || skills.isPathProbing()) {
                 this.prev_location = null; this.stuck_time = 0; this.last_time = Date.now(); return;
             }
             if (agent.isIdle()) { 

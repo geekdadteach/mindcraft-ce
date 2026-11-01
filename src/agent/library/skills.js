@@ -1131,15 +1131,49 @@ export async function giveToPlayer(bot, itemType, username, num=1) {
     return false;
 }
 
-async function readPathProbe(bot, movements, goal, timeout) {
-    const raw = bot.pathfinder.getPathTo(movements, goal, timeout);
-    const path = (raw && typeof raw.then === 'function') ? await raw : raw;
-    return {
-        status: path?.status || 'noPath',
-        visitedNodes: path?.visitedNodes ?? path?.visited ?? 0,
-        generatedNodes: path?.generatedNodes ?? 0
-    };
+// [ai-player] Fix 5: ON by default; BOB_NAV_FULL_PROBE=0 restores the single-shot probe.
+export function fullProbeEnabled(env = process.env) { return env.BOB_NAV_FULL_PROBE != '0'; }
+
+// True while a path probe is running, so the unstuck mode does not count search time as being stuck.
+let _pathProbing = 0;
+export function isPathProbing() { return _pathProbing > 0; }
+
+// [ai-player] Fix 5: keep asking while the search is only partial, until it finishes or the budget runs out.
+// [ai-player] Fix 5 review: step the pathfinder generator instead of looping a blocking getPathTo.
+// Each step computes for at most one tick, so the event loop is handed back (setImmediate) between steps.
+export async function probePathStatus(makeGenerator, { totalMs = 1500, now = Date.now, full = true, yieldToLoop = () => new Promise(r => setImmediate(r)) } = {}) {
+    let gen = null;
+    try { gen = makeGenerator(); } catch (_) { return null; }
+    if (!gen || typeof gen.next !== 'function') return null;
+    const deadline = now() + totalMs;
+    let step = gen.next();
+    let result = step?.value?.result ?? null;
+    while (full && !step.done && result && result.status === 'partial' && now() < deadline) {
+        await yieldToLoop();
+        step = gen.next();
+        result = step?.value?.result ?? result;
+    }
+    return result;
 }
+
+
+
+async function readPathProbe(bot, movements, goal, timeout, { totalMs = 1500, env = process.env } = {}) {
+    _pathProbing++;
+    try {
+        try { (await import('./protected_area.js')).clearProtectedCache(); } catch (_) {}
+        const path = await probePathStatus(
+            () => bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal, { timeout }),
+            { totalMs, full: fullProbeEnabled(env) });
+        return {
+            status: path?.status || 'noPath',
+            visitedNodes: path?.visitedNodes ?? path?.visited ?? 0,
+            generatedNodes: path?.generatedNodes ?? 0
+        };
+    } finally { _pathProbing--; }
+}
+
+
 
 async function handleHouseEnclosure(bot, goal) {
     const watch = enclosureWatch(bot);

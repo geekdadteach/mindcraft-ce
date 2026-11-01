@@ -322,10 +322,27 @@ export function homeFromWorld(getBlock, origin, opts = {}) {
 
 let _active = freezeHome(emptyHome());
 export function getActiveHome() { return _active; }
+// [ai-player] Fix 5 review: let modules that cache home-derived data drop it when the home changes.
+const _homeListeners = new Set();
+export function onActiveHomeChange(cb) {
+    if (typeof cb !== 'function') return () => {};
+    _homeListeners.add(cb);
+    return () => _homeListeners.delete(cb);
+}
+function homeKey(h) {
+    if (!isVerifiedHome(h)) return 'none';
+    const d = h.door, b = h.bed, i = h.inside;
+    return [d?.x, d?.y, d?.z, b?.x, b?.y, b?.z, i?.x, i?.y, i?.z].join(',');
+}
 export function setActiveHome(home) {
-    _active = isVerifiedHome(home) ? freezeHome(home) : freezeHome(emptyHome());
+    const next = isVerifiedHome(home) ? freezeHome(home) : freezeHome(emptyHome());
+    const changed = homeKey(next) !== homeKey(_active);
+    _active = next;
+    if (changed) for (const cb of [..._homeListeners]) { try { cb(next); } catch (_) {} }
     return _active;
 }
+
+
 
 export function loadHome(file) {
     try {

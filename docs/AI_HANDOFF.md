@@ -1,5 +1,11 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-10-31 — Fix 7b round 2: clamp only above the maximum (report 4.8) (TESTED; NOT DEPLOYED)
+- Review of PR #34. Same branch, second commit (no force-push).
+- `clampToDomain()` no longer clamps a value UP to the minimum: it returns `belowMin` and leaves the value alone, and `parseCommandMessage` keeps the original parse error for a below-minimum number (so `num=0`, `count=0` and `distance=-5` are rejected, not silently turned into 1). It still clamps above the maximum, and for an open upper bound it clamps strictly inside the range (e.g. `y` stays below 320).
+- Tests: `test/bob_param_clamp.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 7b: numeric params are clamped, not rejected (report 4.8) (TESTED; NOT DEPLOYED)
 - Work-order item 7b. Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
 - New `commands/index.js` export `clampToDomain(value, domain)` clamps into the declared interval (endpoint-aware) and reports `{ value, clamped, note }`. `parseCommandMessage` now clamps an out-of-range numeric param instead of returning a parse error and returns `clampNotes`; `executeCommand` prefixes the feedback with `(Note: <param>=<value> (clamped into <domain>).)`.

@@ -76,17 +76,22 @@ function parseBoolean(input) {
  */
 // [ai-player] Fix 4.8: clamp a numeric value into its declared domain and say whether it was clamped.
 export function clampToDomain(value, domain) {
-    if (!domain || !Number.isFinite(value)) return { value, clamped: false, note: null };
+    if (!domain || !Number.isFinite(value)) return { value, clamped: false, belowMin: false, note: null };
     const lower = domain[0], upper = domain[1];
     const endpoints = domain[2] || '[)';
     const int = Number.isInteger(value);
     const lo = endpoints[0] === '[' ? lower : (int ? lower + 1 : lower);
-    const hi = endpoints[1] === ']' ? upper : (int ? upper - 1 : upper);
+    // [ai-player] Fix 4.8 review: a value below the minimum stays an error (never turned into 1).
+    const belowMin = Number.isFinite(lo) && value < lo;
+    // An open upper bound must clamp strictly inside the range (y stays below 320).
+    const tiny = Number.isFinite(upper) ? (Math.abs(upper) * 1e-9 || 1e-9) : 0;
+    const hi = endpoints[1] === ']' ? upper : (int ? upper - 1 : upper - tiny);
     let out = value, clamped = false;
-    if (Number.isFinite(lo) && value < lo) { out = lo; clamped = true; }
-    else if (Number.isFinite(hi) && value > hi) { out = hi; clamped = true; }
-    return { value: out, clamped, note: clamped ? 'clamped into ' + endpoints[0] + lower + ', ' + upper + endpoints[1] : null };
+    if (!belowMin && Number.isFinite(hi) && value > hi) { out = hi; clamped = true; }
+    return { value: out, clamped, belowMin, note: clamped ? 'clamped into ' + endpoints[0] + lower + ', ' + upper + endpoints[1] : null };
 }
+
+
 
 function checkInInterval(number, lowerBound, upperBound, endpointType) {
     switch (endpointType) {
@@ -172,8 +177,10 @@ export function parseCommandMessage(message) {
                 if (!domain[2]) domain[2] = '[)'; //By default, lower bound is included. Upper is not.
 
                 if(!checkInInterval(arg, ...domain)) {
-                    // [ai-player] Fix 4.8: clamp instead of rejecting, and note the clamp for the feedback.
+                    // [ai-player] Fix 4.8 review: clamp only ABOVE the maximum; a value below the minimum
+                    // stays a parse error (silently turning num=0 into 1 changed what Bob asked for).
                     const c = clampToDomain(arg, domain);
+                    if (c.belowMin) return `Error: Param '${paramNames[i]}' must be an element of ${domain[2][0]}${domain[0]}, ${domain[1]}${domain[2][1]}.`;
                     arg = c.value;
                     clampNotes.push(`${paramNames[i]}=${arg} (${c.note})`);
                 }

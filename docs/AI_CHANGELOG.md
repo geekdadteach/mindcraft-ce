@@ -14,6 +14,19 @@
 - **Files:** `src/utils/mcdata.js`, `src/agent/library/world.js`, `test/bob_metadata_diag.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
 - **Behavior:** `readMetadata` catches the throw, rate-limits one log per entity name, names the entity and gives a hint, and returns null; `isHuntable` and the world.js villager/baby checks use it.
 - **Tests:** `test/bob_metadata_diag.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+## 2026-10-31 — Fix 7d round 2: pruned lessons are archived, the new one is kept (report 4.13) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #36 review: pruning must not silently destroy lessons, and must keep the one just learned.
+- **Files:** `src/agent/library/long_memory.js`, `test/bob_lessons_prune.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** dropped lessons are appended to `lessons.pruned.jsonl` beside `lessons.json`; the list is trimmed to exactly `MAX_LESSONS` with the new lesson always retained.
+- **Tests:** `test/bob_lessons_prune.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#36); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-2 commit on the PR branch.
+
+## 2026-10-31 — Fix 7d: the lessons list is capped (report 4.13) (TESTED; NOT DEPLOYED)
+- **Goal:** Report 4.13: the lessons list must not grow without bound; drop the oldest/lowest-value first.
+- **Files:** `src/agent/library/long_memory.js`, `test/bob_lessons_prune.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `MAX_LESSONS` = 150; pure `pruneLessons` keeps seeds, then the highest count, then the most recent; `_addLesson` uses it.
+- **Tests:** `test/bob_lessons_prune.test.js` **2/2**. Full `npm test` on Node 22: **257/258 pass**; only the pre-existing `confirmSetHome` fails.
 - **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed.
 - **Rollback:** Do not merge. Revert the single commit on the PR branch.
 

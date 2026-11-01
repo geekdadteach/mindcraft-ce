@@ -248,6 +248,11 @@ def action_outcome(event):
     state = str(event.get("task_state") or "").lower()
     if state in ("failed", "cancelled", "uncertain"):
         return "failed" if state == "failed" else state
+    # [ai-player] Fix 4 review: a call can return normally yet report failure in its text.
+    if event.get('result_text_failure'):
+        return 'failed'
+    if 'not confirmed' in str(event.get('result_summary') or '').lower():
+        return 'failed'
     return "succeeded"
 
 

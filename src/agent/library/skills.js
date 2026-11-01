@@ -909,6 +909,16 @@ export async function discard(bot, itemName, num=-1) {
     return true;
 }
 
+// [ai-player] Fix 4: count the player section of the OPEN window, not bot.inventory (mineflayer only
+// reconciles bot.inventory on window close, which made every deposit read as 0/N not confirmed).
+export function windowItemCount(container, bot, itemName) {
+    try {
+        const list = container && typeof container.items === 'function' ? container.items() : null;
+        if (Array.isArray(list)) return list.filter(i => i && i.name === itemName).reduce((n, i) => n + (i.count || 0), 0);
+    } catch (_) {}
+    try { return bot.inventory.items().filter(i => i.name === itemName).reduce((n, i) => n + i.count, 0); } catch (_) { return 0; }
+}
+
 export async function putInChest(bot, itemName, num=-1) {
     /**
      * Put the given item in the nearest chest.
@@ -932,14 +942,14 @@ export async function putInChest(bot, itemName, num=-1) {
     let to_put = num === -1 ? item.count : Math.min(num, item.count);
     await goToPosition(bot, chest.position.x, chest.position.y, chest.position.z, 2);
     return withInventoryWindow(bot, chest, 'deposit ' + itemName, async (container, verifyOwner) => {
-        const before = bot.inventory.items().filter(i => i.name === itemName).reduce((n, i) => n + i.count, 0);
+        const before = windowItemCount(container, bot, itemName);
         const current = bot.inventory.findInventoryItem(itemName);
         if (!current) return false;
         const quantity = num === -1 ? current.count : Math.min(num, current.count);
         verifyOwner();
         await container.deposit(current.type, null, quantity);
         verifyOwner();
-        const after = bot.inventory.items().filter(i => i.name === itemName).reduce((n, i) => n + i.count, 0);
+        const after = windowItemCount(container, bot, itemName);
         const moved = before - after;
         if (moved !== quantity) {
             log(bot, 'Chest deposit not confirmed (' + moved + '/' + quantity + ' ' + itemName + '); reconcile inventory before retry.');
@@ -957,7 +967,7 @@ export async function takeFromChest(bot, itemName, num=-1) {
     return withInventoryWindow(bot, chest, 'withdraw ' + itemName, async (container, verifyOwner) => {
         const available = container.containerItems().filter(item => item.name === itemName);
         if (!available.length) { log(bot, 'Could not find any ' + itemName + ' in the chest.'); return false; }
-        const before = bot.inventory.items().filter(item => item.name === itemName).reduce((n, item) => n + item.count, 0);
+        const before = windowItemCount(container, bot, itemName);
         const requested = num === -1 ? available.reduce((n, item) => n + item.count, 0) :
             Math.min(num, available.reduce((n, item) => n + item.count, 0));
         let remaining = requested;
@@ -969,7 +979,7 @@ export async function takeFromChest(bot, itemName, num=-1) {
             verifyOwner();
             remaining -= take;
         }
-        const after = bot.inventory.items().filter(item => item.name === itemName).reduce((n, item) => n + item.count, 0);
+        const after = windowItemCount(container, bot, itemName);
         const actual = after - before;
         if (actual !== requested) {
             log(bot, 'Chest withdrawal not confirmed (' + actual + '/' + requested + ' ' + itemName + '); reconcile inventory before retry.');
@@ -2272,3 +2282,40 @@ export async function useToolOn(bot, toolName, targetName) {
     log(bot, `Used ${toolName} on ${block.name}.`);
     return true;
  }
+
+// [ai-player] Fix 4: auto-junk. ON by default; BOB_AUTO_JUNK=0 opts out. Never tools, food, logs or planks.
+export function autoJunkEnabled(env = process.env) { return env.BOB_AUTO_JUNK !== '0'; }
+export const JUNK_KEEP = { clay_ball: 32, string: 16, chest: 1, furnace: 1 };
+export const JUNK_ALL = new Set(['big_dripleaf']);
+export const FLOWER_RE = /^(poppy|dandelion|blue_orchid|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|.*_tulip|sunflower|lilac|rose_bush|peony|wither_rose|torchflower|pitcher_plant|pink_petals|spore_blossom)$/;
+export const NEVER_JUNK = /(_pickaxe|_axe|_shovel|_hoe|_sword|_helmet|_chestplate|_leggings|_boots|_log|_stem|_planks|_door|_bed|_torch|_bucket)$/;
+
+// The junk Bob may drop when free slots <= 2: excess clay_ball/string, all big_dripleaf and flowers,
+// extra chests/furnaces. Never tools, food, logs or planks.
+export function junkPolicy(bot, inventory = [], { freeSlots = 0 } = {}) {
+    if (freeSlots > 2) return [];
+    const counts = {};
+    for (const i of inventory) if (i && i.name) counts[i.name] = (counts[i.name] || 0) + (i.count || 0);
+    const foods = bot?.registry?.foodsByName || {};
+    const out = [];
+    const push = (name, count) => { if (count > 0) out.push({ name, count }); };
+    for (const [name, keep] of Object.entries(JUNK_KEEP)) push(name, (counts[name] || 0) - keep);
+    for (const name of JUNK_ALL) push(name, counts[name] || 0);
+    for (const name of Object.keys(counts)) {
+        if (NEVER_JUNK.test(name) || name in foods) continue;
+        if (FLOWER_RE.test(name)) push(name, counts[name]);
+    }
+    return out;
+}
+
+export async function autoJunk(bot, { env = process.env, drop = (b, name, n) => discard(b, name, n) } = {}) {
+    if (!autoJunkEnabled(env)) return [];
+    let free, inv;
+    try { free = bot.inventory.emptySlotCount(); inv = bot.inventory.items(); } catch (_) { return []; }
+    const done = [];
+    for (const { name, count } of junkPolicy(bot, inv, { freeSlots: free })) {
+        if (bot.interrupt_code) break;
+        try { if (await drop(bot, name, count)) done.push(name); } catch (_) {}
+    }
+    return done;
+}

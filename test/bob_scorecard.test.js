@@ -129,3 +129,24 @@ test('scorecard writes 0600 files and week-over-week deltas', () => {
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test('scorecard counts a text-failed action as failed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bob-scorecard-textfail-'));
+    try {
+        const log = join(dir, 'bob-eval.jsonl');
+        const base = { run_id: 'r1', turn_id: 'r1.t1', task_id: null, command_id: 'c1' };
+        const lines = [
+            { ...base, ts: '2026-10-25T00:00:00Z', mono_ms: 1, type: 'exec_end', command_name: '!putInChest', result_summary: 'Chest deposit not confirmed (0/32 clay_ball)', result_text_failure: true },
+            { ...base, ts: '2026-10-25T00:00:01Z', mono_ms: 2, type: 'exec_end', command_name: '!takeFromChest', result_summary: 'Successfully took 4 bread from the chest.' },
+        ];
+        writeFileSync(log, lines.map(l => JSON.stringify(l)).join('\n') + '\n');
+        const outdir = join(dir, 'cards');
+        const result = runScorecard(['--log', log, '--since', '2026-10-25T00:00:00Z', '--until', '2026-10-26T00:00:00Z', '--outdir', outdir, '--no-discord']);
+        assert.equal(result.status, 0, result.stderr || result.stdout);
+        const summary = JSON.parse(readFileSync(join(outdir, 'scorecard-2026-10-26.json'), 'utf8'));
+        assert.equal(summary.action_results.totals.failed, 1, 'the not-confirmed action is failed');
+        assert.equal(summary.action_results.totals.succeeded, 1, 'the good action still succeeded');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

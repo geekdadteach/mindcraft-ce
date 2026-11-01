@@ -581,6 +581,7 @@ export class BobEvalHarness {
             this._emit('exec_end', {
                 duration_ms: Number.isFinite(info.duration_ms) ? info.duration_ms : 0,
                 result_summary: summary,
+                result_text_failure: /not confirmed/i.test(String(summary)),
                 result_chars: Number.isFinite(info.result_chars) ? info.result_chars
                     : (info.result != null ? String(info.result).length : 0),
                 threw: !!info.threw,

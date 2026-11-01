@@ -390,6 +390,7 @@ export class BobEvalHarness {
         this._beforeCmd = null;
         this._afterCmd = null;
         this._afterTurn = null;
+        this._lastResultText = ''; // [ai-player] Fix 4.11 review: the last command's result text
         if (this.enabled) {
             try { this.log.log(`[bob-eval] enabled run=${this.run_id}`); } catch { /* ignore */ }
         }
@@ -529,6 +530,7 @@ export class BobEvalHarness {
             const hint = snapshotHintFromDescriptor(this._cmdDesc);
             this._beforeCmd = this._safeSnap(agent || info.agent, hint);
             this._afterCmd = null;
+            this._lastResultText = ''; // [ai-player] Fix 4.11 review: never reuse a stale result text
             const pub = publicDescriptor(this._cmdDesc);
             this._emit('exec_start', {
                 command_name: sanitizeCommandName(info.command_name),
@@ -543,9 +545,11 @@ export class BobEvalHarness {
             if (!this.enabled) return;
             const hint = snapshotHintFromDescriptor(this._cmdDesc);
             this._afterCmd = this._safeSnap(agent || info.agent, hint);
+            const summary = clipText(info.result_summary ?? info.result ?? '', MAX_SUMMARY_CHARS);
+            this._lastResultText = summary; // [ai-player] Fix 4.11 review: the verifier needs this
             this._emit('exec_end', {
                 duration_ms: Number.isFinite(info.duration_ms) ? info.duration_ms : 0,
-                result_summary: clipText(info.result_summary ?? info.result ?? '', MAX_SUMMARY_CHARS),
+                result_summary: summary,
                 result_chars: Number.isFinite(info.result_chars) ? info.result_chars
                     : (info.result != null ? String(info.result).length : 0),
                 threw: !!info.threw,
@@ -621,6 +625,7 @@ export class BobEvalHarness {
                         after,
                         descriptor: publicDescriptor(this._cmdDesc) || {},
                         goalText: selfPrompt,
+                        resultText: this._lastResultText || '',
                     });
                 } catch {
                     verdict = defaultGoalVerifier(after, {

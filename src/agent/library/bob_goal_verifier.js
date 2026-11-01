@@ -14,6 +14,28 @@ export const MAX_NEARBY = 12;
 
 const VERDICTS = new Set(['met', 'not_met', 'progress', 'unevaluated']);
 
+// [ai-player] Fix 4.11: a task text that says it failed must never be reported as met.
+export const FAILURE_PHRASES = Object.freeze([
+    // [ai-player] Fix 4.11 review: only unambiguous whole-action failures. Broad words like 'could not'
+    // or 'failed' also appear in partial successes, which must stay eligible for met.
+    'not confirmed',
+    'no path',
+    'unreachable',
+    "don't have",
+    'inventory full',
+    'could not find',
+    'could not get',
+    'timed out',
+]);
+
+
+
+export function textReportsFailure(text) {
+    const s = String(text || '').toLowerCase();
+    if (!s) return false;
+    return FAILURE_PHRASES.some(p => s.includes(p));
+}
+
 const LOG_NAMES = [
     'oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log',
     'dark_oak_log', 'mangrove_log', 'cherry_log', 'pale_oak_log',
@@ -698,7 +720,14 @@ export function verifyGoal(input = {}) {
         }
         if (!before && !after)
             return unevaluated(kind, 'No world snapshots.', before, after);
-        return runKind(kind, before, after, desc);
+        const outcome = runKind(kind, before, after, desc);
+        // [ai-player] Fix 4.11 review: a task text that says it failed can never be met. Only a 'met'
+        // verdict is downgraded, so the kind verifier's own label is kept when it already said not_met.
+        const resultText = input.resultText ?? input.result ?? input.result_summary ?? '';
+        if (outcome?.verdict === 'met' && textReportsFailure(resultText)) {
+            return result('not_met', 'result-text', `Task text reports failure: "${String(resultText).slice(0, 120)}"`, before, after);
+        }
+        return outcome;
     } catch {
         return unevaluated('unknown', 'Verifier threw; left unevaluated.', input.before, input.after);
     }

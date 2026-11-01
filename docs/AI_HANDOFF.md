@@ -56,6 +56,18 @@
 - `skills.isEdible(bot, itemName)` decides edibility from `bot.registry.foodsByName` (allow by default; refuse only when the registry has the map and the item is absent), and `skills.consume()` refuses a non-food with `You cannot eat <item>; it is not food.` The named-item message (`You do not have any <item> to eat.`) is unchanged.
 - Tests: new `test/bob_consume_edible.test.js` **2/2**. Full `npm test` on Node 22: **257/258 pass**; only the pre-existing `confirmSetHome` fails.
 - UNPROVEN: no live session.
+## 2026-10-31 — Fix 6 round 2: a disabled code lane reports lane 'none' (report 4.5) (TESTED; NOT DEPLOYED)
+- Review of PR #32. Same branch, second commit (no force-push).
+- `codeLaneInfo()` returns `lane: 'none'` and `selected_lane: 'none'` when `codingEnabled` is false, instead of claiming the coding lane; `reason` is unchanged (`code lane disabled (allow_insecure_coding=false)`).
+- Tests: `test/bob_code_lane.test.js` **3/3** (the disabled case now asserts `lane === 'none'`). Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
+## 2026-10-31 — Fix 6: code lane startup log with its reason (TESTED; NOT DEPLOYED)
+- Report 4.5, work-order item 6 (chore). Draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`.
+- **Startup log** — `agent.js` logs `[ai-player] code lane: <reason>` when the coder is created; the reason carries `coder_mode` (from `BOB_CODER_MODE`, default `auto`) and `coding_enabled` (from `allow_insecure_coding`). `coder.logLaneOnce()` repeats it once on the first `generateCode`.
+- **Harness** — new `bob_eval_harness.codeLaneInfo()` builds the lane record; `noteLaneSelection()` stores it so every subsequent `turn_start` event carries `lane`, `lane_reason`, `coder_mode` and `coding_enabled`.
+- Tests: new `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session; `BOB_CODER_MODE` is a new optional env knob (unset = `auto`), so live behaviour is unchanged.
 
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.

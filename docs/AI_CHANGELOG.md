@@ -66,6 +66,19 @@
 - **Files:** `src/agent/library/skills.js`, `test/bob_consume_edible.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
 - **Behavior:** `isEdible(bot, name)` reads `bot.registry.foodsByName` (allow by default); `consume()` refuses a non-food with the named message and otherwise eats it.
 - **Tests:** `test/bob_consume_edible.test.js` **2/2**. Full `npm test` on Node 22: **257/258 pass**; only the pre-existing `confirmSetHome` fails.
+## 2026-10-31 — Fix 6 round 2: a disabled code lane reports lane 'none' (report 4.5) (TESTED; NOT DEPLOYED)
+- **Goal:** PR #32 review: `codeLaneInfo` must not report the coding lane when coding is disabled.
+- **Files:** `src/agent/library/bob_eval_harness.js`, `test/bob_code_lane.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** `lane`/`selected_lane` are `'none'` when `codingEnabled` is false.
+- **Tests:** `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** Same draft PR (#32); second commit, no force-push. Not merged, not deployed.
+- **Rollback:** Do not merge. Revert the round-2 commit on the PR branch.
+
+## 2026-10-31 — Fix 6: code lane startup log with its reason (TESTED; NOT DEPLOYED)
+- **Goal:** Report 4.5: make the code lane decision visible at startup (which lane, why) instead of silent.
+- **Files:** `src/agent/agent.js`, `src/agent/coder.js`, `src/agent/library/bob_eval_harness.js`, `test/bob_code_lane.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the agent logs `[ai-player] code lane: <reason>` at startup and the coder repeats it once on first use; `codeLaneInfo`/`noteLaneSelection` record `lane`/`lane_reason`/`coder_mode`/`coding_enabled` on every `turn_start` harness event.
+- **Tests:** `test/bob_code_lane.test.js` **3/3**. Full `npm test` on Node 22: **258/259 pass**; only the pre-existing `confirmSetHome` fails.
 - **Deploy status:** New draft PR against `work/bob-home-from-live-20261028`, branched from `697f560`. Not merged, not deployed.
 - **Rollback:** Do not merge. Revert the single commit on the PR branch.
 

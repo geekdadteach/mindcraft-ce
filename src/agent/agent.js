@@ -3,6 +3,7 @@ import { HomesteadTracker } from './library/bob_homestead.js';
 import { botGetBlock } from './library/vec3_util.js';
 import { History } from './history.js';
 import { Coder } from './coder.js';
+import { codeLaneInfo } from './library/bob_eval_harness.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
 import { initModes } from './modes.js';
@@ -79,6 +80,11 @@ export class Agent {
         
         this.history = new History(this);
         this.coder = new Coder(this);
+        // [ai-player] Fix 6: code lane startup log (CODER_MODE / coding_enabled / selected lane).
+        try {
+            const lane = codeLaneInfo({ coderMode: process.env.BOB_CODER_MODE, codingEnabled: settings.allow_insecure_coding !== false });
+            console.log('[ai-player] code lane: ' + lane.reason);
+        } catch (_) {}
         this.npc = new NPCContoller(this);
         this.memory_bank = new MemoryBank();
         this.self_prompter = new SelfPrompter(this);

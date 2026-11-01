@@ -8,6 +8,8 @@ import * as world from './library/world.js';
 import { Vec3 } from 'vec3';
 import {ESLint} from "eslint";
 import { LongMemory } from './library/long_memory.js';
+import settings from './settings.js';
+import { codeLaneInfo, harnessOf } from './library/bob_eval_harness.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,8 +37,19 @@ export class Coder {
         await this.ready;
     }
 
+    // [ai-player] Fix 6: the code lane log + the harness lane record (once per agent).
+    logLaneOnce() {
+        if (this._laneLogged) return;
+        this._laneLogged = true;
+        const info = { coderMode: process.env.BOB_CODER_MODE, codingEnabled: settings.allow_insecure_coding !== false };
+        const lane = codeLaneInfo(info);
+        console.log('[ai-player] code lane: ' + lane.reason);
+        try { harnessOf(this.agent).noteLaneSelection(info); } catch (_) {}
+    }
+
     async generateCode(agent_history) {
         await this._ensureReady();
+        this.logLaneOnce();
         this.agent.bot.modes.pause('unstuck');
         lockdown();
         let messages = agent_history.getHistory(); 

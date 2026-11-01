@@ -18,7 +18,7 @@ import { Andy } from './andy.js';
 import { LMStudio } from './lmstudio.js';
 import { MODEL_ERROR_REPLIES } from '../utils/model_errors.js';
 import { strictFormat } from '../utils/text.js';
-import { lmUrlList, pickLmUrl, markLmUrlDown } from '../utils/lm_endpoints.js';
+import { lmUrlList, pickLmUrl, markLmUrlDown, clearLmUrlDown } from '../utils/lm_endpoints.js';
 
 // [ai-player] mode "lmstudio_primary" (params.mode): LM Studio takes every thinking call; the Andy API is backup only.
 //   - LM Studio busy (its one slot is in use by another call) -> wait for it.
@@ -46,7 +46,7 @@ export class AndyPool {
         this.lm_url = url || 'http://192.168.1.20:1234/v1';
         // [ai-player] Ordered endpoints: profile url first, then params.lmstudio_fallback_urls (e.g. .144 then .143).
         this.lm_urls = lmUrlList(this.lm_url, p.lmstudio_fallback_urls);
-        this.lm_connect_ms = Number(p.lmstudio_connect_timeout_ms) || 1500;
+        this.lm_connect_ms = Number(p.lmstudio_connect_timeout_ms) || 5000;
         this.lm_model = p.lmstudio_model || 'andy-4.2';
         this.lm_timeout_ms = Number(p.lmstudio_timeout_ms) || 150000;
         this.max_attempts = Number(p.max_attempts) || 6;
@@ -175,6 +175,7 @@ export class AndyPool {
         let lastRes = 'My brain disconnected, try again.';
         const path = [];
         let lastInfo = null;
+        let lmRetries = 0; // [ai-player] 2026-11-01: LM-only mode retries LM Studio once after a short wait
         const extra = () => lastInfo ? `${lastInfo.lm_url ? ' lm_url=' + lastInfo.lm_url : ''} prompt_chars=${lastInfo.prompt_chars} prompt_tokens=${lastInfo.prompt_tokens ?? 'n/a'} completion_tokens=${lastInfo.completion_tokens ?? 'n/a'} reasoning_tokens=${lastInfo.reasoning_tokens ?? 'n/a'} reasoning_chars=${lastInfo.reasoning_chars ?? 'n/a'}` : '';
 
         while (attempts < this.max_attempts) {
@@ -183,6 +184,22 @@ export class AndyPool {
 
             // api_fallback=false: LM Studio is the only backend. Paused or already failed -> no reply, no API call.
             if (!this.api_fallback && (lmFailedThisCall || lmPaused)) {
+                // [ai-player] 2026-11-01 (Randy): be patient with Leon. A short pause is waited out, and one failed
+                // call is retried after 3 s, instead of answering "My brain disconnected" right away.
+                const pauseLeft = AndyPool._lmDownUntil - Date.now();
+                if (!lmFailedThisCall && pauseLeft > 0 && pauseLeft <= 15000) {
+                    path.push('lmstudio:waited-pause');
+                    await sleep(pauseLeft);
+                    continue;
+                }
+                if (lmFailedThisCall && lmRetries < 1) {
+                    lmRetries++;
+                    await sleep(3000);
+                    lmFailedThisCall = false;
+                    AndyPool._lmDownUntil = 0;
+                    clearLmUrlDown(this.lm_urls);
+                    continue;
+                }
                 if (!lmFailedThisCall) path.push('lmstudio:paused');
                 console.warn(`[ai-player] pool call NO_REPLY api_fallback=false attempts=${attempts} total_ms=${Date.now() - t0} path=${path.join(',')}`);
                 return lastRes;
@@ -206,7 +223,9 @@ export class AndyPool {
                 path.push(`lmstudio:${r.reason}@${ms}ms`);
                 let pauseNote = 'no pause (prompt-specific)';
                 if (r.reason !== 'http400' && r.reason !== 'length') {
-                    AndyPool._lmBackoffMs = Math.min(Math.max(AndyPool._lmBackoffMs * 2, 30000), 300000);
+                    // LM-only mode pauses 10..60 s (there is no API to fall back to); API mode keeps 30..300 s.
+                    const [minP, maxP] = this.api_fallback ? [30000, 300000] : [10000, 60000];
+                    AndyPool._lmBackoffMs = Math.min(Math.max(AndyPool._lmBackoffMs * 2, minP), maxP);
                     AndyPool._lmDownUntil = Date.now() + AndyPool._lmBackoffMs;
                     pauseNote = `LM Studio paused ${Math.round(AndyPool._lmBackoffMs / 1000)}s`;
                 }

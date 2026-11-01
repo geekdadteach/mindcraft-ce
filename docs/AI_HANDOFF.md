@@ -1,5 +1,15 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Branch synced to live `.20`: Gemini code lane in LITE + Leon-patience LM fix (TESTED; ALREADY LIVE; PR NOT MERGED)
+- Draft PR `sync/live-to-git-20261101` → `work/bob-home-from-live-20261028` (base `697f560`). Do not merge without Randy's OK.
+- **Current state once merged:** for these five files the branch matches Bob's live tree on `.20` (`~/BobRuntime/cutover/mindcraft-m4`) byte for byte: `profiles/andy-api-lite.json`, `profiles/andy-api.json`, `src/utils/lm_endpoints.js`, `src/models/andy_pool.js`, `src/models/lmstudio.js`. A drift check of the rest of `src/` and `profiles/` found no other differences (only an untracked `stuck_home.js.bak-20261026-nodistance` backup on live).
+- Bob runs **`BOB_MODE=lite`**, so **`profiles/andy-api-lite.json` is the active profile**. Live `andy-api.json` is again byte-identical to `andy-api-lite.json` (known oddity, see Oct 26 entry).
+- Leon (LM Studio host, `.144`) is reached over **Wi-Fi only**; `.143` Ethernet is not used (`lmstudio_fallback_urls: []`).
+- Profile changes (live 5:22 AM ET): lite `code_model` is now Google `gemini-3.8-flash` (was Andy API `claude-haiku-5.5`; the key lives only in live `keys.json`, never in git); embedding model id `text-embedding-nomic-embed-text-v1.5` (no `@q8_0` suffix); a `YOUR BRAIN` sentence in the conversing prompt so Bob answers truthfully about Andy 4.2 Air on Leon / Gemini code / nomic embedder.
+- Leon-patience fix (live 5:33 AM ET): connect timeout 1.5 s → **5 s** (profiles `lmstudio_connect_timeout_ms` and embedding `connect_timeout_ms` = 5000, code defaults also 5000); `pickLmUrl` retries the probe **once** after 1 s; a down endpoint is skipped **10 s** (was 30 s); new `clearLmUrlDown`. In LM-only mode (`api_fallback: false`) `andy_pool` waits out a pause of ≤15 s and **retries a failed LM call once after 3 s** before replying "My brain disconnected"; LM-only backoff is **10–60 s** (API mode keeps 30–300 s).
+- Test: `test/andy_pool_no_api_fallback.test.js` profile test now expects Gemini for both profiles. Full `npm test` on Node 22: 255/256, only the pre-existing `confirmSetHome` failure.
+- Nothing on live `.20` was changed or restarted for this PR.
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped headings (TESTED; NOT DEPLOYED)
 - Amends the entry below — same draft PR, second commit, same branch. Two live-review findings.
 - **Ranking:** live `list=search` ranks `diamonds` → **`Achievement`** (wrong article). The resolver now tries `api.php?action=opensearch&search=<q>&limit=1&redirects=resolve&format=json` first and uses its first title; `list=search` is only the fallback, used when opensearch returns no title **or errors out** (an opensearch failure logs a warning and falls back instead of failing the command). Verified live: opensearch → `Diamond`; `list=search` → `Achievement | Diamond | Diamond Ore`. Both calls keep the 10 s timeout.

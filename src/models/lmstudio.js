@@ -10,7 +10,7 @@ export class LMStudio {
         const { fallback_urls, connect_timeout_ms, embed_timeout_ms, ...rest } = params || {};
         this.params = rest;
         this.urls = lmUrlList(url || 'http://localhost:1234/v1', fallback_urls);
-        this.connect_ms = Number(connect_timeout_ms) || 1500;
+        this.connect_ms = Number(connect_timeout_ms) || 5000;
         this.embed_clients = new Map(this.urls.map(u => [u, new OpenAIApi({ baseURL: u, apiKey: 'lm-studio', timeout: Number(embed_timeout_ms) || 15000, maxRetries: 0 })]));
         this.openai = new OpenAIApi({
             baseURL: url || 'http://localhost:1234/v1',

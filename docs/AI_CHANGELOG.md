@@ -1,5 +1,15 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — MM20Bot — Sync branch to live `.20`: LITE Gemini code lane + Leon-patience LM connect/retry (TESTED; ALREADY LIVE; NOT MERGED)
+- **Goal:** Randy approved recording two live edits from this morning so `work/bob-home-from-live-20261028` matches what Bob runs.
+- **Change 1 — profiles (live 5:22 AM ET):** `andy-api-lite.json` `code_model` → `{api: google, model: gemini-3.8-flash}` (was Andy API `claude-haiku-5.5`, `max_tokens` 8192); both profiles: embedding model `text-embedding-nomic-embed-text-v1.5` (was `…@q8_0`) and a `YOUR BRAIN` sentence in `conversing` describing Andy 4.2 Air on Leon, Gemini for `!newAction` code, nomic embedder on Leon.
+- **Change 2 — Leon patience (live 5:33 AM ET):** `lmstudio_connect_timeout_ms` and embedding `connect_timeout_ms` 1500 → 5000 in both profiles; `src/utils/lm_endpoints.js` 5 s connect, one probe retry after 1 s, 10 s down-skip, new `clearLmUrlDown`; `src/models/andy_pool.js` 5 s default connect, LM-only mode waits out a ≤15 s pause and retries a failed LM call once after 3 s, LM-only backoff 10–60 s (API mode unchanged 30–300 s); `src/models/lmstudio.js` 5 s default connect.
+- **Files:** the five files above (copied byte-for-byte from `~/BobRuntime/cutover/mindcraft-m4`), `test/andy_pool_no_api_fallback.test.js` (lite profile now expects Gemini), these docs.
+- **Tests:** `npm test` on Node 22.23.4: 255/256 pass; only failure is the pre-existing `confirmSetHome sets the flag only after a server ok reply` (same as base `697f560`). `andy_pool_no_api_fallback.test.js` 9/9 (now ~8 s because of the 3 s LM retry).
+- **Secret scan:** diff clean (no keys, tokens, webhooks, Discord IDs). LAN IP `192.168.1.144` was already in both profiles; no new IPs.
+- **Deploy status:** Already running live (Bob `BOB_MODE=lite`, active profile `andy-api-lite.json`). This PR is the git record only. Not merged; nothing on `.20` touched.
+- **Rollback:** revert the PR commit; on live, restore the previous profile/code files and restart (Randy's call).
+
 ## 2026-10-31 — `!searchWiki` follow-up: opensearch ranking + wrapped-heading intro (TESTED; NOT DEPLOYED)
 - **Goal:** Fix two live-review findings on the `!searchWiki` change below: live `list=search` ranked `diamonds` → `Achievement`, and the intro cutoff never fired because live pages wrap headings in `<div class="mw-heading mw-heading2">`.
 - **Files:** `src/agent/commands/queries.js`, `test/wiki_search.test.js`, `AGENTS.md`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

@@ -21,16 +21,27 @@ function probe(url, connectMs) {
     });
 }
 
-export function markLmUrlDown(url, downMs = 30000) {
+export function markLmUrlDown(url, downMs = 10000) {
     downUntil.set(url, Date.now() + downMs);
 }
 
-export async function pickLmUrl(urls, { connectMs = 1500, downMs = 30000 } = {}) {
+export function clearLmUrlDown(urls) {
+    for (const url of [].concat(urls || [])) downUntil.delete(url);
+}
+
+// [ai-player] 2026-11-01 (Randy): Wi-Fi to Leon (.144) sometimes takes >1.5 s to connect. Wait up to 5 s and
+// retry once (after 1 s) before treating an endpoint as down, and only skip it for 10 s.
+export async function pickLmUrl(urls, { connectMs = 5000, downMs = 10000, retries = 1 } = {}) {
     for (const url of urls) {
         if ((downUntil.get(url) || 0) > Date.now()) continue;
-        if (await probe(url, connectMs)) return url;
+        let up = await probe(url, connectMs);
+        for (let i = 0; !up && i < retries; i++) {
+            await new Promise(r => setTimeout(r, 1000));
+            up = await probe(url, connectMs);
+        }
+        if (up) return url;
         markLmUrlDown(url, downMs);
-        console.warn(`[ai-player] lm endpoint ${url} unreachable (no connect within ${connectMs}ms); skipping ${Math.round(downMs / 1000)}s`);
+        console.warn(`[ai-player] lm endpoint ${url} unreachable (no connect within ${connectMs}ms, ${retries + 1} tries); skipping ${Math.round(downMs / 1000)}s`);
     }
     return null;
 }

@@ -1,5 +1,13 @@
 # AI CHANGELOG — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Fix 2b round 2: the regen top-up never cooks while sheltered (TESTED; NOT DEPLOYED)
+- **Goal:** the Fix 2b regen branch (#28) runs before the shelter branches (#27) and called `cookOrEat`, which can walk to a furnace the shelter guard forbids.
+- **Files:** `src/agent/modes.js`, `test/bob_regen_eat_sheltered.test.js` (new), `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.
+- **Behavior:** the regen branch is now `shelter.isSheltered() ? survival.eatBest(bot) : survival.cookOrEat(bot)`; `ModeController.get(name)` exposes a single mode for tests.
+- **Tests:** `test/bob_regen_eat_sheltered.test.js` **3/3**. Full `npm test` on Node 22: **288/289 pass**; only the pre-existing `confirmSetHome` fails.
+- **Deploy status:** New draft PR; branched from #27 with #28 merged in, so it must land after both. Not merged, not deployed.
+- **Rollback:** Do not merge. Delete the branch.
+
 ## 2026-10-31 — Fix 1e round 4: sheltered eating, dimension-change cleanup (report 4.1/4.2) (TESTED; NOT DEPLOYED)
 - **Goal:** PR #27 review: a sheltered Bob must still be able to eat, and a dimension change must restore the dig guard.
 - **Files:** `src/agent/modes.js`, `test/bob_shelter_hold.test.js`, `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md`.

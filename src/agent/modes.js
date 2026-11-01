@@ -332,7 +332,11 @@ const modes_list = [
                 if (!this.hungry_since) this.hungry_since = now;
                 if (now - this.hungry_since < 15000) return; // auto-eat may already handle it
                 this.hungry_since = now;
-                execute(this, agent, async () => { await survival.cookOrEat(bot); });
+                // [ai-player] Fix 2b round 2: while sealed in the night shelter, eat from the inventory —
+                // cookOrEat can walk to a furnace, which the shelter guard forbids.
+                execute(this, agent, async () => {
+                    await (shelter.isSheltered() ? survival.eatBest(bot) : survival.cookOrEat(bot));
+                });
                 return;
             }
             // [ai-player] keep a small food stock: in daylight, when an animal is close, hunt it (every 10 min at most)
@@ -799,6 +803,11 @@ class ModeController {
 
     isOn(mode_name) {
         return modes_map[mode_name].on;
+    }
+
+    // [ai-player] Expose one mode so a test can drive its update() directly.
+    get(mode_name) {
+        return modes_map[mode_name] || null;
     }
 
     pause(mode_name) {

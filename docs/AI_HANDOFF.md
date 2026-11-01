@@ -1,5 +1,12 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## 2026-11-01 — Fix 2b round 2: the regen top-up never cooks while sheltered (TESTED; NOT DEPLOYED)
+- New draft PR `fix/regen-eat-sheltered-20261101`, branched from `fix/combat-interrupt-night-shelter-20261031` (#27) with `fix/food-loop-20261031` (#28) merged in. **It must land after #27 and #28.**
+- `shouldEatForRegen` (Fix 2b, #28) sits above #27's sheltered branches, so a sealed-in, hurt Bob with food < 18 ran `cookOrEat` — which can walk to a furnace, exactly what the shelter guard forbids. The branch now reads `shelter.isSheltered() ? survival.eatBest(bot) : survival.cookOrEat(bot)`.
+- Also added `ModeController.get(name)` so a test can drive one mode's `update()` (this is separate from #30's `getMode`, which is inserted near `initModes`, so the two branches do not conflict).
+- Tests: new `test/bob_regen_eat_sheltered.test.js` **3/3**. It drives the real hunger mode against the real shelter state: sheltered + hurt + food 12 → `bot.consume()` runs and `inventory.slots` is never read (so `cookRaw` never ran); the same state unsheltered → `inventory.slots` IS read (the `cookOrEat` path). Negative control: reverting the ternary fails the test. Full `npm test` on Node 22: **288/289 pass**; only the pre-existing `confirmSetHome` fails.
+- UNPROVEN: no live session.
+
 ## 2026-10-31 — Fix 1e round 4: sheltered eating, dimension-change cleanup (report 4.1/4.2) (TESTED; NOT DEPLOYED)
 - Review of PR #27. Same branch, fifth commit (no force-push).
 - **Eat while sheltered** — the hunger mode's sheltered early-return now sits below both eat branches, so a sealed-in Bob still eats from his inventory but never hunts or runs the food loop; while sheltered it calls `survival.eatBest(bot)` (never `cookOrEat`, which can walk to a furnace the shelter guard forbids).

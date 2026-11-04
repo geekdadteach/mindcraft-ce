@@ -12,6 +12,7 @@ import { selectAPI, createModel } from './_model_map.js';
 import { logEmbeddingCacheStartupSummary } from '../utils/embedding_cache.js';
 import { withConversationAdvice } from '../agent/library/bob_brain.js';
 import { BobAIReceipts } from '../agent/library/bob_ai_v2.js';
+import { evalEnabled, evalNotePrompt } from '../agent/library/bob_eval_trace.js'; // [bob-eval] opt-in, no-op when off
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -297,6 +298,7 @@ export class Prompter {
             } finally {
                 this._v2ArmAction = false;
             }
+            if (evalEnabled()) evalNotePrompt(this.agent, prompt, this.chat_model?.model_name); // [bob-eval] hash + length only
             let generation;
 
             try {

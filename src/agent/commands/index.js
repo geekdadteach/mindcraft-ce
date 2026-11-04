@@ -4,6 +4,7 @@ import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
 import { correctName } from '../library/long_memory.js';
 import { runCommandPerform } from '../library/bob_brain_v2.js';
+import { evalEnabled, evalRecord } from '../library/bob_eval_trace.js'; // [bob-eval] opt-in, no-op when off
 
 let suppressNoDomainWarning = true;
 
@@ -273,8 +274,12 @@ export async function executeCommand(agent, message) {
         }
         if (name_note) console.log(`[ai-player] name-fix: ${name_note}`);
     } catch (e) { console.warn(`[ai-player] name-fix failed: ${e.message}`); }
+    if (evalEnabled()) evalRecord(agent, 'command_parse', typeof parsed === 'string' // [bob-eval]
+        ? { ok: false, command: containsCommand(message), error: parsed }
+        : { ok: true, command: parsed.commandName, args: parsed.args, name_fix: name_note || null });
     if (name_note && typeof parsed !== 'string') {
         const blocked = aiPlayerGuard(agent, parsed);
+        if (evalEnabled()) evalRecord(agent, 'command_guard', { command: parsed.commandName, blocked: !!blocked, note: blocked || null }); // [bob-eval]
         if (blocked) return name_note + blocked;
         const res = await executeCommand._run(agent, parsed);
         return name_note + (res ?? '');
@@ -292,6 +297,7 @@ export async function executeCommand(agent, message) {
             return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
         else {
             const blocked = aiPlayerGuard(agent, parsed);
+            if (evalEnabled()) evalRecord(agent, 'command_guard', { command: parsed.commandName, blocked: !!blocked, note: blocked || null }); // [bob-eval]
             if (blocked) return blocked;
             return await performParsed(agent, parsed);
         }

@@ -1,5 +1,6 @@
 import { noteRuntimeFinish, noteRuntimeStart } from './library/bob_brain_v2.js';
 import { TaskLifecycle } from './library/bob_task_lifecycle.js';
+import { evalEnabled, evalRecord } from './library/bob_eval_trace.js'; // [bob-eval] opt-in, no-op when off
 
 export class ActionManager {
     constructor(agent) {
@@ -17,6 +18,7 @@ export class ActionManager {
         this._startQueue = Promise.resolve();
         this.lifecycle = new TaskLifecycle({ emit: event => {
             try { this.agent?.bot?.emit('bob_task_event', event); } catch (_) {}
+            if (evalEnabled()) evalRecord(this.agent, 'task_event', { event }); // [bob-eval] TaskLifecycle state
             console.log('[ai-player] task-event ' + JSON.stringify(event));
         }});
     }

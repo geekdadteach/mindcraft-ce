@@ -34,6 +34,7 @@ import { installChatGuard, stripCommandPrefix, confirmSetHome } from './library/
 import { installStuckHome } from './library/stuck_home.js'; // [ai-player] stuck-home-20261026
 import { Failures } from './library/failures.js';
 import { attachBobBrain } from './library/bob_brain.js';
+import { evalEnabled, evalBeginTurn, evalLlmResponse, evalRecord } from './library/bob_eval_trace.js'; // [bob-eval] opt-in (BOB_EVAL=1), no-op when off
 
 // [ai-player] read-only: doors, gates and pressure plates around the verified front door, for the log
 function frontDoorState(bot) {
@@ -457,10 +458,12 @@ export class Agent {
             max_responses = 1; // force only respond to this message, then let self-prompting take over
         for (let i=0; i<max_responses; i++) {
             if (checkInterrupt()) break;
+            if (evalEnabled()) evalBeginTurn(this, source, i); // [bob-eval]
             let history = this.history.getHistory();
             let res = await this.prompter.promptConvo(history);
             const v2Turn = this._bobV2PromptToken;
             this._bobV2PromptToken = null;
+            if (evalEnabled()) evalLlmResponse(this, history, res); // [bob-eval]
 
             console.log(`${this.name} full response to ${source}: ""${res}""`);
 
@@ -476,6 +479,8 @@ export class Agent {
             }
 
             let command_name = containsCommand(res);
+            if (evalEnabled()) evalRecord(this, 'parsed_command', { command: command_name || null, // [bob-eval]
+                exists: command_name ? commandExists(command_name) : null, text: command_name ? truncCommandMessage(res) : null });
 
             if (command_name) { // contains query or command
                 res = truncCommandMessage(res); // everything after the command is ignored
@@ -503,6 +508,7 @@ export class Agent {
                 // target) a 3rd time within 2 minutes, nor !stop twice in a row; tell the model instead.
                 this._repeatGuard = this._repeatGuard || new RepeatGuard();
                 const repeat_note = this._repeatGuard.check(res);
+                if (evalEnabled()) evalRecord(this, 'repeat_guard', { command: command_name, blocked: !!repeat_note, note: repeat_note || null }); // [bob-eval]
                 if (repeat_note) {
                     this.history.add('system', repeat_note);
                     continue;
@@ -517,6 +523,8 @@ export class Agent {
                 }
 
                 console.log('Agent executed:', command_name, 'and got:', execute_res);
+                if (evalEnabled()) evalRecord(this, 'execute_result', { command: command_name, action: isAction(command_name), // [bob-eval]
+                    result: execute_res ?? null, empty: !execute_res });
                 this.longMemory?.observeCommand(res, execute_res);
                 this.failures?.observeCommand(res, execute_res);
                 used_command = true;

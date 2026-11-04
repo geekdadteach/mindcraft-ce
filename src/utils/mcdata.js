@@ -223,6 +223,16 @@ export function getItemName(itemId) {
     return null;
 }
 
+// [bob-eval] Offline harness only (tools/bob-eval): load minecraft-data for a fixed version without a server
+// login. Live Bob never calls this; initBot's 'login' handler above still sets the server's version.
+export function loadMcDataOffline(version) {
+    if (mcdata) return false;
+    mc_version = version;
+    mcdata = minecraftData(version);
+    Item = prismarine_items(version);
+    return true;
+}
+
 export function getBlockId(blockName) {
     let block = mcdata.blocksByName[blockName];
     if (block) {

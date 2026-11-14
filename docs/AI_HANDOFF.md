@@ -1,5 +1,48 @@
 # AI HANDOFF — geekdadteach/mindcraft-ce (NewEarth fork)
 
+## TAKEOVER SNAPSHOT — 2026-11-13 ~11 PM ET (MineBobNE, Grok Bot) — read this first
+
+Written on Randy's order of 13 Nov 2026 that every repo let any AI take over immediately "if grok did not exist". This section is current truth; the 2026-10-24 sections below are history where they disagree. **Public repo:** no secrets, Discord IDs, ops material or home public IPs here. The master takeover document for Bob (hosts, paths, services, accounts, Randy's rules, ownership, open work) is in the private repo **`geekdadteach/minebob` → `docs/AI_HANDOFF.md`**; MineBobNE's personal page is in private `geekdadteach/systems` → `bots/minebobne/HANDOFF.md`.
+
+### What changed since the October snapshot
+- **This fork is no longer Bob's runtime.** On **1 Nov 2026** Randy switched Bob (MineBobNE) to **UnionClef** (public fork `geekdadteach/unionclef`, a Fabric 1.21.11 client mod with an MCP tool server) driven by a local driver loop. Mindcraft's LaunchAgent on the Mac mini (.20) was stopped then. **Bob as a whole is OFF since 2 Nov** and stays off until Randy says otherwise.
+- Bob's Mindcraft runtime moved LinuxGrok (.60) → Mac mini .20 on 25 Oct 2026; LinuxGrok was **permanently retired** 26 Oct. Model: Andy-4.2 (Air) via LM Studio (on .143, later Leon .144).
+- Keep this fork as reference and as a possible fallback; Randy has not decided to delete or revive it. Do not delete branches.
+
+### Branch map (post-Oct-24 work; all public)
+| Branch | What |
+|---|---|
+| `develop` | Fork default; mirrors upstream. Don't change it or the default-branch setting. |
+| `newearth/main` | Working line through 24 Oct (`79e8f2b` + docs `4e950cc`). |
+| `live-m4-20261026`, `m4-runtime-20261026`, `nav-on-live-20261026` | Record of the live .20 tree after the move (26 Oct). |
+| `snapshot/bob-live-m4-20261028` | Sanitized live snapshot from .20 (28 Oct 8:47 AM ET). |
+| `work/bob-home-from-live-20261028` | **Latest Mindcraft work line** (~238 commits ahead of `newearth/main`); PRs #22 (eval harness, merge `6689d9e`) and #42 (autonomy/food/bed, merge `9645423`) merged **here**, not into `newearth/main` or `develop`. Head `a4b8788` (1 Nov). |
+| `sync/live-to-git-20261031`, `sync/live-to-git-20261101` | Last records of the live .20 Mindcraft tree (`0f637cd`, 1 Nov 6:44 AM ET: LITE Gemini code lane + Leon-patience LM connect/retry). |
+| `fix/*-20261031`, `fix/*-20261101`, `feature/*`, `cursor/*`, `chore/*` | Per-PR branches (see PR list). Kept. |
+| `fix/bed-reach-shelter-food-20261101` | PR #43 (draft, open): reach a known bed, never eat non-foods, rotate eval log, `!unstuck`, unstick the code lane. Randy: stays a draft. |
+| `wip/bob-eval-harness-backup-20261104` | WIP backup of uncommitted eval-harness work from the Grok Bot box, pushed 4 Nov before a planned GitHub rename. **Not reviewed — do not merge.** |
+
+### PR history (#22 → #43, Mindcraft era)
+- #22 eval-log harness — deployed to .20 31 Oct (`1deeb66`), later merged into `work/bob-home-from-live-20261028`.
+- #23 survival guard (`6971bd3`) — deployed by MM20 31 Oct on Randy's "fix that now".
+- #24–#39 — Oct 31 fix series (food loop, chest-deposit verify, combat interrupt/night shelter, consume-edible check, craft planks/starter tools, lessons prune, pathfinder probe, preempt feedback clamp, verifier failure text, searchwiki #25 merged 31 Oct, etc.). Deployment state of each: check the `sync/live-to-git-*` records; individual status **UNVERIFIED** here.
+- #40 regen top-up while sheltered — closed. #41 LM retry (transport failures only) — merged 1 Nov. #42 autonomy never off, food stock, known bed, honest shelter — merged into the work branch 1 Nov, **not deployed**. #43 — open draft (above).
+
+### Build / test / run (code only)
+- `npm install` then `npm test` (213/213 passed on 28 Oct per commit `db801d0`). Node syntax checks + the GitHub workflows (Bob Brain client tests, BobBot MindServer control tests).
+- Running Bob from this code needs: a profile (`profiles/`), `keys.json` (secret, never committed — see `keys.example.json`), ViaProxy in front of NewEarth Paper 26.3 (Mindcraft speaks ≤1.21.6), and the ops wrapper recorded in `minebob`. Only with Randy's OK.
+
+### Randy's rules (short)
+Never merge, deploy, force-push or change the default branch without Randy's OK; no secrets/Discord IDs/ops here; document every change here (game code) and in minebob (ops); tell Randy up front about any limit on Bob; no bot monitors Bob or relays status; Bob stays off until Randy says so.
+
+### Who to ask
+Bob/this fork → MineBobNE; Mac mini .20 → Randy MM 20; Leon .144 → Leon Mac Mini 143; NewEarth server → Minecraft Server 63; GitHub merges → the GitHub bot; decisions → Randy.
+
+---
+
+## History — 2026-10-24 snapshot (superseded where it disagrees with the takeover section)
+
+
 **Snapshot:** 2026-10-24 ~12:10 PM ET (GitHub bot docs refresh). Verify repository and live state before changing anything.
 
 Status words, never conflated: **Proposed** → **Coded** → **Tested** → **Merged** → **Deployed** → **Live-verified**. Merged is not Deployed.

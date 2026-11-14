@@ -1,5 +1,7 @@
 # AGENTS.md — rules for every AI agent and human working in this fork
 
+> **Takeover docs:** [`docs/AI_HANDOFF.md`](docs/AI_HANDOFF.md) (start with its 2026-11-13 takeover snapshot) and [`docs/AI_CHANGELOG.md`](docs/AI_CHANGELOG.md) (newest first). As of 2026-11-01 Bob runs on UnionClef, not this fork; Bob is OFF since 2026-11-02. Host/ops details are in private `geekdadteach/minebob` `docs/AI_HANDOFF.md`.
+
 This is `geekdadteach/mindcraft-ce`, a **public** fork of Mindcraft CE. It holds the **game code** for MineBobNE ("Bob"), the bot on Randy's NewEarth family Minecraft server: Mindcraft CE plus NewEarth changes, kept here so upstream updates are easy to pull.
 
 ## Read first

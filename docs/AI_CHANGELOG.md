@@ -2,6 +2,14 @@
 
 Append one dated entry per logical change, newest first. Never erase prior entries.
 
+### 2026-11-13 ~11 PM ET — MineBobNE (Grok Bot) — Takeover snapshot (Randy's order)
+- **Goal:** Randy's 13 Nov 2026 order: docs any AI can use to take over immediately.
+- **Files:** `docs/AI_HANDOFF.md` (new top takeover section: fork no longer Bob's runtime since 1 Nov UnionClef switch, branch map, PR #22–#43 history, build/test, rules, who to ask; Oct 24 content kept as history), `AGENTS.md` (pointer block), this entry.
+- **Decisions:** Public repo — no IPs beyond what was already here, no Discord IDs, no ops detail; those stay in private `minebob`.
+- **Tests:** docs-only; gitleaks scan before push.
+- **Deploy status:** none.
+- **Rollback:** revert the PR.
+
 ### 2026-10-24 12:10 PM ET — GitHub bot — Refresh AI handoff and changelog to current state
 - **Goal:** Record that PR #8 merged into `newearth/main` as `79e8f2b` (12:03 PM ET), that PRs #6, #7, and #9 were closed unmerged, and keep live vs merged clear. Randy authorized docs refresh PRs at 12:01 PM ET.
 - **Files:** `docs/AI_HANDOFF.md`, `docs/AI_CHANGELOG.md` (this entry). `AGENTS.md` unchanged (still accurate).
